@@ -1,6 +1,6 @@
 "use strict";
 /*
- * Copyright (c) 2013-2024 Vanessa Freudenberg
+ * Copyright (c) 2013-2025 Vanessa Freudenberg
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -275,7 +275,7 @@ Object.subclass('Squeak.Primitives',
                 else return this.popNandPushIfOK(argCount+1, this.stackNonInteger(0).hash); //primitiveImmediateAsInteger
             case 172: if (this.oldPrims) return this.namedPrimitive('SoundPlugin', 'primitiveSoundStop', argCount);
                 this.vm.warnOnce("missing primitive: 172 (primitiveFetchMourner)");
-                return this.popNandPushIfOK(argCount, this.vm.nilObj); // do not fail
+                return this.popNandPushIfOK(argCount+1, this.vm.nilObj); // do not fail
             case 173: if (this.oldPrims) return this.namedPrimitive('SoundPlugin', 'primitiveSoundAvailableSpace', argCount);
                 else return this.popNandPushIfOK(argCount+1, this.objectAt(false,false,true)); // slotAt:
             case 174: if (this.oldPrims) return this.namedPrimitive('SoundPlugin', 'primitiveSoundPlaySamples', argCount);
@@ -870,15 +870,24 @@ Object.subclass('Squeak.Primitives',
     },
     isKindOf: function(obj, knownClass) {
         var classOrSuper = obj.sqClass;
-        var theClass = this.vm.specialObjects[knownClass];
+        var theClass = typeof knownClass === "number" ? this.vm.specialObjects[knownClass] : knownClass;
         while (!classOrSuper.isNil) {
             if (classOrSuper === theClass) return true;
-            classOrSuper = classOrSuper.pointers[Squeak.Class_superclass];
+            classOrSuper = classOrSuper.superclass();
         }
         return false;
     },
     isAssociation: function(obj) {
-        return typeof obj !== "number" && obj.pointersSize() == 2;
+        if (this.associationClass && obj.sqClass === this.associationClass) return true;
+        if (!obj.pointers || obj.pointers.length !== 2) return false;
+        // we know the Processor binding is "like" an association, but in newer images it's
+        // actually a Binding object, which only shares the superclass LookupKey with Association
+        var lookupKeyClass = this.vm.specialObjects[Squeak.splOb_SchedulerAssociation].sqClass;
+        while (lookupKeyClass.superclass().classInstSize() > 0)
+            lookupKeyClass = lookupKeyClass.superclass();
+        var isAssociation = this.isKindOf(obj, lookupKeyClass);
+        if (isAssociation) this.associationClass = obj.sqClass; // cache for next time
+        return isAssociation;
     },
     ensureSmallInt: function(number) {
         if (number === (number|0) && this.vm.canBeSmallInt(number))

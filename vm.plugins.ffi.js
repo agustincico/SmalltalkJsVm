@@ -1,6 +1,6 @@
 "use strict";
 /*
- * Copyright (c) 2013-2024 Vanessa Freudenberg
+ * Copyright (c) 2013-2025 Vanessa Freudenberg
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -103,14 +103,44 @@ Object.extend(Squeak.Primitives.prototype,
 
     ffiModules: {}, // map library name to module name
 
+    ffiFuncs: [], // functions loaded via dlsym (index + 1 is handle)
+
+    // create an external address as handle for a function dynamically
+    // this is a hook for other modules equivalent to dlsym() in C.
+    // Later we can retrieve the module and func by handle
+    ffiLookupFunc: function(mod, funcName) {
+        var handle = this.ffiFuncs.findIndex(func => func.funcName === funcName) + 1;
+        if (!handle) {
+            if (!mod[funcName]) return 0;
+            // we could keep a reverse map, but this is not time-critical
+            var modName = Object.keys(this.loadedModules).find(name => this.loadedModules[name] === mod);
+            if (modName === undefined) throw Error("FFI: module not loaded?! " + mod.getModuleName());
+            var libName = Object.keys(this.ffiModules).find(name => this.ffiModules[name] === modName);
+            if (libName === undefined) throw Error("FFI: library not found?! " +  mod.getModuleName());
+            this.ffiFuncs.push({libName: libName, modName: modName, funcName: funcName});
+            handle = this.ffiFuncs.length;
+        }
+        return handle;
+    },
+
     ffiDoCallout: function(argCount, extLibFunc, stArgs) {
         this.ffi_lastError = Squeak.FFIErrorGenericError;
         var libName = extLibFunc.pointers[Squeak.ExtLibFunc_module].bytesAsString();
         var funcName = extLibFunc.pointers[Squeak.ExtLibFunc_name].bytesAsString();
+        var funcAddr = extLibFunc.pointers[Squeak.ExtLibFunc_handle].wordsOrBytes()[0];
+        var modName = this.ffiModules[libName];
+
+        if (funcAddr) {
+            // this func was looked up originally via ffiLookupFunc
+            var func = this.ffiFuncs[funcAddr - 1];
+            if (!func) throw Error("FFI: not a valid External Address: " + funcAddr);
+            libName = func.libName;
+            modName = func.modName;
+            funcName = func.funcName;
+        }
 
         if (!libName) libName = "libc"; // default to libc
 
-        var modName = this.ffiModules[libName];
         if (modName === undefined) {
             if (!Squeak.externalModules[libName]) {
                 var prefixes = ["", "lib"];
@@ -208,6 +238,8 @@ Object.extend(Squeak.Primitives.prototype,
                     case Squeak.FFITypeUnsignedChar32:
                         // we ignore the signedness and size of the integer for now
                         if (typeof stObj === "number") return stObj;
+                        if (stObj.isTrue) return 1;
+                        if (stObj.isFalse) return 0;
                         throw Error("FFI: expected integer, got " + stObj);
                     case Squeak.FFITypeSingleFloat:
                     case Squeak.FFITypeDoubleFloat:
@@ -423,6 +455,33 @@ Object.extend(Squeak.Primitives.prototype,
             return false;
         }
         return this.popNandPushIfOK(argCount + 1, result);
+    },
+    ffi_primitiveFFIIntegerAtPut: function(argCount) {
+        var data = this.ffiDataFromStack(4),
+            byteOffset = this.stackInteger(3),
+            value = this.stackSigned53BitInt(2), // good up to int32 / uint32
+            byteSize = this.stackInteger(1),
+            isSigned = this.stackBoolean(0);
+        if (!this.success) return false;
+        byteOffset--; // 1-based indexing
+        if (byteOffset < 0 || byteSize < 1 || byteSize > 8 ||
+            (byteSize & (byteSize - 1)) !== 0) return false;
+        if (byteSize === 4) {
+            if (( isSigned && (value < -0x80000000 || value > 0x7FFFFFFF)) ||
+                (!isSigned && (value < 0 || value > 0xFFFFFFFF))) return false;
+            if (data instanceof Uint32Array) {
+                data[byteOffset] = value >>> 0;   // storage is always unsigned
+            } else if (data instanceof Uint8Array) {
+                new DataView(data.buffer).setUint32(data.byteOffset + byteOffset, value >>> 0, true);
+            } else {
+                this.vm.warnOnce("FFI: expected Uint32Array, got " + typeof data);
+                return false;
+            }
+        } else {
+            this.vm.warnOnce("FFI: unimplemented integer type size: " + byteSize + " signed: " + isSigned);
+            return false;
+        }
+        return this.popNandPushIfOK(argCount + 1, value);
     },
     ffi_primitiveFFIDoubleAtPut: function(argCount) {
         var data = this.ffiDataFromStack(2),

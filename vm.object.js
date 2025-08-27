@@ -1,6 +1,6 @@
 "use strict";
 /*
- * Copyright (c) 2013-2024 Vanessa Freudenberg
+ * Copyright (c) 2013-2025 Vanessa Freudenberg
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -110,26 +110,26 @@ Object.subclass('Squeak.Object',
     },
     stringFromBits: function(rawBits) {
         if (this._format < 8 || this._format >= 12) return '';
-        var bits = rawBits[this.oop],
+        var bits = rawBits.get(this.oop),
             bytes = this.decodeBytes(bits.length, bits, 0, this._format & 3);
         return Squeak.bytesAsString(bytes);
     },
     classNameFromBits: function(oopMap, rawBits) {
-        var name = oopMap[rawBits[this.oop][Squeak.Class_name]];
+        var name = oopMap.get(rawBits.get(this.oop)[Squeak.Class_name]);
         return name?.stringFromBits(rawBits) || "Class";
     },
     classInstSizeFromBits: function(rawBits) {
-        var spec = rawBits[this.oop][Squeak.Class_format] >> 1;
+        var spec = rawBits.get(this.oop)[Squeak.Class_format] >> 1;
         return ((spec >> 10) & 0xC0) + ((spec >> 1) & 0x3F) - 1;
     },
     classOwnInstVarNamesFromBits: function(oopMap, rawBits) {
         const ownInstVarNames = [];
-        const myBits = rawBits[this.oop];
+        const myBits = rawBits.get(this.oop);
         if (Squeak.Class_instVars > 0) {
-            const varNames = oopMap[myBits[Squeak.Class_instVars]];
-            const varNamesArray = rawBits[varNames.oop];
+            const varNames = oopMap.get(myBits[Squeak.Class_instVars]);
+            const varNamesArray = rawBits.get(varNames.oop);
             for (let i = 0; i < varNamesArray.length; i++) {
-                const varName = oopMap[varNamesArray[i]];
+                const varName = oopMap.get(varNamesArray[i]);
                 const varStr = varName.stringFromBits(rawBits);
                 if (!varStr) { debugger ; throw Error("classOwnInstVarNamesFromBits: not a string"); }
                 ownInstVarNames.push('$' + varStr); // add $ to avoid name clashes
@@ -148,7 +148,7 @@ Object.subclass('Squeak.Object',
             if (instSize === ownInstVarNames.length) {
                 names = ownInstVarNames;
             } else {
-                const superclass = oopMap[rawBits[this.oop][Squeak.Class_superclass]];
+                const superclass = oopMap.get(rawBits.get(this.oop)[Squeak.Class_superclass]);
                 const superInstVarNames = superclass.classAllInstVarNamesFromBits(oopMap, rawBits, is64Bit);
                 names = superInstVarNames.concat(ownInstVarNames);
             }
@@ -161,7 +161,7 @@ Object.subclass('Squeak.Object',
         return names;
     },
     renameFromBits: function(oopMap, rawBits, ccArray) {
-        var classObj = this.sqClass < 32 ? oopMap[ccArray[this.sqClass-1]] : oopMap[this.sqClass];
+        var classObj = this.sqClass < 32 ? oopMap.get(ccArray[this.sqClass-1]) : oopMap.get(this.sqClass);
         if (!classObj) return this;
         var instProto = classObj.instProto || classObj.classInstProto(classObj.classNameFromBits(oopMap, rawBits));
         if (!instProto) return this;
@@ -177,10 +177,10 @@ Object.subclass('Squeak.Object',
         var ccInt = this.sqClass;
         // map compact classes
         if ((ccInt>0) && (ccInt<32))
-            this.sqClass = oopMap[ccArray[ccInt-1]];
+            this.sqClass = oopMap.get(ccArray[ccInt-1]);
         else
-            this.sqClass = oopMap[ccInt];
-        var bits = rawBits[this.oop],
+            this.sqClass = oopMap.get(ccInt);
+        var bits = rawBits.get(this.oop),
             nWords = bits.length;
         if (this._format < 5) {
             //Formats 0...4 -- Pointer fields
@@ -235,7 +235,7 @@ Object.subclass('Squeak.Object',
             if ((oop & 1) === 1) {          // SmallInteger
                 ptrs[i] = oop >> 1;
             } else {                        // Object
-                ptrs[i] = oopMap[oop] || 42424242;
+                ptrs[i] = oopMap.get(oop) || 42424242;
                 // when loading a context from image segment, there is
                 // garbage beyond its stack pointer, resulting in the oop
                 // not being found in oopMap. We just fill in an arbitrary

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2024 Vanessa Freudenberg
+ * Copyright (c) 2013-2025 Vanessa Freudenberg
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -55,6 +55,7 @@ import "./vm.plugins.scratch.browser.js";
 import "./vm.plugins.sound.browser.js";
 import "./plugins/ADPCMCodecPlugin.js";
 import "./plugins/B2DPlugin.js";
+import "./plugins/B3DAcceleratorPlugin.js";
 import "./plugins/BitBltPlugin.js";
 import "./plugins/CroquetPlugin.js";
 import "./plugins/FFTPlugin.js";
@@ -76,6 +77,7 @@ import "./plugins/SoundGenerationPlugin.js";
 import "./plugins/StarSqueakPlugin.js";
 import "./plugins/ZipPlugin.js";
 import "./ffi/libc.js";
+import "./ffi/opengl.js";
 import "./lib/lz-string.js";
 import "./lib/jszip.js";
 import "./lib/FileSaver.js";
@@ -128,6 +130,8 @@ function setupFullscreen(display, canvas, options) {
         display.fullscreen = fullscreen;
         var fullwindow = fullscreen || options.fullscreen;
         box.style.background = fullwindow ? 'black' : '';
+        box.style.border = fullwindow ? 'none' : '';
+        box.style.borderRadius = fullwindow ? '0px' : '';
         setTimeout(onresize, 0);
     }
 
@@ -183,10 +187,12 @@ function updateMousePos(evt, canvas, display) {
         display.cursorCanvas.style.top = (evtY + canvas.offsetTop + display.cursorOffsetY) + "px";
     }
     var x = (evtX * canvas.width / canvas.offsetWidth) | 0,
-        y = (evtY * canvas.height / canvas.offsetHeight) | 0;
+        y = (evtY * canvas.height / canvas.offsetHeight) | 0,
+        w = display.width || canvas.width,
+        h = display.height || canvas.height;
     // clamp to display size
-    display.mouseX = Math.max(0, Math.min(display.width, x));
-    display.mouseY = Math.max(0, Math.min(display.height, y));
+    display.mouseX = Math.max(0, Math.min(w, x));
+    display.mouseY = Math.max(0, Math.min(h, y));
 }
 
 function recordMouseEvent(what, evt, canvas, display, options) {
@@ -200,7 +206,7 @@ function recordMouseEvent(what, evt, canvas, display, options) {
                 case 1: buttons = Squeak.Mouse_Yellow; break;   // middle
                 case 2: buttons = Squeak.Mouse_Blue; break;     // right
             }
-            if (buttons === Squeak.Mouse_Red && (evt.altKey || evt.metaKey))
+            if (buttons === Squeak.Mouse_Red && (evt.altKey || evt.metaKey) || display.cmdButtonTouched)
                 buttons = Squeak.Mouse_Yellow; // emulate middle-click
             if (options.swapButtons)
                 if (buttons == Squeak.Mouse_Yellow) buttons = Squeak.Mouse_Blue;
@@ -226,11 +232,8 @@ function recordMouseEvent(what, evt, canvas, display, options) {
             display.signalInputEvent();
     }
     display.idle = 0;
-    if (what == 'mouseup') {
-        if (display.runFor) display.runFor(100); // maybe we catch the fullscreen flag change
-    } else {
-        if (display.runNow) display.runNow();   // don't wait for timeout to run
-    }
+    if (what === 'mouseup') display.runFor(100, what); // process copy/paste or fullscreen flag change
+    else display.runNow(what);   // don't wait for timeout to run
 }
 
 function recordWheelEvent(evt, display) {
@@ -253,6 +256,7 @@ function recordWheelEvent(evt, display) {
     if (display.signalInputEvent)
         display.signalInputEvent();
     display.idle = 0;
+    if (display.runNow) display.runNow('wheel'); // don't wait for timeout to run
 }
 
 // Squeak traditional keycodes are MacRoman
@@ -304,7 +308,7 @@ function recordKeyboardEvent(unicode, timestamp, display) {
         display.keys.push(modifiersAndKey);
     }
     display.idle = 0;
-    if (display.runNow) display.runNow(); // don't wait for timeout to run
+    if (display.runNow) display.runNow('keyboard'); // don't wait for timeout to run
 }
 
 function recordDragDropEvent(type, evt, canvas, display) {
@@ -321,6 +325,8 @@ function recordDragDropEvent(type, evt, canvas, display) {
     ]);
     if (display.signalInputEvent)
         display.signalInputEvent();
+    display.idle = 0;
+    if (display.runNow) display.runNow('drag-drop'); // don't wait for timeout to run
 }
 
 function fakeCmdOrCtrlKey(key, timestamp, display) {
@@ -343,6 +349,8 @@ function createSqueakDisplay(canvas, options) {
     if (options.fullscreen) {
         document.body.style.margin = 0;
         document.body.style.backgroundColor = 'black';
+        canvas.style.border = 'none';
+        canvas.style.borderRadius = '0px';
         document.ontouchmove = function(evt) { evt.preventDefault(); };
     }
     var display = {
@@ -360,6 +368,7 @@ function createSqueakDisplay(canvas, options) {
         eventQueue: null, // only used if image uses event primitives
         clipboardString: '',
         clipboardStringChanged: false,
+        handlingEvent: '',  // set to 'mouse' or 'keyboard' while handling an event
         cursorCanvas: options.cursor !== false && document.getElementById("sqCursor") || document.createElement("canvas"),
         cursorOffsetX: 0,
         cursorOffsetY: 0,
@@ -420,7 +429,7 @@ function createSqueakDisplay(canvas, options) {
         document.title = title;
     };
     display.showBanner = function(msg, style) {
-        style = style || {};
+        style = style || display.context.canvas.style || {};
         var ctx = display.context;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = style.color || "#F90";
@@ -432,7 +441,7 @@ function createSqueakDisplay(canvas, options) {
         ctx.fillText(msg, canvas.width / 2, canvas.height / 2);
     };
     display.showProgress = function(value, style) {
-        style = style || {};
+        style = style || display.context.canvas.style || {};
         var ctx = display.context,
             w = (canvas.width / 3) | 0,
             h = 24,
@@ -441,12 +450,12 @@ function createSqueakDisplay(canvas, options) {
         ctx.fillStyle = style.background || "#000";
         ctx.fillRect(x, y, w, h);
         ctx.lineWidth = 2;
-        ctx.strokeStyle = style.color || "#F90";
+        ctx.strokeStyle = style.stroke || "#F90";
         ctx.strokeRect(x, y, w, h);
-        ctx.fillStyle = style.color || "#F90";
+        ctx.fillStyle = style.fill || "#F90";
         ctx.fillRect(x, y, w * value, h);
     };
-    display.executeClipboardPaste = function(text, timestamp) {
+    display.executeClipboardPasteKey = function(text, timestamp) {
         if (!display.vm) return true;
         try {
             display.clipboardString = text;
@@ -456,7 +465,7 @@ function createSqueakDisplay(canvas, options) {
             console.error("paste error " + err);
         }
     };
-    display.executeClipboardCopy = function(key, timestamp) {
+    display.executeClipboardCopyKey = function(key, timestamp) {
         if (!display.vm) return true;
         // simulate copy event for Squeak so it places its text in clipboard
         display.clipboardStringChanged = false;
@@ -746,10 +755,7 @@ function createSqueakDisplay(canvas, options) {
     input.setAttribute("autocapitalize", "off");
     input.setAttribute("spellcheck", "false");
     input.style.position = "absolute";
-    input.style.width = "0";
-    input.style.height = "0";
-    input.style.opacity = "0";
-    input.style.pointerEvents = "none";
+    input.style.left = "-1000px";
     canvas.parentElement.appendChild(input);
     // touch-keyboard buttons
     if ('ontouchstart' in document) {
@@ -760,7 +766,7 @@ function createSqueakDisplay(canvas, options) {
         canvas.parentElement.appendChild(keyboardButton);
         keyboardButton.onmousedown = function(evt) {
             // show on-screen keyboard
-            input.focus();
+            input.focus({ preventScroll: true });
             evt.preventDefault();
         }
         keyboardButton.ontouchstart = keyboardButton.onmousedown;
@@ -794,8 +800,8 @@ function createSqueakDisplay(canvas, options) {
         cmdButton.ontouchcancel = cmdButton.ontouchend;
     } else {
         // keep focus on input field
-        input.onblur = function() { input.focus(); };
-        input.focus();
+        input.onblur = function() { input.focus({ preventScroll: true }); };
+        input.focus({ preventScroll: true });
     }
     display.isMac = navigator.userAgent.includes("Mac");
     // emulate keypress events
@@ -829,7 +835,7 @@ function createSqueakDisplay(canvas, options) {
                 deadChars = deadChars.concat(chars);
             }
         }
-        if (!deadChars.length) input.value = "";  // clear input
+        if (!deadChars.length) resetInput();
     };
     input.onkeydown = function(evt) {
         checkFullscreen();
@@ -863,18 +869,18 @@ function createSqueakDisplay(canvas, options) {
             switch (evt.key) {
                 case "c":
                 case "x":
-                    if (!navigator.clipboard?.writeText) return; // fire document.oncopy/oncut
-                    var text = display.executeClipboardCopy(evt.key, evt.timeStamp);
+                    if (!navigator.clipboard) return; // fire document.oncopy/oncut
+                    var text = display.executeClipboardCopyKey(evt.key, evt.timeStamp);
                     if (typeof text === 'string') {
                         navigator.clipboard.writeText(text)
                             .catch(function(err) { console.error("display: copy error " + err.message); });
                     }
                     return evt.preventDefault();
                 case "v":
-                    if (!navigator.clipboard?.readText) return; // fire document.onpaste
+                    if (!navigator.clipboard) return; // fire document.onpaste
                     navigator.clipboard.readText()
                         .then(function(text) {
-                            display.executeClipboardPaste(text, evt.timeStamp);
+                            display.executeClipboardPasteKey(text, evt.timeStamp);
                         })
                         .catch(function(err) { console.error("display: paste error " + err.message); });
                     return evt.preventDefault();
@@ -892,10 +898,47 @@ function createSqueakDisplay(canvas, options) {
         if (!display.vm) return true;
         recordModifiers(evt, display);
     };
-    // copy/paste old-style
-    if (!navigator.clipboard?.writeText) {
+    function resetInput() {
+        input.value = "**";
+        input.selectionStart = 1;
+        input.selectionEnd = 1;
+    }
+    resetInput();
+    // hack to generate arrow keys when moving the cursor (e.g. via spacebar on iPhone)
+    // we're not getting any events for that but the cursor (selection) changes
+    if ('ontouchstart' in document) {
+        let count = 0; // count how often the interval has run after the first move
+        setInterval(() => {
+            const direction = input.selectionStart - 1;
+            if (direction === 0) {
+                count = 0;
+                return;
+            }
+            // move cursor once, then not for 500ms, then every 250ms
+            if (count === 0 || count > 2) {
+                const key = direction < 1 ? 28 : 29; // arrow left or right
+                recordKeyboardEvent(key, Date.now(), display);
+            }
+            input.selectionStart = 1;
+            input.selectionEnd = 1;
+            count++;
+        }, 250);
+    }
+    // more copy/paste
+    if (navigator.clipboard) {
+        // new-style copy/paste (all modern browsers)
+        display.readFromSystemClipboard = () => display.handlingEvent &&
+            navigator.clipboard.readText()
+            .then(text => display.clipboardString = text)
+            .catch(err => console.error("readFromSystemClipboard " + err.message));
+        display.writeToSystemClipboard = () => display.handlingEvent &&
+            navigator.clipboard.writeText(display.clipboardString)
+            .then(() => display.clipboardStringChanged = false)
+            .catch(err => console.error("writeToSystemClipboard " + err.message));
+    } else {
+        // old-style copy/paste
         document.oncopy = function(evt, key) {
-            var text = display.executeClipboardCopy(key, evt.timeStamp);
+            var text = display.executeClipboardCopyKey(key, evt.timeStamp);
             if (typeof text === 'string') {
                 evt.clipboardData.setData("Text", text);
             }
@@ -905,11 +948,9 @@ function createSqueakDisplay(canvas, options) {
             if (!display.vm) return true;
             document.oncopy(evt, 'x');
         };
-    }
-    if (!navigator.clipboard?.readText) {
         document.onpaste = function(evt) {
             var text = evt.clipboardData.getData('Text');
-            display.executeClipboardPaste(text, evt.timeStamp);
+            display.executeClipboardPasteKey(text, evt.timeStamp);
             evt.preventDefault();
         };
     }
@@ -1038,8 +1079,10 @@ function createSqueakDisplay(canvas, options) {
         );
     };
 
-    onresize();
-    window.onresize = onresize;
+    if (!options.embedded) {
+        onresize();
+        window.onresize = onresize;
+    }
 
     return display;
 }
@@ -1113,15 +1156,17 @@ SqueakJS.runImage = function(buffer, name, display, options) {
                     alert(error);
                 }
             }
-            display.runNow = function() {
+            display.runNow = function(event) {
                 window.clearTimeout(loop);
+                display.handlingEvent = event;
                 run();
+                display.handlingEvent = '';
             };
-            display.runFor = function(milliseconds) {
+            display.runFor = function(milliseconds, event) {
                 var stoptime = Date.now() + milliseconds;
                 do {
                     if (display.quitFlag) return;
-                    display.runNow();
+                    display.runNow(event);
                 } while (Date.now() < stoptime);
             };
             if (options.onStart) options.onStart(vm, display, options);
@@ -1152,6 +1197,11 @@ function processOptions(options) {
     Squeak.dirCreate(root, true);
     if (!/\/$/.test(root)) root += "/";
     options.root = root;
+    if (options.w) options.fixedWidth = options.w;
+    if (options.h) options.fixedHeight = options.h;
+    if (options.fixedWidth && !options.fixedHeight) options.fixedHeight = options.fixedWidth * 3 / 4 | 0;
+    if (options.fixedHeight && !options.fixedWidth) options.fixedWidth = options.fixedHeight * 4 / 3 | 0;
+    if (options.fixedWidth && options.fixedHeight) options.fullscreen = true;
     SqueakJS.options = options;
 }
 
@@ -1185,9 +1235,16 @@ function processFile(file, display, options, thenDo) {
 }
 
 function processZip(file, display, options, thenDo) {
-    JSZip().loadAsync(file.data).then(function(zip) {
+    display.showBanner("Analyzing " + file.name);
+    JSZip.loadAsync(file.data, { createFolders: true }).then(function(zip) {
         var todo = [];
-        zip.forEach(function(filename){
+        zip.forEach(function(filename, meta) {
+            if (filename.startsWith("__MACOSX/") || filename.endsWith(".DS_Store")) return; // skip macOS metadata
+            if (meta.dir) {
+                filename = filename.replace(/\/$/, "");
+                Squeak.dirCreate(options.root + filename, true);
+                return;
+            }
             if (!options.image.name && filename.match(/\.image$/))
                 options.image.name = filename;
             if (options.forceDownload || !Squeak.fileExists(options.root + filename)) {
@@ -1270,7 +1327,7 @@ function downloadFile(file, display, options, thenDo) {
             console.error(Squeak.bytesAsString(new Uint8Array(this.response)));
             return alert("Failed to download:\n" + file.url);
         }
-        var proxy = 'https://corsproxy.io/?',
+        var proxy = Squeak.defaultCORSProxy,
             retry = new XMLHttpRequest();
         console.warn('Retrying with CORS proxy: ' + proxy + file.url);
         retry.open('GET', proxy + file.url);
@@ -1304,9 +1361,23 @@ function fetchFiles(files, display, options, thenDo) {
     getNextFile();
 }
 
-SqueakJS.runSqueak = function(imageUrl, canvas, options) {
+SqueakJS.runSqueak = function(imageUrl, canvas, options={}) {
+    if (!canvas) {
+        canvas = document.createElement("canvas");
+        canvas.style.position = "absolute";
+        canvas.style.left = "0";
+        canvas.style.top = "0";
+        canvas.style.width = "100%";
+        canvas.style.height = "100%";
+        document.body.appendChild(canvas);
+    }
     // we need to fetch all files first, then run the image
     processOptions(options);
+    if (imageUrl && imageUrl.endsWith(".zip")) {
+        options.zip = imageUrl.match(/[^\/]*$/)[0];
+        options.url = imageUrl.replace(/[^\/]*$/, "");
+        imageUrl = null;
+    }
     if (!imageUrl && options.image) imageUrl = options.image;
     var baseUrl = options.url || "";
     if (!baseUrl && imageUrl && imageUrl.replace(/[^\/]*$/, "")) {
@@ -1363,7 +1434,7 @@ SqueakJS.runSqueak = function(imageUrl, canvas, options) {
         var image = options.image;
         if (!image.name) return alert("could not find an image");
         if (!image.data) return alert("could not find image " + image.name);
-        SqueakJS.appName = options.appName || image.name.replace(/\.image$/, "");
+        SqueakJS.appName = options.appName || image.name.replace(/(.*\/|\.image$)/g, "");
         SqueakJS.runImage(image.data, options.root + image.name, display, options);
     });
     return display;

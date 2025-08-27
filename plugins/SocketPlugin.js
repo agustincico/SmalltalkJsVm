@@ -203,7 +203,7 @@ function SocketPlugin() {
           var url = '';
           if (isRetry || this._requestNeedsProxy()) {
             var proxy = typeof SqueakJS === "object" && SqueakJS.options.proxy;
-            url = proxy || 'https://corsproxy.io/?';
+            url = proxy || Squeak.defaultCORSProxy;
           }
           if (this.port !== 443) {
             url += 'http://' + this._hostAndPort() + targetURL;
@@ -674,7 +674,7 @@ function SocketPlugin() {
 
         recv: function(count) {
           if (this.response === null) return [];
-          var data = this.response[0];
+          var data = this.response[0] || new Uint8Array(0);
           if (data.length > count) {
             var rest = data.subarray(count);
             if (rest) {

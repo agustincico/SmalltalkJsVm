@@ -38,18 +38,20 @@ Feedback and ideas: please comment on the [Pull Request](https://github.com/code
 SqueakJS: A Squeak VM for the Web and Node.js
 =============================================
 
-SqueakJS is an HTML5 runtime engine for [Squeak][squeak]</a> Smalltalk written in pure JavaScript. It also works for many other OpenSmalltalk-compatible images.
+SqueakJS is a runtime engine for [Squeak][squeak]</a> Smalltalk written in pure JavaScript. It also works for many other OpenSmalltalk-compatible images.
 
 Embedding a Smalltalk application in your webpage can be as simple as:
 
-    SqueakJS.runSqueak(imageUrl, canvas);
+    SqueakJS.runSqueak(imageUrl);
 
-The interpreter core is divided in a number of `vm.*.js` modules, internal plugins in `vm.plugins.*.js` modules and external plugins in the "plugins" directory. The Just-in-Time compiler is optional ("jit.js") and can be easily replaced with your own.
+but you probably want to give it some more options (refer to the examples).
+
+The interpreter core is divided in a number of `vm.*.js` modules, internal plugins in `vm.plugins.*.js` modules and external plugins in the "plugins" directory. The Just-in-Time compiler is optional ("jit.js") and can be replaced with your own.
 
 There are a number of interfaces:
 * browser: the regular HTML interface lets you use SqueakJS on your own web page. Just include "squeak.js".
 * headless browser: a headless VM. It lets you use SqueakJS in your browser without a direct UI (you can create your own UI with a plugin). Include "squeak_headless.js" and add an "imageName" parameter to your website URL (eg. https://example.com/my/page.html?imageName=./example.image) or call the Javascript function "fetchImageAndRun('https://example.com/my/example.image')" to start the specified image.
-* Node.js: another headless VM. It lets you use SqueakJS as a Node.js application. Just run "node squeak_node.js <image name>".
+* Node.js: another headless VM. It lets you use SqueakJS as a Node.js application via "node squeak_node.js <image name>".
 
 For discussions, please use the [vm-dev mailing list][vm-dev]. Also, please visit the [project home page][homepage]!
 
@@ -80,7 +82,8 @@ Running it
 
 **Which Browser**
 
-All modern browsers should work (Chrome, Safari, IE, FireFox), though Chrome performs best currently. Safari on iPad works somewhat. YMMV.
+All modern desktop browsers should work. Mobile browsers work too, but most Squeak images assume a keyboard and mouse. YMMV.
+
 Fixes to improve browser compatibility are highly welcome!
 
 If your browser does not support ES6 modules try the full or headless SqueakJS VM as a single file (aka bundle) in the [Distribution][dist] directory.
@@ -128,11 +131,13 @@ Things to work on
 -----------------
 SqueakJS is intended to run any Squeak image. It can already load any image from the original 1996 Squeak release to the latest Cog-Spur release, including 64-bit and Sista variants. But various pieces (primitives in various plugins) are still missing, in particular 3D graphics and networking (however, see [Croquet][jasmine] which supports both, but should be generalized). Also, we should make pre-Spur 64 bit images load. And, it would be nice to make it work on as many browsers as possible, especially on mobile touch devices.
 
-As for optimizing I think the way to go is an optimizing JIT compiler. The current JIT is very simple and does not optimize at all. Since we can't access or manipulate the JavaScript stack, we might want that compiler to inline as much as possible, but keep the call sequence flat so we can return to the browser at any time. Even better (but potentially more complicated) is actually using the JavaScript stack, just like Eliot's Stack VM uses the C stack. I have done some [advanced JIT mockups][jit]. To make BitBlt fast, we could probably use WASM or even WebGL.
+As for optimizing the way to go is an optimizing JIT compiler. The current JIT is very simple and does not optimize at all, it only eloiminates the interpreter's instruction decoding overhead. Since we can't access or manipulate the JavaScript stack, we might want that compiler to inline as much as possible, but keep the call sequence flat so we can return to the browser at any time. Even better (but potentially more complicated) is actually using the JavaScript stack, just like Eliot's Stack VM uses the C stack. I have done some [advanced JIT mockups][jit]. To make BitBlt fast, we could probably use WASM or even WebGL.
 
-To make SqueakJS useful beyond running existing Squeak images, we should use the JavaScript bridge to write a native HTML UI which would certainly be much faster than BitBlt.
+To make SqueakJS useful beyond running existing Squeak images, we should use the JavaScript bridge to write a native HTML UI which would certainly be much faster than BitBlt (Craig Latta has done some interesting work towards that in [Caffeine][caffeine]).
 
 Better Networking would be interesting, too. The SocketPlugin currently does allows HTTP(S) requests and WebSockets. How about implementing low level Socket support based on HTTP-tunneling? The VM can run in a WebWorker. How about parallelizing the VM with WebWorkers?
+
+Also interesting would be wrapping it in a native app, maybe via [Electron][electron] similar to [Sugarizer][sugarizer], which uses SqueakJS to run Etoys.
 
 There's a gazillion exciting things to do :)
 
@@ -147,15 +152,25 @@ There's a gazillion exciting things to do :)
   [etoys]:    https://squeak.js.org/etoys/
   [scratch]:  https://squeak.js.org/scratch/
   [jasmine]:  https://github.com/codefrau/jasmine
+  [caffeine]: https://caffeine.js.org/
   [jit]:      https://squeak.js.org/docs/jit.md.html
   [ws]:       https://github.com/codefrau/SqueakJS/tree/main/ws
   [dist]:     https://github.com/codefrau/SqueakJS/tree/main/dist
   [zip]:      https://github.com/codefrau/SqueakJS/archive/main.zip
   [pullreq]:  https://help.github.com/articles/using-pull-requests
+  [electron]: https://www.electronjs.org
+  [sugarizer]: https://github.com/llaske/sugarizer
 
 
 Changelog
 ---------
+    2025-06-03: 1.3.3 minor FFI, OpenGL, and other fixes/improvements
+    2025-04-06: 1.3.2 use our own CORS proxy, add welcome=false option, minor fixes
+    2025-03-29: 1.3.1 add 'w', 'h', 'embedded' canvas options, minor fixes
+    2025-03-28: 1.3.0 add OpenGL support, canvas is optional, fix socket plugin bug
+    2025-02-19: 1.2.4 fix isAssociation for JS Bridge, optimize loading image with many objects
+    2024-09-28: 1.2.3 fix primitiveInputSemaphore, fix iOS keyboard
+    2024-06-22: 1.2.2 make copy/paste work on mobile
     2024-05-27: 1.2.1 add virtual cmd button, fix touch events
     2024-03-25: 1.2.0 add FFI and MIDI plugins, JIT for Sista bytecodes, JPEG write prim, fix keyboard input, copy/paste, scroll wheel, highdpi, allow ES6 in source
     2023-11-24: 1.1.2 fixed BitBlt bug (symptom reported 9 years ago, thanks to Agustin Martinez for narrowing it down), add object pinning, support keyboard in ancient Scratch images

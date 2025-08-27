@@ -1,6 +1,6 @@
 "use strict";
 /*
- * Copyright (c) 2013-2024 Vanessa Freudenberg
+ * Copyright (c) 2013-2025 Vanessa Freudenberg
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -81,7 +81,7 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
         if (classID < 32) throw Error("Invalid class ID: " + classID);
         this.sqClass = classTable[classID];
         if (!this.sqClass) throw Error("Class ID not in class table: " + classID);
-        var bits = rawBits[this.oop],
+        var bits = rawBits.get(this.oop),
             nWords = bits.length;
         switch (this._format) {
             case 0: // zero sized object
@@ -212,7 +212,7 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
             } else if (is64Bit && (oop & 7) === 4) {   // SmallFloat
                 ptrs[i] = this.decodeSmallFloat((oop - (oop >>> 0)) / 0x100000000 >>> 0, oop >>> 0, is64Bit);
             } else {                        // Object
-                ptrs[i] = oopMap[oop] || 42424242;
+                ptrs[i] = oopMap.get(oop) || 42424242;
                 // when loading a context from image segment, there is
                 // garbage beyond its stack pointer, resulting in the oop
                 // not being found in oopMap. We just fill in an arbitrary
@@ -299,7 +299,7 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
     },
     stringFromBits: function(rawBits) {
         if (this._format < 16 || this._format >= 24) return '';
-        var bits = rawBits[this.oop],
+        var bits = rawBits.get(this.oop),
             bytes = this.decodeBytes(bits.length, bits, 0, this._format & 7);
         return Squeak.bytesAsString(bytes);
     },

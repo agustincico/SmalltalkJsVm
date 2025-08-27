@@ -1,6 +1,6 @@
 "use strict";
 /*
- * Copyright (c) 2013-2024 Vanessa Freudenberg
+ * Copyright (c) 2013-2025 Vanessa Freudenberg
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -235,8 +235,8 @@ Object.subclass('Squeak.InterpreterProxy',
     },
     stObjectatput: function(array, index, obj) {
         if (array.sqClass !== this.classArray()) throw Error("Array expected");
-        if (index < 1 || index >= array.pointers.length) return this.successFlag = false;
-        array.pointers[index] = obj;
+        if (index < 1 || index > array.pointers.length) return this.successFlag = false;
+        array.pointers[index-1] = obj;
     },
 },
 'constant access',

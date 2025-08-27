@@ -1,6 +1,6 @@
 "use strict";
 /*
- * Copyright (c) 2013-2024 Vanessa Freudenberg
+ * Copyright (c) 2013-2025 Vanessa Freudenberg
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -59,7 +59,10 @@ Object.extend(Squeak.Primitives.prototype,
             if (Squeak.debugFiles) console.log("Directory not found: " + path.fullname);
             return false;
         }
-        var entry = fileName === "." ? [".", 0, 0, true, 0] : entries[fileName];
+        var entry = fileName === "." ? [".", 0, 0, true, 0] // current directory
+            : fileName === ".." ? ["..", 0, 0, true, 0] // parent directory
+            : fileName === "/" && dirName === "/" ? [sqFileName, 0, 0, true, 0] // fake top-level dir
+            : entries[fileName];
         this.popNandPushIfOK(argCount+1, this.makeStObject(entry));  // entry or nil
         return true;
     },

@@ -1,6 +1,6 @@
 "use strict";
 /*
- * Copyright (c) 2013-2024 Vanessa Freudenberg
+ * Copyright (c) 2013-2025 Vanessa Freudenberg
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,17 +24,18 @@
 Object.extend(Squeak,
 "version", {
     // system attributes
-    vmVersion: "SqueakJS 1.2.1",
-    vmDate: "2024-05-27",               // Maybe replace at build time?
-    vmBuild: "unknown",                 // or replace at runtime by last-modified?
-    vmPath: "unknown",                  // Replace at runtime
+    vmVersion: "SqueakJS 1.3.3",
+    vmDate: "2025-06-03",               // Maybe replace at build time?
+    vmBuild: "unknown",                 // this too?
+    vmPath: "unknown",                  // Replaced at runtime
     vmFile: "vm.js",
     vmMakerVersion: "[VMMakerJS-bf.17 VMMaker-bf.353]", // for Smalltalk vmVMMakerVersion
     vmInterpreterVersion: "JSInterpreter VMMaker.js-codefrau.1", // for Smalltalk interpreterVMMakerVersion
     platformName: "JS",
-    platformSubtype: "unknown",         // Replace at runtime
-    osVersion: "unknown",               // Replace at runtime
-    windowSystem: "unknown",            // Replace at runtime
+    platformSubtype: "unknown",         // Replaced at runtime
+    osVersion: "unknown",               // Replaced at runtime
+    windowSystem: "unknown",            // Replaced at runtime
+    defaultCORSProxy: "https://cors.codefrau.workers.dev/",
 },
 "object header", {
     // object headers
