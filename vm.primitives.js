@@ -974,7 +974,12 @@ Object.subclass('Squeak.Primitives',
     },
     pointsTo: function(rcvr, arg) {
         if (!rcvr.pointers) return false;
-        return rcvr.pointers.indexOf(arg) >= 0;
+        if (rcvr.$$ && rcvr.$$.indexOf(arg) >= 0) return true;
+        const vars = rcvr.sqClass.allInstVarNames();
+        for (var i = 0; i < vars.length; i++) {
+            if (rcvr[vars[i]] === arg) return true;
+        }
+        return false;
     },
     asUint8Array: function(buffer) {
         // A direct test of the buffer's constructor doesn't work on Safari 10.0.
