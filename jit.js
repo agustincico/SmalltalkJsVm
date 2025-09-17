@@ -1083,7 +1083,7 @@ to single-step.
         switch(target) {
             case "rcvr": this.source.push("rcvr.dirty = true;\n"); break;
             case "lit[": this.source.push(target, arg, "].dirty = true;\n"); break;
-            case "temp[": if (suffix !== "]") this.source.push(target, arg, "].dirty = true;\n"); break;
+            case "temp[": /* activeContext is always marked dirty */ break;
             default:
                 throw Error("unexpected target " + target);
         }
