@@ -34,13 +34,12 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
         if (format < 12) {
             if (format < 10) {
                 if (instSize > 0) {
-                    const vars = aClass.allInstVarNames();
-                    for (var i = 0; i < vars.length; i++) {
-                        this[vars[i]] = nilObj;
+                    for (var i = 0; i < instSize; i++) {
+                        this['$' + i] = nilObj;
                     }
                     this.pointers = indexableSize > 0
-                        ? this.instVarAndIndexableProxy(vars)
-                        : this.instVarProxy(vars);
+                        ? this.instVarAndIndexableProxy(instSize)
+                        : this.instVarProxy(instSize);
                 }
                 if (indexableSize > 0) {
                     this.$$ = this.fillArray(indexableSize, nilObj);
@@ -96,21 +95,21 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
                 if (nWords > 0) {
                     var oops = bits; // endian conversion was already done
                     var pointers = this.decodePointers(nWords, oops, oopMap, getCharacter, is64Bit);
-                    var instVarNames = this.sqClass.classAllInstVarNamesFromBits(oopMap, rawBits, is64Bit);
-                    for (var i = 0; i < instVarNames.length; i++) {
-                        this[instVarNames[i]] = pointers[i];
+                    var instSize = this.sqClass.classInstSizeFromBits(rawBits, is64Bit);
+                    for (var i = 0; i < instSize; i++) {
+                        this['$' + i] = pointers[i];
                     }
-                    if (pointers.length === instVarNames.length) {
+                    if (pointers.length === instSize) {
                         // only inst vars, no indexable fields
-                        this.pointers = this.instVarProxy(instVarNames);
+                        this.pointers = this.instVarProxy(instSize);
                     } else {
-                        if (instVarNames.length === 0) {
+                        if (instSize === 0) {
                             // no inst vars, only indexable fields
                             this.$$ = pointers;
                             this.pointers = this.$$; // no proxy needed
                         } else {
-                            this.$$ = pointers.slice(instVarNames.length);
-                            this.pointers = this.instVarAndIndexableProxy(instVarNames);
+                            this.$$ = pointers.slice(instSize);
+                            this.pointers = this.instVarAndIndexableProxy(instSize);
                         }
                     }
                 }

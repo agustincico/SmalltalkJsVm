@@ -33,13 +33,12 @@ Object.subclass('Squeak.Object',
         if (this._format < 8) {
             if (this._format != 6) {
                 if (instSize > 0) {
-                    const vars = aClass.allInstVarNames();
-                    for (var i = 0; i < vars.length; i++) {
-                        this[vars[i]] = nilObj;
+                    for (var i = 0; i < instSize; i++) {
+                        this['$' + i] = nilObj;
                     }
                     this.pointers = indexableSize > 0
-                        ? this.instVarAndIndexableProxy(vars)
-                        : this.instVarProxy(vars);
+                        ? this.instVarAndIndexableProxy(instSize)
+                        : this.instVarProxy(instSize);
                 }
                 if (indexableSize > 0) {
                     this.$$ = this.fillArray(indexableSize, nilObj);
@@ -84,14 +83,14 @@ Object.subclass('Squeak.Object',
             this.isFloat = original.isFloat;
             this.float = original.float;
         } else {
-            const vars = original.sqClass.allInstVarNames();
-            if (vars && vars.length) {
-                for (var i = 0; i < vars.length; i++) {
-                    this[vars[i]] = original[vars[i]];
+            const instSize = original.sqClass.classInstSize();
+            if (instSize > 0) {
+                for (var i = 0; i < instSize; i++) {
+                    this['$' + i] = original['$' + i];
                 }
                 this.pointers = original.$$
-                    ? this.instVarAndIndexableProxy(vars)
-                    : this.instVarProxy(vars);
+                    ? this.instVarAndIndexableProxy(instSize)
+                    : this.instVarProxy(instSize);
             }
             if (original.$$) {
                 this.$$ = [...original.$$];                                      // copy
@@ -122,44 +121,6 @@ Object.subclass('Squeak.Object',
         var spec = rawBits.get(this.oop)[Squeak.Class_format] >> 1;
         return ((spec >> 10) & 0xC0) + ((spec >> 1) & 0x3F) - 1;
     },
-    classOwnInstVarNamesFromBits: function(oopMap, rawBits) {
-        const ownInstVarNames = [];
-        const myBits = rawBits.get(this.oop);
-        if (Squeak.Class_instVars > 0) {
-            const varNames = oopMap.get(myBits[Squeak.Class_instVars]);
-            const varNamesArray = rawBits.get(varNames.oop);
-            for (let i = 0; i < varNamesArray.length; i++) {
-                const varName = oopMap.get(varNamesArray[i]);
-                const varStr = varName.stringFromBits(rawBits);
-                if (!varStr) { debugger ; throw Error("classOwnInstVarNamesFromBits: not a string"); }
-                ownInstVarNames.push('$' + varStr); // add $ to avoid name clashes
-            }
-        }
-        return ownInstVarNames;
-    },
-    classAllInstVarNamesFromBits: function(oopMap, rawBits, is64Bit) {
-        if (this._classAllInstVarNames) return this._classAllInstVarNames;
-        let names;
-        const instSize = this.classInstSizeFromBits(rawBits, is64Bit);
-        if (instSize === 0) {
-            names = [];
-        } else if (Squeak.Class_instVars > 0) {
-            const ownInstVarNames = this.classOwnInstVarNamesFromBits(oopMap, rawBits);
-            if (instSize === ownInstVarNames.length) {
-                names = ownInstVarNames;
-            } else {
-                const superclass = oopMap.get(rawBits.get(this.oop)[Squeak.Class_superclass]);
-                const superInstVarNames = superclass.classAllInstVarNamesFromBits(oopMap, rawBits, is64Bit);
-                names = superInstVarNames.concat(ownInstVarNames);
-            }
-            if (instSize !== names.length) throw Error("allInstVarNames: wrong number of inst vars");
-        } else {
-            names = [];
-            for (let i = 0; i < instSize; i++) names.push('$' + i);
-        }
-        this._classAllInstVarNames = names;
-        return names;
-    },
     renameFromBits: function(oopMap, rawBits, ccArray) {
         var classObj = this.sqClass < 32 ? oopMap.get(ccArray[this.sqClass-1]) : oopMap.get(this.sqClass);
         if (!classObj) return this;
@@ -187,21 +148,21 @@ Object.subclass('Squeak.Object',
             if (nWords > 0) {
                 var oops = bits; // endian conversion was already done
                 var pointers = this.decodePointers(nWords, oops, oopMap);
-                var instVarNames = this.sqClass.classAllInstVarNamesFromBits(oopMap, rawBits);
-                for (var i = 0; i < instVarNames.length; i++) {
-                    this[instVarNames[i]] = pointers[i];
+                var instSize = this.sqClass.classInstSizeFromBits(rawBits);
+                for (var i = 0; i < instSize; i++) {
+                    this['$' + i] = pointers[i];
                 }
-                if (pointers.length === instVarNames.length) {
+                if (pointers.length === instSize) {
                     // only inst vars, no indexable fields
-                    this.pointers = this.instVarProxy(instVarNames);
+                    this.pointers = this.instVarProxy(instSize);
                 } else {
-                    if (instVarNames.length === 0) {
+                    if (instSize === 0) {
                         // no inst vars, only indexable fields
                         this.$$ = pointers;
                         this.pointers = this.$$; // no proxy needed
                     } else {
-                        this.$$ = pointers.slice(instVarNames.length);
-                        this.pointers = this.instVarAndIndexableProxy(instVarNames);
+                        this.$$ = pointers.slice(instSize);
+                        this.pointers = this.instVarAndIndexableProxy(instSize);
                     }
                 }
             }
@@ -277,55 +238,58 @@ Object.subclass('Squeak.Object',
             array[i] = filler;
         return array;
     },
-    instVarProxy: function(instVarNames) {
+    instVarProxy: function(instSize) {
         // emulate pointers access
         return new Proxy(this, {
             get: function(obj, key) {
-                if (key === 'length') return instVarNames.length;
-                if (key === 'slice') return (...args) => instVarNames.slice(...args).map(name => obj[name]);
+                if (key === 'length') return instSize;
+                if (key === 'slice') return (...args) => Array.prototype.slice.apply(
+                    Array.from({length: instSize}, (_, i) => obj['$' + i]),
+                    args
+                );
                 const index = parseInt(key);
-                if (!isNaN(index)) return obj[instVarNames[index]];
+                if (!isNaN(index)) return obj['$' + index];
                 debugger; throw Error("unexpected getter: pointers." + key);
             },
             set: function(obj, key, value) {
                 const index = parseInt(key);
                 if (isNaN(index)) { debugger; throw Error("unexpected setter: pointers." + key); }
-                obj[instVarNames[index]] = value;
+                obj['$' + index] = value;
                 return true;
             }
         });
     },
-    instVarAndIndexableProxy: function(instVarNames) {
+    instVarAndIndexableProxy: function(instSize) {
         // emulate pointers access
         return new Proxy(this, {
             get: function(obj, key) {
-                if (key === 'length') return instVarNames.length + obj.$$.length;
+                if (key === 'length') return instSize + obj.$$.length;
                 if (key === 'slice') return (start, end) => {
                     if (start !== undefined && start === end) return []; // optimization
                     if (!start) start = 0;
-                    if (start < 0) start += instVarNames.length + obj.$$.length;
-                    if (!end) end = instVarNames.length + obj.$$.length;
-                    if (end < 0) end += instVarNames.length + obj.$$.length;
+                    if (start < 0) start += instSize + obj.$$.length;
+                    if (!end) end = instSize + obj.$$.length;
+                    if (end < 0) end += instSize + obj.$$.length;
                     const result = [];
                     for (let i = start; i < end; i++) {
-                        if (i < instVarNames.length) result.push(obj[instVarNames[i]]);
-                        else result.push(obj.$$[i - instVarNames.length]);
+                        if (i < instSize) result.push(obj['$' + i]);
+                        else result.push(obj.$$[i - instSize]);
                     }
                     return result;
                 };
                 const index = parseInt(key);
                 if (!isNaN(index)) {
-                    return index < instVarNames.length
-                        ? obj[instVarNames[index]]
-                        : obj.$$[index - instVarNames.length];
+                    return index < instSize
+                        ? obj['$' + index]
+                        : obj.$$[index - instSize];
                 }
                 debugger; throw Error("unexpected getter: pointers." + key);
             },
             set: function(obj, key, value) {
                 const index = parseInt(key);
                 if (isNaN(index)) { debugger; throw Error("unexpected setter: pointers." + key); }
-                if (key < instVarNames.length) obj[instVarNames[key]] = value;
-                else obj.$$[key - instVarNames.length] = value;
+                if (key < instSize) obj['$' + key] = value;
+                else obj.$$[key - instSize] = value;
                 return true;
             }
         });

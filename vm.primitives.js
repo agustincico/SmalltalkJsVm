@@ -984,9 +984,9 @@ Object.subclass('Squeak.Primitives',
     pointsTo: function(rcvr, arg) {
         if (!rcvr.pointers) return false;
         if (rcvr.$$ && rcvr.$$.indexOf(arg) >= 0) return true;
-        const vars = rcvr.sqClass.allInstVarNames();
-        for (var i = 0; i < vars.length; i++) {
-            if (rcvr[vars[i]] === arg) return true;
+        const instSize = rcvr.sqClass.classInstSize();
+        for (var i = 0; i < instSize; i++) {
+            if (rcvr['$' + i] === arg) return true;
         }
         return false;
     },
