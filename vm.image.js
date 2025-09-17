@@ -367,18 +367,18 @@ Object.subclass('Squeak.Image',
         // the VM really should only make assumptions about inst vars 0-2
         // but we want to use the actual instance variable names
         // which are at index 3 or 4 in the class
-        var classPoint = oopMap[rawBits[splObs.oop][Squeak.splOb_ClassPoint]];
-        var classBits = rawBits[classPoint.oop];
+        var classPoint = oopMap.get(rawBits.get(splObs.oop)[Squeak.splOb_ClassPoint]);
+        var classBits = rawBits.get(classPoint.oop);
         // we check if the array #(x y) is anywhere in the Point class
         // starting at index 3 (indices 0-2 are known to the VM)
         for (var index = 3; index < classBits.length; index++) {
-            var names = oopMap[classBits[index]]; if (!names) continue;
-            var namesBits = rawBits[names.oop]; if (namesBits.length !== 2) continue;
-            var x = oopMap[namesBits[0]];
-            var xBits = rawBits[x.oop];
+            var names = oopMap.get(classBits[index]); if (!names) continue;
+            var namesBits = rawBits.get(names.oop); if (namesBits.length !== 2) continue;
+            var x = oopMap.get(namesBits[0]);
+            var xBits = rawBits.get(x.oop);
             if (String.fromCharCode(xBits[0]) !== 'x') continue;
-            var y = oopMap[namesBits[1]];
-            var yBits = rawBits[y.oop];
+            var y = oopMap.get(namesBits[1]);
+            var yBits = rawBits.get(y.oop);
             if (String.fromCharCode(yBits[0]) !== 'y') continue;
             return index;
         }

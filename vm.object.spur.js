@@ -304,7 +304,7 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
         return Squeak.bytesAsString(bytes);
     },
     classInstSizeFromBits: function(rawBits, is64Bit) {
-        var format = rawBits[this.oop][Squeak.Class_format] >> (is64Bit ? 3 : 1);
+        var format = rawBits.get(this.oop)[Squeak.Class_format] >> (is64Bit ? 3 : 1);
         return format & 0xFFFF;
     },
     renameFromBits: function(oopMap, rawBits, classTable) {
