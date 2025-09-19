@@ -2,12 +2,14 @@ V2 BRANCH
 =========
 This is the work-in-progress branch for SqueakJS 2.0. Things I want to change:
 
-* each fixed inst var gets its own property instead for direct access instead of being indexed in `pointers[]`. There will be a compatibility accessor for primitives that use indexed access.
+* (implemented but will reconsider) each fixed inst var gets its own property for direct access instead of being indexed in `pointers[]`. There will be a compatibility accessor for primitives that use indexed access.
 
-  Still need to decide between named inst vars (using inst var names from image) or suffixed (like `p0`, `p1`, ...)
+  Still need to decide between named inst vars (using inst var names from image) or suffixed (like `$0`, `$1`, ...). _[Update: suffixed is more practical]_
 
   The goal is faster access than via the `pointers[]` array.
   Also, nicer debuggability if we use actual names.
+
+  _Update Sept 2025: I implemented this in the v2 branch, and it works (via proxy). However, I realized it's rather impractical to convert all code (I tried to convert the interpreter so that the context is accessed using direct ivar refs but gave up). Also the `pointers` proxy is very slow but every primitive uses it, negating every potential performance win._
 
 * new high-performance JIT without per-frame context allocation, but instead using direct function calls, function temps as stack, args passed directly via function parameters, and direct instance var access (see above). Contexts would only be allocated if needed (also see the existing [discussion](https://github.com/codefrau/SqueakJS/issues/121) and my [JIT experiments](https://squeak.js.org/docs/jit.md.html))
 
