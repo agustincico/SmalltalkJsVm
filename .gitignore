@@ -4,3 +4,5 @@ gh-pages
 dist/*.min.js*
 *.code-workspace
 perf/harness/golden.json
+ws/client/cuis.changes
+ws/client/CuisDebug-*.log

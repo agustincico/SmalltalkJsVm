@@ -135,6 +135,18 @@ function mix(v) {
     hash = Math.imul(hash, 16777619) >>> 0;
 }
 
+// La imagen escribe artefactos junto a sí misma (crea el .changes si falta,
+// logs de debug). Limpiarlos antes de correr para que toda corrida parta del
+// mismo estado de filesystem — si no, la primera corrida en un clone fresco
+// difiere de las siguientes.
+var imageDir = path.dirname(imagePath);
+var imageBase = path.basename(imagePath, ".image");
+fs.readdirSync(imageDir).forEach(function(f) {
+    if (f === imageBase + ".changes" || /^CuisDebug-.*\.log$/.test(f)) {
+        fs.unlinkSync(path.join(imageDir, f));
+    }
+});
+
 var data = fs.readFileSync(imagePath);
 var image = new Squeak.Image(imagePath.replace(/\.image$/, ""));
 image.readFromBuffer(data.buffer, function startRunning() {
