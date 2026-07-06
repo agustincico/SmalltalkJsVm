@@ -45,6 +45,10 @@ Object.extend(Squeak.Interpreter.prototype,
         // usan activeContextObj() (un defineProperty con getter sobre la instancia
         // degrada TODOS los accesos a propiedades del vm — 10x+ en el camino caliente)
         this.activeContext = null;
+        // cache para gatear los probes .frame: solo instancias de MethodContext
+        // pueden estar casadas; comparar la clase primero evita LoadICs
+        // megamórficos sobre receivers arbitrarios (medido: 24% del tiempo)
+        this.contextClass_ = this.specialObjects[Squeak.splOb_ClassMethodContext];
         var vm = this;
         // rebind execution methods to the frames variants
         this.send = this.sendZ;
@@ -67,19 +71,19 @@ Object.extend(Squeak.Interpreter.prototype,
         var origObjectAt = ph.objectAt;
         ph.objectAt = function(cameFromBytecode, convertChars, includeInstVars) {
             var rcvr = this.stackNonInteger(1);
-            if (rcvr.frame != null) vm.syncPage(rcvr.frame.page);
+            if (rcvr.sqClass === vm.contextClass_ && rcvr.frame != null) vm.syncMarriedContext(rcvr);
             return origObjectAt.call(this, cameFromBytecode, convertChars, includeInstVars);
         };
         var origObjectAtPut = ph.objectAtPut;
         ph.objectAtPut = function(cameFromBytecode, convertChars, includeInstVars) {
             var rcvr = this.stackNonInteger(2);
-            if (rcvr.frame != null) vm.flushAllAndContinue();
+            if (rcvr.sqClass === vm.contextClass_ && rcvr.frame != null) vm.flushAllAndContinue();
             return origObjectAtPut.call(this, cameFromBytecode, convertChars, includeInstVars);
         };
         var origStoreStackp = ph.primitiveStoreStackp;
         ph.primitiveStoreStackp = function(argCount) {
             var ctxt = this.stackNonInteger(1);
-            if (ctxt.frame != null) vm.flushAllAndContinue();
+            if (ctxt.sqClass === vm.contextClass_ && ctxt.frame != null) vm.flushAllAndContinue();
             return origStoreStackp.call(this, argCount);
         };
         var origArrayBecome = ph.primitiveArrayBecome;
@@ -167,7 +171,44 @@ Object.extend(Squeak.Interpreter.prototype,
         ctx.dirty = true;
         slots[fp + Squeak.Frame_context] = ctx;
         slots[fp + Squeak.Frame_flags] |= Squeak.Frame_hasContext;
+        this.nMarriedContexts = (this.nMarriedContexts || 0) + 1;
         return ctx;
+    },
+    syncMarriedContext: function(ctx) {
+        // refresca el snapshot de UN context casado. El tope de página es O(1)
+        // de ubicar; para frames profundos se busca el callee desde el tope.
+        // El caller se casa shallow (sin fill): se sincroniza cuando se observe.
+        var f = ctx.frame;
+        if (f == null) return;
+        var page = f.page, fp = f.fp;
+        this.saveActivePage();
+        var slots = page.slots;
+        var pc, sp;
+        if (fp === page.fp) {
+            pc = page.pc;
+            sp = page.sp;
+        } else {
+            // buscar el callee: el frame cuyo savedFp === fp
+            var t = page.fp;
+            while (t >= 0 && slots[t + Squeak.Frame_savedFp] !== fp)
+                t = slots[t + Squeak.Frame_savedFp];
+            if (t < 0) throw Error("stack zone: married frame not on its page chain");
+            pc = slots[t + Squeak.Frame_savedPc];
+            sp = t - 2 - (slots[t + Squeak.Frame_flags] & 0xFFFF);
+        }
+        var p = ctx.pointers;
+        var savedFp = slots[fp + Squeak.Frame_savedFp];
+        if (savedFp >= 0 && page.slots[savedFp + Squeak.Frame_context] == null)
+            this.nMarrySenderFill = (this.nMarrySenderFill || 0) + 1;
+        p[Squeak.Context_sender] = savedFp >= 0 ? this.marryFrame(page, savedFp)
+            : (page.baseCallerCtx || this.nilObj);
+        p[Squeak.Context_instructionPointer] =
+            this.encodeSqueakPC(pc, slots[fp + Squeak.Frame_method]);
+        var stackp = sp - fp - Squeak.Frame_firstTemp + 1;
+        p[Squeak.Context_stackPointer] = stackp;
+        for (var i = 0; i < stackp; i++)
+            p[Squeak.Context_tempFrameStart + i] = slots[fp + Squeak.Frame_firstTemp + i];
+        ctx.dirty = true;
     },
     syncPage: function(page) {
         // refresh the snapshots of all married frames in a page (top to base);
@@ -223,6 +264,7 @@ Object.extend(Squeak.Interpreter.prototype,
     flushAllAndContinue: function() {
         // serialize every live frame to its (married) context, kill all pages,
         // and continue execution on a fresh base frame inflated from the top
+        this.nFlushAll = (this.nFlushAll || 0) + 1;
         this.saveActivePage();
         var top = this.marryFrame(this.zonePage, this.fp);
         for (var i = 0; i < this.zonePages.length; i++) {
@@ -246,6 +288,10 @@ Object.extend(Squeak.Interpreter.prototype,
         var methodField = ctx.pointers[Squeak.Context_method];
         if (this.isSmallInt(methodField))
             throw Error("stack zone: pre-closure BlockContexts not supported");
+        if (ctx.sqClass !== this.contextClass_)
+            // los gates de sync/write-through comparan contra ClassMethodContext;
+            // una subclase casada los evadiría silenciosamente
+            throw Error("stack zone: cannot inflate a " + ctx.sqClass.className());
         var page = this.allocPage();
         var slots = page.slots;
         var closure = ctx.pointers[Squeak.Context_closure];
@@ -289,8 +335,9 @@ Object.extend(Squeak.Interpreter.prototype,
             lookupClass = this.getClass(newRcvr);
         }
         // married-context receivers: refresh their snapshot before Smalltalk looks
-        if (typeof newRcvr === "object" && newRcvr !== null && newRcvr.frame != null)
-            this.syncPage(newRcvr.frame.page);
+        // (class-identity gate first: no property probe on ordinary receivers)
+        if (lookupClass === this.contextClass_ && newRcvr.frame != null)
+            this.syncMarriedContext(newRcvr);
         var entry = this.findSelectorInClass(selector, argCount, lookupClass);
         if (entry.primIndex) {
             this.verifyAtSelector = selector;
@@ -301,8 +348,9 @@ Object.extend(Squeak.Interpreter.prototype,
     sendSuperDirectedZ: function(selector, argCount) {
         var lookupClass = this.pop().superclass();
         var newRcvr = this.stack[this.sp - argCount];
-        if (typeof newRcvr === "object" && newRcvr !== null && newRcvr.frame != null)
-            this.syncPage(newRcvr.frame.page);
+        if (typeof newRcvr === "object" && newRcvr !== null
+            && newRcvr.sqClass === this.contextClass_ && newRcvr.frame != null)
+            this.syncMarriedContext(newRcvr);
         var entry = this.findSelectorInClass(selector, argCount, lookupClass);
         if (entry.primIndex) {
             this.verifyAtSelector = selector;
@@ -507,8 +555,9 @@ Object.extend(Squeak.Interpreter.prototype,
         }
     },
     exportThisContextZ: function() {
+        this.nMarryThisCtx = (this.nMarryThisCtx || 0) + 1;
         var ctx = this.marryFrame(this.zonePage, this.fp);
-        this.syncPage(this.zonePage);
+        this.syncMarriedContext(ctx); // solo el tope: O(frame), sin cascada
         this.reclaimableContextCount = 0;
         return ctx;
     },
@@ -536,6 +585,7 @@ Object.extend(Squeak.Interpreter.prototype,
     },
     activeContextObjZ: function() {
         // for the few legacy readers that need the active context as an object
+        this.nMarryClosure = (this.nMarryClosure || 0) + 1;
         return this.marryFrame(this.zonePage, this.fp);
     },
     tryPrimitiveZ: function(primIndex, argCount, newMethod) {

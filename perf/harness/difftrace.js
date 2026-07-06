@@ -394,6 +394,17 @@ image.readFromBuffer(data.buffer, function startRunning() {
     if (mode === "bench") {
         console.log("bench: " + vm.sendCount + " sends en " + wallMs.toFixed(0) + " ms  (" +
             (vm.sendCount / (wallMs / 1000) / 1e6).toFixed(2) + "M sends/s), stop: " + stopReason);
+        if (vm.useStackZone) {
+            var live = 0, maxSlots = 0;
+            for (var i = 0; i < vm.zonePages.length; i++) {
+                if (vm.zonePages[i].live) live++;
+                if (vm.zonePages[i].slots.length > maxSlots) maxSlots = vm.zonePages[i].slots.length;
+            }
+            console.log("zona: pages=" + vm.zonePages.length + " live=" + live + " maxSlots=" + maxSlots
+                + " married=" + (vm.nMarriedContexts || 0) + " flushAll=" + (vm.nFlushAll || 0)
+                + " byClosure=" + (vm.nMarryClosure || 0) + " byThisCtx=" + (vm.nMarryThisCtx || 0)
+                + " bySenderFill=" + (vm.nMarrySenderFill || 0));
+        }
         return;
     }
 

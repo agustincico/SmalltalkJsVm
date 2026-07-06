@@ -763,7 +763,7 @@ to single-step.
             // (flush + escritura sobre el context real); pc fresco para el resume
             this.needsVar['context'] = true; // fp/page
             this.source.push(
-                "if (rcvr.frame == null) { inst[", arg1, "] = stack[vm.sp]; rcvr.dirty = true; }\n",
+                "if (rcvr.sqClass !== vm.contextClass_ || rcvr.frame == null) { inst[", arg1, "] = stack[vm.sp]; rcvr.dirty = true; }\n",
                 "else { vm.pc = ", this.pc, "; vm.storeToMarriedContext(rcvr, ", arg1, ", stack[vm.sp]); if (vm.fp !== fp || vm.zonePage !== page) return; }\n");
             this.needsLabel[this.pc] = true;
             return;
@@ -787,7 +787,7 @@ to single-step.
             this.needsVar['context'] = true; // fp/page
             this.source.push(
                 "var iv = stack[vm.sp--];\n",
-                "if (rcvr.frame == null) { inst[", arg1, "] = iv; rcvr.dirty = true; }\n",
+                "if (rcvr.sqClass !== vm.contextClass_ || rcvr.frame == null) { inst[", arg1, "] = iv; rcvr.dirty = true; }\n",
                 "else { vm.pc = ", this.pc, "; vm.storeToMarriedContext(rcvr, ", arg1, ", iv); if (vm.fp !== fp || vm.zonePage !== page) return; }\n");
             this.needsLabel[this.pc] = true;
             return;

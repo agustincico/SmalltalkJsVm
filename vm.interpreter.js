@@ -64,6 +64,7 @@ Object.subclass('Squeak.Interpreter',
         this.zonePages = null;
         this.zonePage = null;
         this.fp = -1;
+        this.contextClass_ = null; // set by enableStackZone; gates married-context probes
         this.interruptCheckCounter = 0;
         this.interruptCheckCounterFeedBackReset = 1000;
         this.interruptChecksEveryNms = 3;
@@ -1141,7 +1142,8 @@ Object.subclass('Squeak.Interpreter',
         // receiver inst-var store from a bytecode; in stack-zone mode a store
         // into a married-live context must go through the write-through path
         var rcvr = this.receiver;
-        if (rcvr.frame != null) return this.storeToMarriedContext(rcvr, index, value);
+        if (rcvr.sqClass === this.contextClass_ && rcvr.frame != null)
+            return this.storeToMarriedContext(rcvr, index, value);
         rcvr.pointers[index] = value;
     },
     aboutToReturnThrough: function(resultObj, aContext) {
