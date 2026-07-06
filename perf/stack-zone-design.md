@@ -88,6 +88,57 @@ Ciclo de vida del contexto casado:
   de imagen); el contexto pasa a ser un Context heap normal y reanudable, como
   los de hoy.
 
+## Protocolo de marriage v1 para JS: "snapshot + sync-at-send + flush-on-write"
+
+Hallazgo clave (2026-07-05, mapeo de vm.primitives.js): los prims de unwind
+195-199 **retornan false** en SqueakJS — la búsqueda de handlers y el unwinding
+corren como código Smalltalk normal caminando contexts vía sends (`ctx sender`,
+`ctx method`, ...). Consecuencia: **todo acceso Smalltalk a campos de un context
+pasa por (a) un send con el context como receiver, o (b) primitivos reflectivos**
+(instVarAt: 73/74, storeStackp 76, clone 148, ...). No hay tercer camino.
+Eso permite un protocolo sin proxies:
+
+1. El slot fp+4 del frame guarda su Context casado (o null); el Context casado
+   lleva `ctx.frame` → frame vivo.
+2. **marry(frame)** = crear el Context y llenarlo con un snapshot completo
+   (receiver/method/closure/pc/stackp/temps/stack). El frame sigue corriendo;
+   el snapshot puede quedar stale.
+3. **Puntos de sync** (refrescar snapshot, baratos y acotados):
+   - `send()`: si el receiver es un context casado-vivo → sync. Un chequeo
+     `rcvr.frame !== undefined` por send cubre TODOS los reads a nivel bytecode.
+   - Primitivos reflectivos (objectAt/objectAtPut/storeStackp/clone/pointsTo):
+     chokepoint único, sync antes de leer.
+   - El campo `sender` de un snapshot se llena casando al frame caller
+     (lazy, un marry por nivel) → caminar la cadena desde `thisContext` casa
+     de a uno, sin flush masivo.
+4. **Stores** a campos de un context casado-vivo (bytecode store-inst-var o
+   reflectivo) → flush de toda la cadena activa a contexts reales + continuar
+   con makeBaseFrame(top). Solo pasa en debugger/unwind — acá frío y correcto
+   le gana a rápido.
+5. Return de un frame casado → **widow**: sender=nil, pc=nil, clear `.frame`
+   (semántica idéntica al doReturn actual).
+6. `thisContext` → marry del frame activo solamente (la cadena se casa lazy
+   vía 3c a medida que se camina).
+7. Cambio de proceso: `transferTo` casa solo el tope; las páginas quedan vivas;
+   resume con frame vivo = saltar a (page, fp); si no, makeBaseFrame.
+8. Snapshot de imagen: flush total. GC lógico de vm.image.js: los slots de
+   páginas vivas entran como roots; `become:` recorre también la zona.
+9. Los contexts NUNCA se ejecutan directamente: el intérprete solo corre
+   frames; makeBaseFrame/flush son las únicas transiciones. (Un solo engine.)
+
+Nota sobre closures: con closures reales (Cuis/Squeak modernos) los valores
+copiados viven EN el closure y las temps compartidas van en arrays de
+indirección — el `outerContext` se usa solo para identidad (target de
+non-local return), home receiver/method y debugging. Un snapshot stale de
+temps en el context casado es aceptable en v1 (el debugger podría mostrar
+temps viejas del home mientras el frame corre; Cog lo hace exacto con
+read-through — mejora futura).
+
+Prerequisito ya implementado: todo acceso al stack de operandos pasa por
+`vm.stack` (commit "route all operand-stack access through vm.stack"), así el
+modo frames solo re-apunta `vm.stack` a la página activa sin tocar los
+bytecodes ni los templates de push/pop del jit.
+
 ## Páginas y multiproceso
 
 - Zona = N páginas (arranque: 64 × 8KB). Una cadena de frames de un proceso puede
