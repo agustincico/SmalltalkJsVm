@@ -200,6 +200,12 @@ to single-step.
         // if a compiler does not support single-stepping, return false
         return true;
     },
+    tempIndex: function(n) {
+        // index expression for temp n inside this.source:
+        // context mode: constant (temps at homeContext.pointers[6+n]);
+        // stack-zone mode: frame-relative (temps at vm.temps[tempBase+n], tempBase per activation)
+        return this.vm.useStackZone ? "tB + " + n : Squeak.Context_tempFrameStart + n;
+    },
     functionNameFor: function(cls, sel) {
         if (cls === undefined || cls === '?') {
             var isMethod = this.method.sqClass === this.vm.specialObjects[Squeak.splOb_ClassCompiledMethod];
@@ -238,7 +244,9 @@ to single-step.
         this.sourcePos['stack']      = this.source.length; this.source.push("var stack = vm.stack;\n");
         this.sourcePos['rcvr']       = this.source.length; this.source.push("var rcvr = vm.receiver;\n");
         this.sourcePos['inst[']      = this.source.length; this.source.push("var inst = rcvr.pointers;\n");
-        this.sourcePos['temp[']      = this.source.length; this.source.push("var temp = vm.homeContext.pointers;\n");
+        this.sourcePos['temp[']      = this.source.length; this.source.push(this.vm.useStackZone
+            ? "var temp = vm.temps, tB = vm.tempOffset;\n"
+            : "var temp = vm.temps;\n");
         this.sourcePos['lit[']       = this.source.length; this.source.push("var lit = vm.method.pointers;\n");
         this.sourcePos['loop-start'] = this.source.length; this.source.push("while (true) switch (vm.pc) {\ncase 0:\n");
         if (this.sista) this.generateSista(method);
@@ -267,7 +275,7 @@ to single-step.
                     break;
                 // load temp var
                 case 0x10: case 0x18:
-                    this.generatePush("temp[", 6 + (byte & 0xF), "]");
+                    this.generatePush("temp[", this.tempIndex((byte & 0xF)), "]");
                     break;
                 // loadLiteral
                 case 0x20: case 0x28: case 0x30: case 0x38:
@@ -283,7 +291,7 @@ to single-step.
                     break;
                 // storeAndPop temp var
                 case 0x68:
-                    this.generatePopInto("temp[", 6 + (byte & 0x07), "]");
+                    this.generatePopInto("temp[", this.tempIndex((byte & 0x07)), "]");
                     break;
                 // Quick push
                 case 0x70:
@@ -361,7 +369,7 @@ to single-step.
                 byte2 = this.method.bytes[this.pc++];
                 switch (byte2 >> 6) {
                     case 0: this.generatePush("inst[", byte2 & 0x3F, "]"); return;
-                    case 1: this.generatePush("temp[", 6 + (byte2 & 0x3F), "]"); return;
+                    case 1: this.generatePush("temp[", this.tempIndex((byte2 & 0x3F)), "]"); return;
                     case 2: this.generatePush("lit[", 1 + (byte2 & 0x3F), "]"); return;
                     case 3: this.generatePush("lit[", 1 + (byte2 & 0x3F), "].pointers[1]"); return;
                 }
@@ -370,7 +378,7 @@ to single-step.
                 byte2 = this.method.bytes[this.pc++];
                 switch (byte2 >> 6) {
                     case 0: this.generateStoreInto("inst[", byte2 & 0x3F, "]"); return;
-                    case 1: this.generateStoreInto("temp[", 6 + (byte2 & 0x3F), "]"); return;
+                    case 1: this.generateStoreInto("temp[", this.tempIndex((byte2 & 0x3F)), "]"); return;
                     case 2: throw Error("illegal store into literal");
                     case 3: this.generateStoreInto("lit[", 1 + (byte2 & 0x3F), "].pointers[1]"); return;
                 }
@@ -380,7 +388,7 @@ to single-step.
                 byte2 = this.method.bytes[this.pc++];
                 switch (byte2 >> 6) {
                     case 0: this.generatePopInto("inst[", byte2 & 0x3F, "]"); return;
-                    case 1: this.generatePopInto("temp[", 6 + (byte2 & 0x3F), "]"); return;
+                    case 1: this.generatePopInto("temp[", this.tempIndex((byte2 & 0x3F)), "]"); return;
                     case 2: throw Error("illegal pop into literal");
                     case 3: this.generatePopInto("lit[", 1 + (byte2 & 0x3F), "].pointers[1]"); return;
                 }
@@ -444,19 +452,19 @@ to single-step.
             case 0x8C:
                 byte2 = this.method.bytes[this.pc++];
                 byte3 = this.method.bytes[this.pc++];
-                this.generatePush("temp[", 6 + byte3, "].pointers[", byte2, "]");
+                this.generatePush("temp[", this.tempIndex(byte3), "].pointers[", byte2, "]");
                 return;
             // remote store into temp vector
             case 0x8D:
                 byte2 = this.method.bytes[this.pc++];
                 byte3 = this.method.bytes[this.pc++];
-                this.generateStoreInto("temp[", 6 + byte3, "].pointers[", byte2, "]");
+                this.generateStoreInto("temp[", this.tempIndex(byte3), "].pointers[", byte2, "]");
                 return;
             // remote store and pop into temp vector
             case 0x8E:
                 byte2 = this.method.bytes[this.pc++];
                 byte3 = this.method.bytes[this.pc++];
-                this.generatePopInto("temp[", 6 + byte3, "].pointers[", byte2, "]");
+                this.generatePopInto("temp[", this.tempIndex(byte3), "].pointers[", byte2, "]");
                 return;
             // pushClosureCopy
             case 0x8F:
@@ -502,10 +510,10 @@ to single-step.
                     break;
                 // load temporary variable
                 case 0x40: case 0x41: case 0x42: case 0x43: case 0x44: case 0x45: case 0x46: case 0x47:
-                    this.generatePush("temp[", 6 + (b & 0x07), "]");
+                    this.generatePush("temp[", this.tempIndex((b & 0x07)), "]");
                     break;
                 case 0x48: case 0x49: case 0x4A: case 0x4B:
-                    this.generatePush("temp[", 6 + (b & 0x03) + 8, "]");
+                    this.generatePush("temp[", this.tempIndex((b & 0x03) + 8), "]");
                     break;
                 case 0x4C: this.generatePush("rcvr");
                     break;
@@ -577,7 +585,7 @@ to single-step.
                     this.generatePopInto("inst[", b & 0x07, "]");
                     break;
                 case 0xD0: case 0xD1: case 0xD2: case 0xD3: case 0xD4: case 0xD5: case 0xD6: case 0xD7:
-                    this.generatePopInto("temp[", 6 + (b & 0x07), "]");
+                    this.generatePopInto("temp[", this.tempIndex((b & 0x07)), "]");
                     break;
                 case 0xD8: this.generateInstruction("pop", "vm.sp--");
                     break;
@@ -609,7 +617,7 @@ to single-step.
                     break;
                 case 0xE5:
                     b2 = bytes[this.pc++];
-                    this.generatePush("temp[", 6 + b2, "]");
+                    this.generatePush("temp[", this.tempIndex(b2), "]");
                     break;
                 case 0xE6:
                     throw Error("unusedBytecode 0xE6");
@@ -662,7 +670,7 @@ to single-step.
                     break;
                 case 0xF2:
                     b2 = bytes[this.pc++];
-                    this.generatePopInto("temp[", 6 + b2, "]");
+                    this.generatePopInto("temp[", this.tempIndex(b2), "]");
                     break;
                 case 0xF3:
                     b2 = bytes[this.pc++];
@@ -674,7 +682,7 @@ to single-step.
                     break;
                 case 0xF5:
                     b2 = bytes[this.pc++];
-                    this.generateStoreInto("temp[", 6 + b2, "]");
+                    this.generateStoreInto("temp[", this.tempIndex(b2), "]");
                     break;
                 case 0xF6: case 0xF7:
                     throw Error("unusedBytecode " + b);
@@ -702,17 +710,17 @@ to single-step.
                 case 0xFB:
                     b2 = bytes[this.pc++];
                     b3 = bytes[this.pc++];
-                    this.generatePush("temp[", 6 + b3, "].pointers[", b2, "]");
+                    this.generatePush("temp[", this.tempIndex(b3), "].pointers[", b2, "]");
                     break;
                 case 0xFC:
                     b2 = bytes[this.pc++];
                     b3 = bytes[this.pc++];
-                    this.generateStoreInto("temp[", 6 + b3, "].pointers[", b2, "]");
+                    this.generateStoreInto("temp[", this.tempIndex(b3), "].pointers[", b2, "]");
                     break;
                 case 0xFD:
                     b2 = bytes[this.pc++];
                     b3 = bytes[this.pc++];
-                    this.generatePopInto("temp[", 6 + b3, "].pointers[", b2, "]");
+                    this.generatePopInto("temp[", this.tempIndex(b3), "].pointers[", b2, "]");
                     break;
                 case 0xFE: case 0xFF:
                     throw Error("unusedBytecode " + b);

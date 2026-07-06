@@ -56,6 +56,8 @@ Object.subclass('Squeak.Interpreter',
         this.byteCodeCount = 0;
         this.sendCount = 0;
         this.stack = null; // operand stack array (activeContext.pointers; a zone page once stack frames land)
+        this.temps = null; // temp base array (homeContext.pointers; a zone page once stack frames land)
+        this.tempOffset = Squeak.Context_tempFrameStart; // index of temp 0 in this.temps
         this.interruptCheckCounter = 0;
         this.interruptCheckCounterFeedBackReset = 1000;
         this.interruptChecksEveryNms = 3;
@@ -232,7 +234,7 @@ Object.subclass('Squeak.Interpreter',
             // load temporary variable
             case 0x10: case 0x11: case 0x12: case 0x13: case 0x14: case 0x15: case 0x16: case 0x17:
             case 0x18: case 0x19: case 0x1A: case 0x1B: case 0x1C: case 0x1D: case 0x1E: case 0x1F:
-                this.push(this.homeContext.pointers[Squeak.Context_tempFrameStart+(b&0xF)]); return;
+                this.push(this.temps[this.tempOffset+(b&0xF)]); return;
 
             // loadLiteral
             case 0x20: case 0x21: case 0x22: case 0x23: case 0x24: case 0x25: case 0x26: case 0x27:
@@ -253,7 +255,7 @@ Object.subclass('Squeak.Interpreter',
                 this.receiver.dirty = true;
                 this.receiver.pointers[b&7] = this.pop(); return;
             case 0x68: case 0x69: case 0x6A: case 0x6B: case 0x6C: case 0x6D: case 0x6E: case 0x6F:
-                this.homeContext.pointers[Squeak.Context_tempFrameStart+(b&7)] = this.pop(); return;
+                this.temps[this.tempOffset+(b&7)] = this.pop(); return;
 
             // Quick push
             case 0x70: this.push(this.receiver); return;
@@ -296,15 +298,15 @@ Object.subclass('Squeak.Interpreter',
             case 0x8B: this.callPrimBytecode(0x81);
                 return;
             case 0x8C: b2 = this.nextByte(); // remote push from temp vector
-                this.push(this.homeContext.pointers[Squeak.Context_tempFrameStart+this.nextByte()].pointers[b2]);
+                this.push(this.temps[this.tempOffset+this.nextByte()].pointers[b2]);
                 return;
             case 0x8D: b2 = this.nextByte(); // remote store into temp vector
-                var vec = this.homeContext.pointers[Squeak.Context_tempFrameStart+this.nextByte()];
+                var vec = this.temps[this.tempOffset+this.nextByte()];
                 vec.pointers[b2] = this.top();
                 vec.dirty = true;
                 return;
             case 0x8E: b2 = this.nextByte(); // remote store and pop into temp vector
-                var vec = this.homeContext.pointers[Squeak.Context_tempFrameStart+this.nextByte()];
+                var vec = this.temps[this.tempOffset+this.nextByte()];
                 vec.pointers[b2] = this.pop();
                 vec.dirty = true;
                 return;
@@ -411,9 +413,9 @@ Object.subclass('Squeak.Interpreter',
 
             // load temporary variable
             case 0x40: case 0x41: case 0x42: case 0x43: case 0x44: case 0x45: case 0x46: case 0x47:
-                this.push(this.homeContext.pointers[Squeak.Context_tempFrameStart+(b&0x7)]); return;
+                this.push(this.temps[this.tempOffset+(b&0x7)]); return;
             case 0x48: case 0x49: case 0x4A: case 0x4B:
-                this.push(this.homeContext.pointers[Squeak.Context_tempFrameStart+(b&0x3)+8]); return;
+                this.push(this.temps[this.tempOffset+(b&0x3)+8]); return;
 
             case 0x4C: this.push(this.receiver); return;
             case 0x4D: this.push(this.trueObj); return;
@@ -510,7 +512,7 @@ Object.subclass('Squeak.Interpreter',
                 this.receiver.dirty = true;
                 this.receiver.pointers[b&7] = this.pop(); return;
             case 0xD0: case 0xD1: case 0xD2: case 0xD3: case 0xD4: case 0xD5: case 0xD6: case 0xD7:
-                this.homeContext.pointers[Squeak.Context_tempFrameStart+(b&7)] = this.pop(); return;
+                this.temps[this.tempOffset+(b&7)] = this.pop(); return;
 
             case 0xD8: this.pop(); return;  // pop
             case 0xD9: this.nono(); return; // FIXME: Unconditional trap
@@ -530,7 +532,7 @@ Object.subclass('Squeak.Interpreter',
             case 0xE4:
                 b2 = this.nextByte(); this.push(this.method.methodGetLiteral(b2 + (extA << 8))); return;
             case 0xE5:
-                b2 = this.nextByte(); this.push(this.homeContext.pointers[Squeak.Context_tempFrameStart+b2]); return;
+                b2 = this.nextByte(); this.push(this.temps[this.tempOffset+b2]); return;
             case 0xE6: this.nono(); return; // unused
             case 0xE7: this.pushNewArray(this.nextByte()); return; // create new temp vector
             case 0xE8: b2 = this.nextByte(); this.push(b2 + (extB << 8)); return; // push SmallInteger
@@ -567,7 +569,7 @@ Object.subclass('Squeak.Interpreter',
                 assoc.pointers[Squeak.Assn_value] = this.pop();
                 return;
             case 0xF2: // pop into temp
-                this.homeContext.pointers[Squeak.Context_tempFrameStart + this.nextByte()] = this.pop();
+                this.temps[this.tempOffset + this.nextByte()] = this.pop();
                 return;
             case 0xF3: // store into receiver
                 this.receiver.dirty = true;
@@ -579,7 +581,7 @@ Object.subclass('Squeak.Interpreter',
                 assoc.pointers[Squeak.Assn_value] = this.top();
                 return;
             case 0xF5: // store into temp
-                this.homeContext.pointers[Squeak.Context_tempFrameStart + this.nextByte()] = this.top();
+                this.temps[this.tempOffset + this.nextByte()] = this.top();
                 return;
             case 0xF6: case 0xF7: this.nono(); return; // unused
 
@@ -589,15 +591,15 @@ Object.subclass('Squeak.Interpreter',
             case 0xF9: this.pushFullClosure(extA); return;
             case 0xFA: this.pushClosureCopyExtended(extA, extB); return;
             case 0xFB: b2 = this.nextByte(); // remote push from temp vector
-                this.push(this.homeContext.pointers[Squeak.Context_tempFrameStart+this.nextByte()].pointers[b2]);
+                this.push(this.temps[this.tempOffset+this.nextByte()].pointers[b2]);
                 return;
             case 0xFC: b2 = this.nextByte(); // remote store into temp vector
-                var vec = this.homeContext.pointers[Squeak.Context_tempFrameStart+this.nextByte()];
+                var vec = this.temps[this.tempOffset+this.nextByte()];
                 vec.pointers[b2] = this.top();
                 vec.dirty = true;
                 return;
             case 0xFD: b2 = this.nextByte(); // remote store and pop into temp vector
-                var vec = this.homeContext.pointers[Squeak.Context_tempFrameStart+this.nextByte()];
+                var vec = this.temps[this.tempOffset+this.nextByte()];
                 vec.pointers[b2] = this.pop();
                 vec.dirty = true;
                 return;
@@ -729,7 +731,7 @@ Object.subclass('Squeak.Interpreter',
         var lobits = nextByte & 63;
         switch (nextByte>>6) {
             case 0: this.push(this.receiver.pointers[lobits]);break;
-            case 1: this.push(this.homeContext.pointers[Squeak.Context_tempFrameStart+lobits]); break;
+            case 1: this.push(this.temps[this.tempOffset+lobits]); break;
             case 2: this.push(this.method.methodGetLiteral(lobits)); break;
             case 3: this.push(this.method.methodGetLiteral(lobits).pointers[Squeak.Assn_value]); break;
         }
@@ -742,7 +744,7 @@ Object.subclass('Squeak.Interpreter',
                 this.receiver.pointers[lobits] = this.top();
                 break;
             case 1:
-                this.homeContext.pointers[Squeak.Context_tempFrameStart+lobits] = this.top();
+                this.temps[this.tempOffset+lobits] = this.top();
                 break;
             case 2:
                 this.nono();
@@ -762,7 +764,7 @@ Object.subclass('Squeak.Interpreter',
                 this.receiver.pointers[lobits] = this.pop();
                 break;
             case 1:
-                this.homeContext.pointers[Squeak.Context_tempFrameStart+lobits] = this.pop();
+                this.temps[this.tempOffset+lobits] = this.pop();
                 break;
             case 2:
                 this.nono();
@@ -1059,6 +1061,8 @@ Object.subclass('Squeak.Interpreter',
         this.pc = newPC;
         this.sp = newSP;
         this.stack = newContext.pointers;
+        this.temps = newContext.pointers; // home === newContext for method activations
+        this.tempOffset = Squeak.Context_tempFrameStart;
         this.receiver = newContext.pointers[Squeak.Context_receiver];
         if (this.receiver !== newRcvr)
             throw Error("receivers don't match");
@@ -1332,6 +1336,8 @@ Object.subclass('Squeak.Interpreter',
         this.pc = this.decodeSqueakPC(ctxt.pointers[Squeak.Context_instructionPointer], meth);
         this.sp = this.decodeSqueakSP(ctxt.pointers[Squeak.Context_stackPointer]);
         this.stack = ctxt.pointers; // operand stack array; sp indexes into it
+        this.temps = this.homeContext.pointers; // temp access: temps[tempOffset+n]
+        this.tempOffset = Squeak.Context_tempFrameStart;
     },
     storeContextRegisters: function() {
         //Save pc, sp into activeContext object, prior to change of context
