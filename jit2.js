@@ -33,6 +33,18 @@ Object.subclass('Squeak.Compiler2',
             || (typeof process !== "undefined" && process.env && process.env.JIT2BAIL)) {
             return this.fallback.compile(method, optClassObj, optSelObj);
         }
+        // bisección de bugs: JIT2SEL="div,resto" compila con jit2 solo métodos
+        // cuyo fingerprint % div === alguno de los restos listados
+        if (typeof process !== "undefined" && process.env && process.env.JIT2SEL) {
+            var parts = process.env.JIT2SEL.split(",").map(Number);
+            var div = parts[0];
+            var fpr = method.bytes ? method.bytes.length : 0;
+            if (method.bytes) for (var bi = 0; bi < Math.min(method.bytes.length, 16); bi++)
+                fpr = ((fpr * 31) + method.bytes[bi]) | 0;
+            var rem = ((fpr % div) + div) % div;
+            if (parts.indexOf(rem, 1) < 0)
+                return this.fallback.compile(method, optClassObj, optSelObj);
+        }
         var clsName = optClassObj && optClassObj.className(),
             sel = optSelObj && optSelObj.bytesAsString();
         var fn = this.generate2(method, clsName, sel);
@@ -75,6 +87,10 @@ Object.subclass('Squeak.Compiler2',
         this.ics = [];
         var tempCount = method.methodTempCount();
         this.tempCount = tempCount;
+        this.blockRegions = []; // {from, to, ceil}: dentro de un block V3, los temps
+                                // con índice >= args+copied ALIASAN slots del stack de
+                                // operandos (los aloca el pushNil inicial del block);
+                                // jit2 los tiene en locals, así que esos métodos bailean
         // pass over bytecodes
         this.done = false;
         while (!this.done) {
@@ -152,6 +168,16 @@ Object.subclass('Squeak.Compiler2',
     top: function() { return "s" + (this.depth - 1); },
     pop: function() { this.depth--; return "s" + this.depth; },
     slotAt: function(depthFromTop) { return "s" + (this.depth - 1 - depthFromTop); },
+    checkTempAccess: function(index) {
+        // buscar la región de block MÁS INTERNA que contenga el pc actual
+        for (var i = this.blockRegions.length - 1; i >= 0; i--) {
+            var r = this.blockRegions[i];
+            if (this.instStart >= r.from && this.instStart < r.to) {
+                if (index >= r.ceil) this.bail("block stack-temp aliasing");
+                return;
+            }
+        }
+    },
     spillAll: function() {
         for (var k = 0; k < this.depth; k++)
             this.emit("zone[spBase + ", 1 + k, "] = s", k, ";\n");
@@ -198,6 +224,7 @@ Object.subclass('Squeak.Compiler2',
             case 0x00: case 0x08: // push inst var
                 this.push("inst[" + (byte & 0x0F) + "]"); break;
             case 0x10: case 0x18: // push temp
+                this.checkTempAccess(byte & 0xF);
                 this.push("zone[tB + " + (byte & 0xF) + "]"); break;
             case 0x20: case 0x28: case 0x30: case 0x38: // push literal
                 this.push("lit[" + (1 + (byte & 0x1F)) + "]"); break;
@@ -206,6 +233,7 @@ Object.subclass('Squeak.Compiler2',
             case 0x60: // storeAndPop inst var
                 this.generateStoreInst(byte & 7, true); break;
             case 0x68: // storeAndPop temp
+                this.checkTempAccess(byte & 7);
                 this.emit("zone[tB + ", byte & 7, "] = ", this.pop(), ";\n"); break;
             case 0x70: // quick pushes
                 switch (byte) {
@@ -262,7 +290,7 @@ Object.subclass('Squeak.Compiler2',
                 b2 = this.method.bytes[this.pc++];
                 switch (b2 >> 6) {
                     case 0: this.push("inst[" + (b2 & 0x3F) + "]"); break;
-                    case 1: this.push("zone[tB + " + (b2 & 0x3F) + "]"); break;
+                    case 1: this.checkTempAccess(b2 & 0x3F); this.push("zone[tB + " + (b2 & 0x3F) + "]"); break;
                     case 2: this.push("lit[" + (1 + (b2 & 0x3F)) + "]"); break;
                     case 3: this.push("lit[" + (1 + (b2 & 0x3F)) + "].pointers[1]"); break;
                 }
@@ -271,7 +299,7 @@ Object.subclass('Squeak.Compiler2',
                 b2 = this.method.bytes[this.pc++];
                 switch (b2 >> 6) {
                     case 0: this.generateStoreInst(b2 & 0x3F, false); break;
-                    case 1: this.emit("zone[tB + ", b2 & 0x3F, "] = ", this.top(), ";\n"); break;
+                    case 1: this.checkTempAccess(b2 & 0x3F); this.emit("zone[tB + ", b2 & 0x3F, "] = ", this.top(), ";\n"); break;
                     case 2: this.bail("store into literal");
                     case 3: this.emit("var assoc = lit[", 1 + (b2 & 0x3F), "]; assoc.dirty = true; assoc.pointers[1] = ", this.top(), ";\n"); break;
                 }
@@ -280,7 +308,7 @@ Object.subclass('Squeak.Compiler2',
                 b2 = this.method.bytes[this.pc++];
                 switch (b2 >> 6) {
                     case 0: this.generateStoreInst(b2 & 0x3F, true); break;
-                    case 1: this.emit("zone[tB + ", b2 & 0x3F, "] = ", this.pop(), ";\n"); break;
+                    case 1: this.checkTempAccess(b2 & 0x3F); this.emit("zone[tB + ", b2 & 0x3F, "] = ", this.pop(), ";\n"); break;
                     case 2: this.bail("store into literal");
                     case 3: this.emit("var assoc = lit[", 1 + (b2 & 0x3F), "]; assoc.dirty = true; assoc.pointers[1] = ", this.pop(), ";\n"); break;
                 }
@@ -519,6 +547,7 @@ Object.subclass('Squeak.Compiler2',
             numCopied = numArgsNumCopied >> 4,
             blockSize = b[this.pc++] * 256 + b[this.pc++];
         var from = this.pc, to = from + blockSize;
+        this.blockRegions.push({ from: from, to: to, ceil: numArgs + numCopied });
         // marry del frame activo: la zona y vm.sp deben reflejar el estado real
         // (el snapshot del context casado y el GC leen vm.sp)
         this.spillAll();
