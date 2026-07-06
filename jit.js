@@ -235,7 +235,7 @@ to single-step.
         this.instVarNames = optInstVarNames;
         this.allVars = ['context', 'stack', 'rcvr', 'inst[', 'temp[', 'lit['];
         this.sourcePos['context']    = this.source.length; this.source.push("var context = vm.activeContext;\n");
-        this.sourcePos['stack']      = this.source.length; this.source.push("var stack = context.pointers;\n");
+        this.sourcePos['stack']      = this.source.length; this.source.push("var stack = vm.stack;\n");
         this.sourcePos['rcvr']       = this.source.length; this.source.push("var rcvr = vm.receiver;\n");
         this.sourcePos['inst[']      = this.source.length; this.source.push("var inst = rcvr.pointers;\n");
         this.sourcePos['temp[']      = this.source.length; this.source.push("var temp = vm.homeContext.pointers;\n");

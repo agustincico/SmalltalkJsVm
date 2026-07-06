@@ -55,6 +55,7 @@ Object.subclass('Squeak.Interpreter',
     initVMState: function() {
         this.byteCodeCount = 0;
         this.sendCount = 0;
+        this.stack = null; // operand stack array (activeContext.pointers; a zone page once stack frames land)
         this.interruptCheckCounter = 0;
         this.interruptCheckCounterFeedBackReset = 1000;
         this.interruptChecksEveryNms = 3;
@@ -1023,7 +1024,7 @@ Object.subclass('Squeak.Interpreter',
             var indent = ' ';
             var ctx = this.activeContext;
             while (!ctx.isNil) { indent += '| '; ctx = ctx.pointers[Squeak.Context_sender]; }
-            var args = this.activeContext.pointers.slice(this.sp + 1 - argumentCount, this.sp + 1);
+            var args = this.stack.slice(this.sp + 1 - argumentCount, this.sp + 1);
             console.log(this.sendCount + indent + this.printMethod(newMethod, optClass, optSel, args));
         }
         if (this.breakOnContextChanged) {
@@ -1043,7 +1044,7 @@ Object.subclass('Squeak.Interpreter',
         newContext.pointers[Squeak.Context_sender] = this.activeContext;
         //Copy receiver and args to new context
         //Note this statement relies on the receiver slot being contiguous with args...
-        this.arrayCopy(this.activeContext.pointers, this.sp-argumentCount, newContext.pointers, Squeak.Context_tempFrameStart-1, argumentCount+1);
+        this.arrayCopy(this.stack, this.sp-argumentCount, newContext.pointers, Squeak.Context_tempFrameStart-1, argumentCount+1);
         //...and fill the remaining temps with nil
         this.arrayFill(newContext.pointers, Squeak.Context_tempFrameStart+argumentCount, Squeak.Context_tempFrameStart+tempCount, this.nilObj);
         this.popN(argumentCount+1);
@@ -1057,6 +1058,7 @@ Object.subclass('Squeak.Interpreter',
         this.method = newMethod;
         this.pc = newPC;
         this.sp = newSP;
+        this.stack = newContext.pointers;
         this.receiver = newContext.pointers[Squeak.Context_receiver];
         if (this.receiver !== newRcvr)
             throw Error("receivers don't match");
@@ -1167,7 +1169,7 @@ Object.subclass('Squeak.Interpreter',
         //Bundle up receiver, args and selector as a messageObject
         var message = this.instantiateClass(this.specialObjects[Squeak.splOb_ClassMessage], 0);
         var argArray = this.instantiateClass(this.specialObjects[Squeak.splOb_ClassArray], argCount);
-        this.arrayCopy(this.activeContext.pointers, this.sp-argCount+1, argArray.pointers, 0, argCount); //copy args from stack
+        this.arrayCopy(this.stack, this.sp-argCount+1, argArray.pointers, 0, argCount); //copy args from stack
         message.pointers[Squeak.Message_selector] = selector;
         message.pointers[Squeak.Message_arguments] = argArray;
         if (message.pointers.length > Squeak.Message_lookupClass) //Early versions don't have lookupClass
@@ -1183,7 +1185,7 @@ Object.subclass('Squeak.Interpreter',
             // selector has been found, rearrange stack
             if (entry.argCount !== trueArgCount)
                 return false;
-        var stack = this.activeContext.pointers; // slide eveything down...
+        var stack = this.stack; // slide eveything down...
             var selectorIndex = this.sp - trueArgCount;
         this.arrayCopy(stack, selectorIndex+1, stack, selectorIndex, trueArgCount);
         this.sp--; // adjust sp accordingly
@@ -1215,7 +1217,7 @@ Object.subclass('Squeak.Interpreter',
             // selector has been found, rearrange stack
             if (entry.argCount !== trueArgCount)
                 return false;
-        var stack = this.activeContext.pointers;
+        var stack = this.stack;
             var selectorIndex = this.sp - (argCount - 1);
             stack[selectorIndex - 1] = rcvr;
         this.arrayCopy(args.pointers, 0, stack, selectorIndex, trueArgCount);
@@ -1329,6 +1331,7 @@ Object.subclass('Squeak.Interpreter',
         this.method = meth;
         this.pc = this.decodeSqueakPC(ctxt.pointers[Squeak.Context_instructionPointer], meth);
         this.sp = this.decodeSqueakSP(ctxt.pointers[Squeak.Context_stackPointer]);
+        this.stack = ctxt.pointers; // operand stack array; sp indexes into it
     },
     storeContextRegisters: function() {
         //Save pc, sp into activeContext object, prior to change of context
@@ -1392,25 +1395,25 @@ Object.subclass('Squeak.Interpreter',
 'stack access', {
     pop: function() {
         //Note leaves garbage above SP.  Cleaned out by fullGC.
-        return this.activeContext.pointers[this.sp--];
+        return this.stack[this.sp--];
     },
     popN: function(nToPop) {
         this.sp -= nToPop;
     },
     push: function(object) {
-        this.activeContext.pointers[++this.sp] = object;
+        this.stack[++this.sp] = object;
     },
     popNandPush: function(nToPop, object) {
-        this.activeContext.pointers[this.sp -= nToPop - 1] = object;
+        this.stack[this.sp -= nToPop - 1] = object;
     },
     top: function() {
-        return this.activeContext.pointers[this.sp];
+        return this.stack[this.sp];
     },
     stackTopPut: function(object) {
-        this.activeContext.pointers[this.sp] = object;
+        this.stack[this.sp] = object;
     },
     stackValue: function(depthIntoStack) {
-        return this.activeContext.pointers[this.sp - depthIntoStack];
+        return this.stack[this.sp - depthIntoStack];
     },
     stackInteger: function(depthIntoStack) {
         return this.checkSmallInt(this.stackValue(depthIntoStack));
@@ -1858,7 +1861,7 @@ Object.subclass('Squeak.Interpreter',
         console.log(this.printStack()
             + this.printActiveContext() + '\n\n'
             + this.printByteCodes(this.method, '   ', '=> ', this.pc),
-            this.activeContext.pointers.slice(0, this.sp + 1));
+            this.stack.slice(0, this.sp + 1));
     },
     willSendOrReturn: function() {
         // Answer whether the next bytecode corresponds to a Smalltalk

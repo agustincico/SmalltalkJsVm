@@ -1470,6 +1470,8 @@ Object.subclass('Squeak.Primitives',
         if (argCount > 1) copyHash = this.stackBoolean(argCount-2);
         if (!this.success) return false;
         this.success = this.vm.image.bulkBecome(rcvr.pointers, arg.pointers, doBothWays, copyHash);
+        // become may have swapped the active context's pointers array
+        this.vm.stack = this.vm.activeContext.pointers;
         return this.popNIfOK(argCount);
     },
     doStringReplace: function() {
@@ -1584,7 +1586,7 @@ Object.subclass('Squeak.Primitives',
         if (typeof blockArgCount !== "number") return false;
         if (blockArgCount != argCount) return false;
         if (!block.pointers[Squeak.BlockContext_caller].isNil) return false;
-        this.vm.arrayCopy(this.vm.activeContext.pointers, this.vm.sp-argCount+1, block.pointers, Squeak.Context_tempFrameStart, argCount);
+        this.vm.arrayCopy(this.vm.stack, this.vm.sp-argCount+1, block.pointers, Squeak.Context_tempFrameStart, argCount);
         var initialIP = block.pointers[Squeak.BlockContext_initialIP];
         block.pointers[Squeak.Context_instructionPointer] = initialIP;
         block.pointers[Squeak.Context_stackPointer] = argCount;
