@@ -21,6 +21,8 @@ var args = process.argv.slice(2);
 var mode = args.indexOf("--golden") >= 0 ? "golden"
          : args.indexOf("--bench") >= 0 ? "bench"
          : "check";
+var useFrames = args.indexOf("--frames") >= 0; // correr con el stack zone activado
+var noJit = args.indexOf("--nojit") >= 0; // apagar el jit (para aislar divergencias jit vs frames)
 function argValue(name, deflt) {
     var i = args.indexOf(name);
     return i >= 0 && args[i + 1] !== undefined ? args[i + 1] : deflt;
@@ -28,7 +30,9 @@ function argValue(name, deflt) {
 var maxSends = parseInt(argValue("--sends", "20000000"), 10);
 var imagePath = path.resolve(repoRoot, argValue("--image", "ws/client/cuis.image"));
 var goldenPath = path.join(__dirname, "golden.json");
-var logPath = argValue("--log", null); // traza por slice, para ubicar divergencias
+var logPath = argValue("--log", null); // traza por checkpoint, para ubicar divergencias
+var logFrom = parseInt(argValue("--logfrom", "-1"), 10); // log fino por-send en [logfrom, logto]
+var logTo = parseInt(argValue("--logto", "-1"), 10);
 
 // ---------------------------------------------------------------------------
 // Entorno determinista (solo en modos de traza; --bench usa el reloj real)
@@ -103,6 +107,7 @@ Object.assign(self, {
     "vm.instruction.stream.sista.js", "vm.instruction.printer.js", "vm.primitives.js",
     "jit.js", "vm.display.js", "vm.display.headless.js", "vm.input.js",
     "vm.input.headless.js", "vm.plugins.js", "vm.plugins.file.node.js",
+    "vm.stackzone.js",
 ].forEach(function(f) { require(path.join(repoRoot, f)); });
 
 Object.extend(Squeak, {
@@ -151,9 +156,190 @@ var data = fs.readFileSync(imagePath);
 var image = new Squeak.Image(imagePath.replace(/\.image$/, ""));
 image.readFromBuffer(data.buffer, function startRunning() {
     var display = { vmOptions: ["-vm-display-null", "-nodisplay"] };
-    var vm = new Squeak.Interpreter(image, display);
+    var vm = new Squeak.Interpreter(image, display, useFrames ? { stackZone: true } : {});
+    if (noJit) vm.compiler = null;
+    if (process.env.ZDBG9) {
+        // volcar bytes+literales del método activado cuando mbytes coincide
+        var z9size = parseInt(process.env.ZDBG9_SIZE), z9From = parseInt(process.env.ZDBG9_FROM || "0");
+        var origENM9 = vm.executeNewMethod;
+        var dumped = 0;
+        vm.executeNewMethod = function(newRcvr, newMethod, argumentCount, primitiveIndex, optClass, optSel) {
+            if (vm.sendCount >= z9From && dumped < 2 && newMethod.bytes && newMethod.bytes.length === z9size) {
+                dumped++;
+                var lits = [];
+                for (var i = 0; i < newMethod.pointers.length; i++) {
+                    var l = newMethod.pointers[i];
+                    lits.push(l && l.bytesAsString ? l.bytesAsString() : (l && l.sqClass ? l.sqClass.className() : String(l)));
+                }
+                console.error("MDUMP s=" + vm.sendCount + " sel=" + (optSel && optSel.bytesAsString ? optSel.bytesAsString() : "?")
+                    + " bytes=[" + Array.prototype.join.call(newMethod.bytes, ",") + "] lits=" + JSON.stringify(lits));
+            }
+            return origENM9.call(vm, newRcvr, newMethod, argumentCount, primitiveIndex, optClass, optSel);
+        };
+    }
+    if (process.env.ZDBG7) {
+        // dump de cadena al activar un método específico (por _traceId)
+        var z7id = parseInt(process.env.ZDBG7_ID), z7From = parseInt(process.env.ZDBG7_FROM || "0");
+        var chainDesc = function() {
+            var desc = [];
+            if (vm.useStackZone) {
+                var page = vm.zonePage, fp = vm.fp, hops = 0;
+                while (fp >= 0 && hops++ < 20) {
+                    var m = page.slots[fp + Squeak.Frame_method];
+                    var cl = page.slots[fp + Squeak.Frame_closure];
+                    desc.push("m" + (m.bytes ? m.bytes.length : "?") + (cl && !cl.isNil ? "b" : ""));
+                    fp = page.slots[fp + Squeak.Frame_savedFp];
+                }
+                if (fp < 0) desc.push("BASE:" + (page.baseCallerCtx && !page.baseCallerCtx.isNil ? "ctx" : "nil"));
+            } else {
+                var ctx = vm.activeContext, hops = 0;
+                while (!ctx.isNil && hops++ < 20) {
+                    var m2 = ctx.pointers[Squeak.Context_method];
+                    var cl2 = ctx.pointers[Squeak.Context_closure];
+                    desc.push("m" + (m2.bytes ? m2.bytes.length : (vm.isSmallInt(m2) ? "INT" : "?")) + (cl2 && !cl2.isNil ? "b" : ""));
+                    ctx = ctx.pointers[Squeak.Context_sender];
+                }
+            }
+            return desc.join("<");
+        };
+        var origENM7 = vm.executeNewMethod;
+        vm.executeNewMethod = function(newRcvr, newMethod, argumentCount, primitiveIndex, optClass, optSel) {
+            var r = origENM7.call(vm, newRcvr, newMethod, argumentCount, primitiveIndex, optClass, optSel);
+            if (vm.sendCount >= z7From && newMethod._traceId === z7id)
+                console.error("ACT s=" + vm.sendCount + " chain: " + chainDesc());
+            return r;
+        };
+    }
+    if (process.env.ZDBG6) {
+        var origTT = vm.primHandler.transferTo;
+        vm.primHandler.transferTo = function(newProc) {
+            console.error("TT s=" + vm.sendCount);
+            return origTT.call(this, newProc);
+        };
+    }
+    if (process.env.ZDBG5) {
+        // historial de activaciones de contexto explícitas (process switch / value de
+        // contextos dormidos) en ambos modos
+        var origNAC = vm.newActiveContext;
+        vm.newActiveContext = function(newContext) {
+            var m = newContext.pointers[Squeak.Context_method];
+            console.error("NAC s=" + vm.sendCount
+                + " mbytes=" + (m && m.bytes ? m.bytes.length : "int?")
+                + " senderNil=" + (newContext.pointers[Squeak.Context_sender].isNil === true)
+                + (vm.useStackZone ? " frame=" + (newContext.frame != null) : ""));
+            return origNAC.call(vm, newContext);
+        };
+    }
+    if (process.env.ZDBG4) {
+        // atrapar escrituras de campos de contexts en modo contexts:
+        // via bytecode (storeInstVar) y via primitivos (objectAtPut/storeStackp)
+        var ctxClass = vm.specialObjects[Squeak.splOb_ClassMethodContext];
+        var origSIV = vm.storeInstVar;
+        var sivCount = 0;
+        vm.storeInstVar = function(index, value) {
+            if (++sivCount <= 3) console.error("SIV-ALIVE #" + sivCount + " s=" + vm.sendCount + " rcls=" + this.getClass(this.receiver).className());
+            if (this.receiver.sqClass === ctxClass)
+                console.error("CTXSTORE s=" + vm.sendCount + " idx=" + index + " val=" + (value && value.isNil ? "nil" : typeof value));
+            return origSIV.call(this, index, value);
+        };
+        var origOAP = vm.primHandler.objectAtPut;
+        vm.primHandler.objectAtPut = function(a, b, c) {
+            var rcvr = this.stackNonInteger(2);
+            if (rcvr.sqClass === ctxClass)
+                console.error("CTXATPUT s=" + vm.sendCount + " idx=" + this.stackPos32BitInt(1));
+            return origOAP.call(this, a, b, c);
+        };
+        var origSSP = vm.primHandler.primitiveStoreStackp;
+        vm.primHandler.primitiveStoreStackp = function(argCount) {
+            console.error("CTXSTACKP s=" + vm.sendCount);
+            return origSSP.call(this, argCount);
+        };
+    }
+    if (process.env.ZDBG3) {
+        // dump de cadenas en la ventana: frames (fp chain) vs contexts (sender chain)
+        var z3From = parseInt(process.env.ZDBG3_FROM || "0"), z3To = parseInt(process.env.ZDBG3_TO || "99999999");
+        var origDR = vm.doReturn;
+        vm.doReturn = function(returnValue, targetContext) {
+            if (vm.sendCount >= z3From && vm.sendCount <= z3To) {
+                var desc = [];
+                if (vm.useStackZone) {
+                    var page = vm.zonePage, fp = vm.fp, hops = 0;
+                    while (fp >= 0 && hops++ < 12) {
+                        var m = page.slots[fp + Squeak.Frame_method];
+                        var cl = page.slots[fp + Squeak.Frame_closure];
+                        desc.push(fp + ":m" + (m.bytes ? m.bytes.length : "?") + (cl && !cl.isNil ? "[blk]" : ""));
+                        fp = page.slots[fp + Squeak.Frame_savedFp];
+                    }
+                    if (fp < 0) desc.push("base->" + (page.baseCallerCtx && !page.baseCallerCtx.isNil ? "ctx" : "nil"));
+                } else {
+                    var ctx = vm.activeContext, hops = 0;
+                    while (!ctx.isNil && hops++ < 12) {
+                        var m2 = ctx.pointers[Squeak.Context_method];
+                        var cl2 = ctx.pointers[Squeak.Context_closure];
+                        desc.push("m" + (m2.bytes ? m2.bytes.length : "?") + (cl2 && !cl2.isNil ? "[blk]" : ""));
+                        ctx = ctx.pointers[Squeak.Context_sender];
+                    }
+                }
+                console.error("DR s=" + vm.sendCount + " pc=" + vm.pc + " chain: " + desc.join(" <- "));
+            }
+            return origDR.call(vm, returnValue, targetContext);
+        };
+    }
+    if (process.env.ZDBG) {
+        var zFrom = parseInt(process.env.ZDBG_FROM || "0"), zTo = parseInt(process.env.ZDBG_TO || "99999999");
+        var origANC = vm.primHandler.activateNewClosureMethod;
+        vm.primHandler.activateNewClosureMethod = function(blockClosure, argCount) {
+            if (vm.sendCount >= zFrom && vm.sendCount <= zTo) {
+                var outer = blockClosure.pointers[Squeak.Closure_outerContext];
+                var m = outer.frame != null ? outer.frame.page.slots[outer.frame.fp + Squeak.Frame_method]
+                    : outer.pointers[Squeak.Context_method];
+                console.error("ANC s=" + vm.sendCount + " startpc=" + blockClosure.pointers[Squeak.Closure_startpc]
+                    + " mlits=" + (m.pointers ? m.pointers.length : "?") + " mbytes=" + (m.bytes ? m.bytes.length : "?")
+                    + " outerMarried=" + (outer.frame != null) + " isNilM=" + (m.isNil === true));
+            }
+            var r = origANC.call(this, blockClosure, argCount);
+            if (vm.sendCount >= zFrom && vm.sendCount <= zTo && !vm._zdbgArmed) {
+                vm._zdbgArmed = 60;
+                var origIO = vm.interpretOne.bind(vm);
+                vm.interpretOne = function(singleStep) {
+                    if (vm._zdbgArmed-- > 0)
+                        console.error("BC pc=" + vm.pc + " byte=" + vm.method.bytes[vm.pc]
+                            + " mbytes=" + vm.method.bytes.length + " sp=" + vm.sp + " fp=" + vm.fp);
+                    return origIO(singleStep);
+                };
+            }
+            return r;
+        };
+    }
     var slices = 0, idleStreak = 0, stopReason = "maxSends";
     var logLines = logPath ? [] : null;
+    if (mode !== "bench") {
+        // Muestreo en checkpoints fijos de sendCount: independiente de la
+        // representación (contexts/frames) Y de la cadencia de interrupciones
+        // (que difiere con/sin jit). Es la señal que entra al hash.
+        var origENM = vm.executeNewMethod;
+        vm.executeNewMethod = function(newRcvr, newMethod, argumentCount, primitiveIndex, optClass, optSel) {
+            // método identificado por fingerprint de contenido (los oops temporales
+            // interleavan contexts y difieren entre representaciones; el identity
+            // hash de métodos de imagen V3 es 0)
+            if (newMethod._traceId === undefined) {
+                var fp = newMethod.bytes ? newMethod.bytes.length : 0;
+                if (newMethod.bytes) for (var bi = 0; bi < Math.min(newMethod.bytes.length, 16); bi++)
+                    fp = ((fp * 31) + newMethod.bytes[bi]) | 0;
+                newMethod._traceId = fp;
+            }
+            if (vm.sendCount < maxSends && (vm.sendCount & 4095) === 0) {
+                mix(vm.sendCount);
+                mix(newMethod._traceId);
+                mix(vm.pc);
+                if (logLines) logLines.push("s=" + vm.sendCount + " h=" + newMethod._traceId + " pc=" + vm.pc);
+            }
+            if (logLines && vm.sendCount >= logFrom && vm.sendCount <= logTo)
+                logLines.push("S=" + vm.sendCount + " h=" + newMethod._traceId + " pc=" + vm.pc + " args=" + argumentCount + " prim=" + primitiveIndex
+                    + " rcls=" + vm.getClass(newRcvr).className() + " sel=" + (optSel && optSel.bytesAsString ? optSel.bytesAsString() : "?"));
+            return origENM.call(vm, newRcvr, newMethod, argumentCount, primitiveIndex, optClass, optSel);
+        };
+    }
     var wallStart = process.hrtime.bigint();
     clockRunning = true;
     try {
@@ -161,17 +347,9 @@ image.readFromBuffer(data.buffer, function startRunning() {
             if (display.quitFlag) { stopReason = "quit"; break; }
             var result = vm.interpret(5);
             slices++;
-            if (mode !== "bench") {
-                // Solo estado independiente de la representación de contexts:
-                // sp/activeContext cambian de significado con el stack zone,
-                // pero sendCount/método/pc son comparables entre ambos VMs.
-                mix(vm.sendCount);
-                mix(vm.pc);
-                mix(vm.method && vm.method.oop ? vm.method.oop : 0);
-                if (logLines) logLines.push(slices + " sends=" + vm.sendCount + " pc=" + vm.pc +
-                    " oop=" + (vm.method && vm.method.oop) +
-                    " vms=" + virtualMs + " r=" + result);
-            }
+            // el hash se alimenta solo de los checkpoints por sendCount (arriba);
+            // los límites de slice dependen de la cadencia de interrupciones,
+            // que varía entre modos (jit/no-jit) sin implicar divergencia semántica
             if (result === "sleep") {
                 // todos los procesos esperan sin timer: nada más va a pasar
                 if (++idleStreak >= 3) { stopReason = "idle"; break; }
@@ -188,6 +366,7 @@ image.readFromBuffer(data.buffer, function startRunning() {
         }
     } catch (e) {
         stopReason = "error: " + e.message;
+        if (process.env.DIFFTRACE_DEBUG) console.error(e.stack);
     }
     var wallMs = Number(process.hrtime.bigint() - wallStart) / 1e6;
     if (logLines) fs.writeFileSync(logPath, logLines.join("\n") + "\n");
@@ -231,9 +410,10 @@ image.readFromBuffer(data.buffer, function startRunning() {
             process.exit(2);
         }
         var golden = JSON.parse(fs.readFileSync(goldenPath, "utf8"));
-        // slices/virtualMs quedan fuera de la comparación: son del scheduling,
-        // no de la semántica (podrían variar levemente entre representaciones)
-        var keys = ["image", "maxSends", "sendCount", "stopReason", "hash"];
+        // slices/virtualMs/sendCount-final quedan fuera de la comparación:
+        // dependen de la cadencia de interrupciones y la granularidad del slice,
+        // no de la semántica
+        var keys = ["image", "maxSends", "stopReason", "hash"];
         var diffs = keys.filter(function(k) { return String(golden[k]) !== String(report[k]); });
         if (diffs.length === 0) {
             console.log("OK: traza idéntica al golden");

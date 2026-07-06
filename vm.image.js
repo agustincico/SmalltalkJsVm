@@ -760,10 +760,24 @@ Object.subclass('Squeak.Image',
     },
     instantiateClass: function(aClass, indexableSize, filler) {
         var newObject = new (aClass.classInstProto()); // Squeak.Object
-        var hash = this.registerObject(newObject);
+        var hash = aClass === this.contextClass() ? this.registerContext(newObject)
+            : this.registerObject(newObject);
         newObject.initInstanceOf(aClass, indexableSize, hash, filler);
         this.hasNewInstances[aClass.oop] = true;   // need GC to find all instances
         return newObject;
+    },
+    contextClass: function() {
+        return this.specialObjectsArray.pointers[Squeak.splOb_ClassMethodContext];
+    },
+    registerContext: function(obj) {
+        // like registerObject, but contexts draw their identity hashes from a
+        // separate stream: their allocation pattern is an implementation detail
+        // (recycling, or stack-zone frames that materialize contexts lazily),
+        // and interleaving them into the main stream would make every other
+        // object's identity hash depend on it
+        obj.oop = -(++this.newSpaceCount);
+        this.lastContextHash = (13849 + (27181 * (this.lastContextHash || 999))) & 0xFFFFFFFF;
+        return this.lastContextHash & 0xFFF;
     },
     clone: function(object) {
         var newObject = new (object.sqClass.classInstProto()); // Squeak.Object

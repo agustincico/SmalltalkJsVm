@@ -1344,7 +1344,7 @@ Object.subclass('Squeak.Primitives',
             primIdx = this.stackInteger(1);
         if (!this.success) return false;
         var arraySize = argumentArray.pointersSize(),
-            cntxSize = this.vm.activeContext.pointersSize();
+            cntxSize = this.vm.activeContextObj().pointersSize();
         if (this.vm.sp + arraySize >= cntxSize) return false;
         // Pop primIndex and argArray, then push args in place...
         this.vm.popN(2);
@@ -1365,7 +1365,7 @@ Object.subclass('Squeak.Primitives',
             primMethod = this.stackNonInteger(2);
         if (!this.success) return false;
         var arraySize = argumentArray.pointersSize(),
-            cntxSize = this.vm.activeContext.pointersSize();
+            cntxSize = this.vm.activeContextObj().pointersSize();
         if (this.vm.sp + arraySize >= cntxSize) return false;
         // Pop primIndex, rcvr, and argArray, then push new receiver and args in place...
         this.vm.popN(3);
@@ -1471,7 +1471,10 @@ Object.subclass('Squeak.Primitives',
         if (!this.success) return false;
         this.success = this.vm.image.bulkBecome(rcvr.pointers, arg.pointers, doBothWays, copyHash);
         // become may have swapped the active context's pointers array
-        this.vm.stack = this.vm.activeContext.pointers;
+        if (!this.vm.useStackZone) {
+            this.vm.stack = this.vm.activeContext.pointers;
+            this.vm.temps = this.vm.homeContext.pointers;
+        }
         return this.popNIfOK(argCount);
     },
     doStringReplace: function() {
@@ -1590,7 +1593,7 @@ Object.subclass('Squeak.Primitives',
         var initialIP = block.pointers[Squeak.BlockContext_initialIP];
         block.pointers[Squeak.Context_instructionPointer] = initialIP;
         block.pointers[Squeak.Context_stackPointer] = argCount;
-        block.pointers[Squeak.BlockContext_caller] = this.vm.activeContext;
+        block.pointers[Squeak.BlockContext_caller] = this.vm.activeContextObj();
         this.vm.popN(argCount+1);
         this.vm.newActiveContext(block);
         if (this.vm.interruptCheckCounter-- <= 0) this.vm.checkForInterrupts();
@@ -1609,7 +1612,7 @@ Object.subclass('Squeak.Primitives',
         var initialIP = block.pointers[Squeak.BlockContext_initialIP];
         block.pointers[Squeak.Context_instructionPointer] = initialIP;
         block.pointers[Squeak.Context_stackPointer] = blockArgCount;
-        block.pointers[Squeak.BlockContext_caller] = this.vm.activeContext;
+        block.pointers[Squeak.BlockContext_caller] = this.vm.activeContextObj();
         this.vm.popN(argCount+1);
         this.vm.newActiveContext(block);
         if (this.vm.interruptCheckCounter-- <= 0) this.vm.checkForInterrupts();
@@ -1772,7 +1775,7 @@ Object.subclass('Squeak.Primitives',
         var oldProc = sched.pointers[Squeak.ProcSched_activeProcess];
         sched.pointers[Squeak.ProcSched_activeProcess] = newProc;
         sched.dirty = true;
-        oldProc.pointers[Squeak.Proc_suspendedContext] = this.vm.activeContext;
+        oldProc.pointers[Squeak.Proc_suspendedContext] = this.vm.activeContextObj();
         oldProc.dirty = true;
         this.vm.newActiveContext(newProc.pointers[Squeak.Proc_suspendedContext]);
         newProc.pointers[Squeak.Proc_suspendedContext] = this.vm.nilObj;
@@ -2151,7 +2154,7 @@ Object.subclass('Squeak.Primitives',
     primitiveSnapshot: function(argCount) {
         this.vm.popNandPush(1, this.vm.trueObj);        // put true on stack for saved snapshot
         this.vm.storeContextRegisters();                // store current state for snapshot
-        this.activeProcess().pointers[Squeak.Proc_suspendedContext] = this.vm.activeContext; // store initial context
+        this.activeProcess().pointers[Squeak.Proc_suspendedContext] = this.vm.activeContextObj(); // store initial context
         this.vm.image.fullGC("snapshot");               // before cleanup so traversal works
         var buffer = this.vm.image.writeToBuffer();
         // Write snapshot if files are supported
