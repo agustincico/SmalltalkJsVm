@@ -346,6 +346,7 @@ Object.extend(Squeak.Interpreter.prototype,
         this.method = newMethod;
         this.receiver = newRcvr;
         this.tempOffset = base;
+        if (!newMethod.compiled) this.compileIfPossible(newMethod, optClass, optSel);
         // check for process switch on full method activation
         if (this.interruptCheckCounter-- <= 0) this.checkForInterrupts();
     },
@@ -632,5 +633,6 @@ Object.extend(Squeak.Primitives.prototype,
         vm.method = closureMethod;
         vm.receiver = receiver;
         vm.tempOffset = base;
+        if (!closureMethod.compiled) vm.compileIfPossible(closureMethod);
     },
 });

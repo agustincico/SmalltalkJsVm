@@ -36,7 +36,6 @@ Object.subclass('Squeak.Interpreter',
         this.loadInitialContext();
         this.hackImage();
         this.initCompiler();
-        if (this.useStackZone) this.compiler = null; // jit templates for frames mode not implemented yet
         console.log('squeak: ready');
     },
     loadImageState: function() {
