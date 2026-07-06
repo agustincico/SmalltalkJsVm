@@ -22,6 +22,7 @@ var mode = args.indexOf("--golden") >= 0 ? "golden"
          : args.indexOf("--bench") >= 0 ? "bench"
          : "check";
 var useFrames = args.indexOf("--frames") >= 0; // correr con el stack zone activado
+var useJit2 = args.indexOf("--jit2") >= 0; // stack-to-register jit (requiere --frames)
 var noJit = args.indexOf("--nojit") >= 0; // apagar el jit (para aislar divergencias jit vs frames)
 function argValue(name, deflt) {
     var i = args.indexOf(name);
@@ -105,7 +106,7 @@ Object.assign(self, {
     "globals.js", "vm.js", "vm.object.js", "vm.object.spur.js", "vm.image.js",
     "vm.interpreter.js", "vm.interpreter.proxy.js", "vm.instruction.stream.js",
     "vm.instruction.stream.sista.js", "vm.instruction.printer.js", "vm.primitives.js",
-    "jit.js", "vm.display.js", "vm.display.headless.js", "vm.input.js",
+    "jit.js", "jit2.js", "vm.display.js", "vm.display.headless.js", "vm.input.js",
     "vm.input.headless.js", "vm.plugins.js", "vm.plugins.file.node.js",
     "vm.stackzone.js",
 ].forEach(function(f) { require(path.join(repoRoot, f)); });
@@ -156,8 +157,44 @@ var data = fs.readFileSync(imagePath);
 var image = new Squeak.Image(imagePath.replace(/\.image$/, ""));
 image.readFromBuffer(data.buffer, function startRunning() {
     var display = { vmOptions: ["-vm-display-null", "-nodisplay"] };
-    var vm = new Squeak.Interpreter(image, display, useFrames ? { stackZone: true } : {});
+    var vm = new Squeak.Interpreter(image, display, useFrames ? { stackZone: true, jit2: useJit2 } : {});
     if (noJit) vm.compiler = null;
+    if (process.env.JIT2DBG) vm.jit2Debug = true;
+    if (process.env.SEMDBG) {
+        var origSS = vm.primHandler.synchronousSignal;
+        vm.primHandler.synchronousSignal = function(sema) {
+            if (vm.sendCount >= 717670 && vm.sendCount <= 717685)
+                console.error("SIG s=" + vm.sendCount + " semaHash=" + sema.hash
+                    + " excess=" + sema.pointers[Squeak.Sema_excessSignals]
+                    + " empty=" + this.isEmptyList(sema)
+                    + " firstLink=" + (sema.pointers[Squeak.LinkedList_firstLink].isNil ? "nil" : "proc:" + sema.pointers[Squeak.LinkedList_firstLink].hash));
+            return origSS.call(this, sema);
+        };
+        var origWait = vm.primHandler.primitiveWait || null;
+    }
+    if (process.env.GCDBG) {
+        var origFGR = vm.frameGCRoots;
+        var fgrCalls = 0;
+        vm.frameGCRoots = function() {
+            var roots = origFGR.call(vm);
+            if (++fgrCalls <= 2) {
+                var desc = [];
+                for (var i = 0; i < vm.zonePages.length; i++) {
+                    var pg = vm.zonePages[i];
+                    desc.push((pg.live ? "L" : "d") + " fp=" + pg.fp + " sp=" + pg.sp + " len=" + pg.slots.length);
+                }
+                console.error("FGR#" + fgrCalls + " s=" + vm.sendCount + " roots=" + roots.length + " | " + desc.join(" | "));
+            }
+            return roots;
+        };
+    }
+    if (process.env.CHKDBG) {
+        var origCFI = vm.checkForInterrupts;
+        vm.checkForInterrupts = function() {
+            console.error("CHK s=" + vm.sendCount + " vms=" + virtualMs + " reset=" + vm.interruptCheckCounterFeedBackReset + " wake=" + vm.nextWakeupTick);
+            return origCFI.call(vm);
+        };
+    }
     if (process.env.ZDBG9) {
         // volcar bytes+literales del método activado cuando mbytes coincide
         var z9size = parseInt(process.env.ZDBG9_SIZE), z9From = parseInt(process.env.ZDBG9_FROM || "0");
@@ -332,11 +369,19 @@ image.readFromBuffer(data.buffer, function startRunning() {
                 mix(vm.sendCount);
                 mix(newMethod._traceId);
                 mix(vm.pc);
-                if (logLines) logLines.push("s=" + vm.sendCount + " h=" + newMethod._traceId + " pc=" + vm.pc);
+                if (logLines) logLines.push("s=" + vm.sendCount + " h=" + newMethod._traceId + " pc=" + vm.pc + " vms=" + virtualMs + " alloc=" + (vm.image.newSpaceCount + vm.image.allocationCount));
             }
-            if (logLines && vm.sendCount >= logFrom && vm.sendCount <= logTo)
+            if (logLines && vm.sendCount >= logFrom && vm.sendCount <= logTo) {
+                if (vm.method && vm.method._traceId === undefined) {
+                    var fp2 = vm.method.bytes ? vm.method.bytes.length : 0;
+                    if (vm.method.bytes) for (var bj = 0; bj < Math.min(vm.method.bytes.length, 16); bj++)
+                        fp2 = ((fp2 * 31) + vm.method.bytes[bj]) | 0;
+                    vm.method._traceId = fp2;
+                }
                 logLines.push("S=" + vm.sendCount + " h=" + newMethod._traceId + " pc=" + vm.pc + " args=" + argumentCount + " prim=" + primitiveIndex
+                    + " cm=" + (vm.method ? vm.method._traceId : "?")
                     + " rcls=" + vm.getClass(newRcvr).className() + " sel=" + (optSel && optSel.bytesAsString ? optSel.bytesAsString() : "?"));
+            }
             return origENM.call(vm, newRcvr, newMethod, argumentCount, primitiveIndex, optClass, optSel);
         };
     }
@@ -408,6 +453,11 @@ image.readFromBuffer(data.buffer, function startRunning() {
         return;
     }
 
+    if (vm.compiler && vm.compiler.okCount !== undefined)
+        console.log("jit2: ok=" + vm.compiler.okCount + " bail=" + vm.compiler.bailCount);
+    if (vm.useStackZone)
+        console.log("married=" + (vm.nMarriedContexts||0) + " byClosure=" + (vm.nMarryClosure||0)
+            + " byThisCtx=" + (vm.nMarryThisCtx||0) + " bySenderFill=" + (vm.nMarrySenderFill||0));
     console.log("trace: sends=" + report.sendCount + " slices=" + report.slices +
         " stop=" + report.stopReason + " hash=" + report.hash + " virtualMs=" + report.virtualMs +
         "  (wall " + wallMs.toFixed(0) + " ms)");

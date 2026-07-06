@@ -95,6 +95,7 @@ require("./vm.instruction.printer.js");
 require("./vm.primitives.js");
 require("./jit.js");
 require("./vm.stackzone.js");
+require("./jit2.js");
 require("./vm.display.js");
 require("./vm.display.headless.js");    // use headless display to prevent image crashing/becoming unresponsive
 require("./vm.input.js");

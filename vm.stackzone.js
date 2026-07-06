@@ -49,6 +49,7 @@ Object.extend(Squeak.Interpreter.prototype,
         // pueden estar casadas; comparar la clase primero evita LoadICs
         // megamórficos sobre receivers arbitrarios (medido: 24% del tiempo)
         this.contextClass_ = this.specialObjects[Squeak.splOb_ClassMethodContext];
+        this.smallIntClass_ = this.specialObjects[Squeak.splOb_ClassInteger];
         var vm = this;
         // rebind execution methods to the frames variants
         this.send = this.sendZ;

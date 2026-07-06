@@ -36,6 +36,8 @@ Object.subclass('Squeak.Interpreter',
         this.loadInitialContext();
         this.hackImage();
         this.initCompiler();
+        if (this.useStackZone && this.options.jit2 && this.compiler && Squeak.Compiler2)
+            this.compiler = new Squeak.Compiler2(this); // stack-to-register jit (WIP, opt-in)
         console.log('squeak: ready');
     },
     loadImageState: function() {

@@ -39,6 +39,7 @@ import "./vm.instruction.printer.js";
 import "./vm.primitives.js";
 import "./jit.js";
 import "./vm.stackzone.js";
+import "./jit2.js";
 import "./vm.audio.browser.js";
 import "./vm.display.js";
 import "./vm.display.browser.js";
