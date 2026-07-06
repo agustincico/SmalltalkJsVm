@@ -162,12 +162,14 @@ image.readFromBuffer(data.buffer, function startRunning() {
             var result = vm.interpret(5);
             slices++;
             if (mode !== "bench") {
+                // Solo estado independiente de la representación de contexts:
+                // sp/activeContext cambian de significado con el stack zone,
+                // pero sendCount/método/pc son comparables entre ambos VMs.
                 mix(vm.sendCount);
                 mix(vm.pc);
-                mix(vm.sp);
                 mix(vm.method && vm.method.oop ? vm.method.oop : 0);
                 if (logLines) logLines.push(slices + " sends=" + vm.sendCount + " pc=" + vm.pc +
-                    " sp=" + vm.sp + " oop=" + (vm.method && vm.method.oop) +
+                    " oop=" + (vm.method && vm.method.oop) +
                     " vms=" + virtualMs + " r=" + result);
             }
             if (result === "sleep") {
@@ -229,7 +231,9 @@ image.readFromBuffer(data.buffer, function startRunning() {
             process.exit(2);
         }
         var golden = JSON.parse(fs.readFileSync(goldenPath, "utf8"));
-        var keys = ["image", "maxSends", "sendCount", "slices", "stopReason", "hash", "virtualMs"];
+        // slices/virtualMs quedan fuera de la comparación: son del scheduling,
+        // no de la semántica (podrían variar levemente entre representaciones)
+        var keys = ["image", "maxSends", "sendCount", "stopReason", "hash"];
         var diffs = keys.filter(function(k) { return String(golden[k]) !== String(report[k]); });
         if (diffs.length === 0) {
             console.log("OK: traza idéntica al golden");
