@@ -62,6 +62,7 @@ Object.subclass('Squeak.Interpreter',
         this.temps = null; // temp base array (homeContext.pointers; a zone page once stack frames land)
         this.tempOffset = Squeak.Context_tempFrameStart; // index of temp 0 in this.temps
         // stack-zone state, declared here for stable object shape even when unused
+        this.jsDepth = 0; // profundidad de llamadas JS directas (modo frames)
         this.useStackZone = false;
         this.zonePages = null;
         this.zonePage = null;

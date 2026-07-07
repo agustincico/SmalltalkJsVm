@@ -396,8 +396,21 @@ Object.extend(Squeak.Interpreter.prototype,
         this.receiver = newRcvr;
         this.tempOffset = base;
         if (!newMethod.compiled) this.compileIfPossible(newMethod, optClass, optSel);
+        var myPage = this.zonePage;
         // check for process switch on full method activation
         if (this.interruptCheckCounter-- <= 0) this.checkForInterrupts();
+        // direct call: run the callee as a plain JS call instead of returning to
+        // the trampoline. The JS stack never holds suspended state (every level
+        // returns as soon as its Smalltalk continuation leaves its frame, via the
+        // activation checks), so a process switch simply unwinds the whole chain
+        // one compare+return per level. Depth-capped for the JS stack limit.
+        if (newMethod.compiled && this.jsDepth < 512
+            && this.fp === nfp && this.zonePage === myPage
+            && this.breakOutOfInterpreter === false) {
+            this.jsDepth++;
+            newMethod.compiled(this);
+            this.jsDepth--;
+        }
     },
     doBlockReturnZ: function(returnValue) {
         // return from a block activation to its caller (never non-local)
@@ -655,6 +668,11 @@ Object.extend(Squeak.Primitives.prototype,
         vm.method = method;
         vm.receiver = receiver;
         vm.tempOffset = base;
+        if (method.compiled && vm.jsDepth < 512 && vm.breakOutOfInterpreter === false) {
+            vm.jsDepth++;
+            method.compiled(vm);
+            vm.jsDepth--;
+        }
     },
     activateNewFullClosureZ: function(blockClosure, argCount) {
         var vm = this.vm;
@@ -685,5 +703,10 @@ Object.extend(Squeak.Primitives.prototype,
         vm.receiver = receiver;
         vm.tempOffset = base;
         if (!closureMethod.compiled) vm.compileIfPossible(closureMethod);
+        if (closureMethod.compiled && vm.jsDepth < 512 && vm.breakOutOfInterpreter === false) {
+            vm.jsDepth++;
+            closureMethod.compiled(vm);
+            vm.jsDepth--;
+        }
     },
 });

@@ -44,6 +44,10 @@ var stackZone = processArgs[0] === "-stackZone";
 if (stackZone) {
     processArgs = processArgs.slice(1);
 }
+var jit2 = processArgs[0] === "-jit2";
+if (jit2) {
+    processArgs = processArgs.slice(1);
+}
 var fullName = processArgs[0];
 if (!fullName) {
     console.error("No image name specified.");
@@ -139,7 +143,7 @@ fs.readFile(root + imageName + ".image", function(error, data) {
 
         // Create fake display and create interpreter
         var display = { vmOptions: [ "-vm-display-null", "-nodisplay" ] };
-        var vm = new Squeak.Interpreter(image, display, stackZone ? { stackZone: true } : {});
+        var vm = new Squeak.Interpreter(image, display, stackZone ? { stackZone: true, jit2: jit2 } : {});
         function run() {
             try {
                 vm.interpret(200, function runAgain(ms) {
