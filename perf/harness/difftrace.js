@@ -219,6 +219,31 @@ image.readFromBuffer(data.buffer, function startRunning() {
             return origENM9.call(vm, newRcvr, newMethod, argumentCount, primitiveIndex, optClass, optSel);
         };
     }
+    if (process.env.PFNDBG) vm.primFnDebug = true;
+    if (process.env.FADBG) {
+        // loguear llamadas a FloatArrayPlugin.primitiveAt: (sc, sp-antes, success-después, sp-después)
+        var faCount = 0;
+        var patchFA = function(mod) {
+            if (!mod || mod._faPatched) return !!mod;
+            mod._faPatched = true;
+            var orig = mod.primitiveAt;
+            mod.primitiveAt = function(argCount) {
+                var spBefore = vm.sp;
+                var r = orig.call(this, argCount);
+                if (++faCount <= 40)
+                    console.error("FA#" + faCount + " s=" + vm.sendCount + " spB=" + spBefore
+                        + " r=" + r + " succ=" + vm.primHandler.success + " spA=" + vm.sp);
+                return r;
+            };
+            return true;
+        };
+        var origLMD = vm.primHandler.loadModule.bind(vm.primHandler);
+        vm.primHandler.loadModule = function(name) {
+            var m = origLMD(name);
+            if (name === "FloatArrayPlugin") patchFA(m);
+            return m;
+        };
+    }
     if (process.env.ZDBG7) {
         // dump de cadena al activar un método específico (por _traceId)
         var z7id = parseInt(process.env.ZDBG7_ID), z7From = parseInt(process.env.ZDBG7_FROM || "0");

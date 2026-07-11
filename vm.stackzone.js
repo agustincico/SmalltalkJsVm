@@ -659,6 +659,7 @@ Object.extend(Squeak.Interpreter.prototype,
 Object.extend(Squeak.Primitives.prototype,
 'stack zone', {
     resolveNamedPrim: function(method) {
+        if (this.vm.primFnDebug) console.error("RESOLVE intento");
         // resolver módulo+función del prim 117 una sola vez y cachear en el
         // método un wrapper que replica el protocolo de namedPrimitive
         method.primFn = null;
@@ -667,14 +668,15 @@ Object.extend(Squeak.Primitives.prototype,
         if (firstLiteral.pointersSize() !== 4) return null;
         var moduleName = firstLiteral.pointers[0].bytesAsString();
         var functionName = firstLiteral.pointers[1].bytesAsString();
-        // denylist: FloatArrayPlugin cacheado diverge en combinación con otros
-        // plugins cacheados (interacción con estado global aún sin diagnosticar,
-        // posiblemente el at-cache); su camino lento es correcto
-        if (moduleName === "FloatArrayPlugin") return null;
         if (typeof process !== "undefined" && process.env && process.env.PRIMFN_SKIP
             && (process.env.PRIMFN_SKIP === "*" || process.env.PRIMFN_SKIP.split(",").indexOf(moduleName) >= 0)) return null;
         var mod = moduleName === "" ? this : this.loadedModules[moduleName];
         if (mod === undefined) {
+            // loadModule chequea interpreterProxy.failed() tras initialiseModule,
+            // que lee el flag `success` AMBIENTE — en el camino original doPrimitive
+            // lo resetea al entrar; acá resolvemos antes de ese punto, así que un
+            // success=false stale del primitivo anterior hacía "fallar" la carga
+            this.success = true;
             mod = this.loadModule(moduleName);
             this.loadedModules[moduleName] = mod;
         }
