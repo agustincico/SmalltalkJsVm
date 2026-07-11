@@ -604,6 +604,26 @@ Object.extend(Squeak.Interpreter.prototype,
         return this.marryFrame(this.zonePage, this.fp);
     },
     tryPrimitiveZ: function(primIndex, argCount, newMethod) {
+        if (primIndex === 117) {
+            // prim con nombre: cachear la función resuelta en el método
+            // (el camino normal reconstruye los strings de módulo/función y
+            // hace lookups por nombre EN CADA llamada)
+            var fn = newMethod.primFn;
+            if (fn === undefined) fn = this.primHandler.resolveNamedPrim(newMethod);
+            if (fn !== null) {
+                var sp117 = this.sp;
+                var page117 = this.zonePage, fp117 = this.fp;
+                var ok = fn(argCount);
+                if (ok
+                    && this.sp !== sp117 - argCount
+                    && page117 === this.zonePage && fp117 === this.fp
+                    && !this.frozen) {
+                    this.warnOnce("stack unbalanced after primitive 117/cached", "error");
+                }
+                return ok;
+            }
+            // sin resolver (módulo/función faltante): camino lento con warnings
+        }
         if ((primIndex > 255) && (primIndex < 520)) {
             if (primIndex >= 264) {//return instvars
                 this.popNandPush(1, this.top().pointers[primIndex - 264]);
@@ -638,6 +658,45 @@ Object.extend(Squeak.Interpreter.prototype,
 
 Object.extend(Squeak.Primitives.prototype,
 'stack zone', {
+    resolveNamedPrim: function(method) {
+        // resolver módulo+función del prim 117 una sola vez y cachear en el
+        // método un wrapper que replica el protocolo de namedPrimitive
+        method.primFn = null;
+        if (method.pointersSize() < 2) return null;
+        var firstLiteral = method.pointers[1];
+        if (firstLiteral.pointersSize() !== 4) return null;
+        var moduleName = firstLiteral.pointers[0].bytesAsString();
+        var functionName = firstLiteral.pointers[1].bytesAsString();
+        // denylist: FloatArrayPlugin cacheado diverge en combinación con otros
+        // plugins cacheados (interacción con estado global aún sin diagnosticar,
+        // posiblemente el at-cache); su camino lento es correcto
+        if (moduleName === "FloatArrayPlugin") return null;
+        if (typeof process !== "undefined" && process.env && process.env.PRIMFN_SKIP
+            && (process.env.PRIMFN_SKIP === "*" || process.env.PRIMFN_SKIP.split(",").indexOf(moduleName) >= 0)) return null;
+        var mod = moduleName === "" ? this : this.loadedModules[moduleName];
+        if (mod === undefined) {
+            mod = this.loadModule(moduleName);
+            this.loadedModules[moduleName] = mod;
+        }
+        if (!mod) return null;
+        var primitive = mod[functionName];
+        var ph = this, proxy = this.interpreterProxy;
+        var inner;
+        if (typeof primitive === "function") inner = primitive.bind(mod);
+        else if (typeof primitive === "string") inner = this[primitive].bind(this);
+        else return null; // missing: que el camino lento warnee
+        var wrapper = function(argCount) {
+            ph.success = true;
+            proxy.argCount = argCount;
+            proxy.primitiveName = functionName;
+            ph.primMethod = method;
+            var r = inner(argCount);
+            if (r === true || r === false) return r;
+            return ph.success;
+        };
+        method.primFn = wrapper;
+        return wrapper;
+    },
     activateNewClosureMethodZ: function(blockClosure, argCount) {
         // old-style (V3) closures: startpc into the home method
         var vm = this.vm;
