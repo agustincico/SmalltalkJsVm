@@ -224,9 +224,7 @@ image.readFromBuffer(data.buffer, function startRunning() {
         var z7id = parseInt(process.env.ZDBG7_ID), z7From = parseInt(process.env.ZDBG7_FROM || "0");
         var chainDesc = function() {
             var desc = [];
-            if (vm.useStackZone)
-            console.log("leafCalls=" + vm.nLeafCalls + " deopts=" + vm.nLeafDeopts + " hookFires=" + (vm.jit2HookFires||0));
-        if (vm.useStackZone) {
+            if (vm.useStackZone) {
                 var page = vm.zonePage, fp = vm.fp, hops = 0;
                 while (fp >= 0 && hops++ < 20) {
                     var m = page.slots[fp + Squeak.Frame_method];
@@ -488,7 +486,8 @@ image.readFromBuffer(data.buffer, function startRunning() {
 
     if (vm.compiler && vm.compiler.okCount !== undefined)
         console.log("jit2: ok=" + vm.compiler.okCount + " bail=" + vm.compiler.bailCount
-            + " leaves=" + (vm.compiler.leafCount || 0));
+            + " leaves=" + (vm.compiler.leafCount || 0)
+            + " leafCalls=" + vm.nLeafCalls + " deopts=" + vm.nLeafDeopts);
     if (vm.useStackZone)
         console.log("married=" + (vm.nMarriedContexts||0) + " byClosure=" + (vm.nMarryClosure||0)
             + " byThisCtx=" + (vm.nMarryThisCtx||0) + " bySenderFill=" + (vm.nMarrySenderFill||0));
