@@ -482,6 +482,10 @@ Object.subclass('Squeak.Object',
     classInstProto: function(className) {
         if (this.instProto) return this.instProto;
         var proto = this.defaultInst();  // in case below fails
+        // Nota de experimento (2026-07-11): una única shape plana para todos los
+        // objetos (en vez de constructores por clase) midió ~7% MÁS LENTO en el
+        // bench frames+jit2 — los maps por clase + ICs polimórficos de V8 ya
+        // rinden bien; no repetir sin nueva evidencia.
         try {
             if (!className) className = this.className();
             var safeName = className.replace(/[^A-Za-z0-9]/g,'_');
@@ -490,7 +494,7 @@ Object.subclass('Squeak.Object',
             else if (safeName === "False") safeName = "false_";
             else safeName = ((/^[AEIOU]/.test(safeName)) ? 'an' : 'a') + safeName;
             // fail okay if no eval()
-            proto = new Function("return function " + safeName + "() {};")();
+            proto = new Function("return function " + safeName + "() { this.oop = 0; this.hash = 0; this.dirty = false; this.mark = false; this.nextObject = null; };")();
             proto.prototype = this.defaultInst().prototype;
         } catch(e) {}
         Object.defineProperty(this, 'instProto', { value: proto });
