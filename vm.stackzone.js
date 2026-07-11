@@ -112,10 +112,29 @@ Object.extend(Squeak.Interpreter.prototype,
                 page.slots.length = 0;
                 page.live = true;
                 page.baseCallerCtx = null;
+                if (this.pageStats) this.pageStats.reused++;
                 return page;
             }
+        if (this.zonePages.length >= 32) {
+            // sin muertas y con muchas vivas: páginas de procesos terminados
+            // quedan vivas-inalcanzables (el terminate corta cadenas a nivel
+            // context). Flushear una suspendida es siempre correcto (su resume
+            // re-infla via makeBaseFrame) y la vuelve reutilizable.
+            for (var i = 0; i < this.zonePages.length; i++) {
+                var victim = this.zonePages[i];
+                if (victim.live && victim !== this.zonePage) {
+                    this.flushPageAndContinue(victim);
+                    victim.slots.length = 0;
+                    victim.live = true;
+                    victim.baseCallerCtx = null;
+                    if (this.pageStats) this.pageStats.evicted = (this.pageStats.evicted || 0) + 1;
+                    return victim;
+                }
+            }
+        }
         var fresh = { slots: [], fp: -1, sp: -1, pc: -1, live: true, baseCallerCtx: null };
         this.zonePages.push(fresh);
+        if (this.pageStats) this.pageStats.fresh++;
         return fresh;
     },
     activatePage: function(page) {
@@ -241,10 +260,11 @@ Object.extend(Squeak.Interpreter.prototype,
         }
     },
     storeToMarriedContext: function(ctx, index, value) {
+        if (this.smcStats) this.smcStats[index] = (this.smcStats[index] || 0) + 1;
         // Smalltalk escribe un campo de un context con frame vivo (terminate,
-        // unwind, debugger): serializar todo a contexts reales, seguir en un
-        // base frame fresco, y hacer la escritura sobre el context real
-        this.flushAllAndContinue();
+        // unwind, debugger): serializar SU página a contexts reales, seguir en
+        // un base frame fresco si era la activa, y escribir sobre el context real
+        this.flushPageAndContinue(ctx.frame.page);
         ctx.pointers[index] = value;
         ctx.dirty = true;
         if (ctx.frame != null) {
@@ -262,6 +282,29 @@ Object.extend(Squeak.Interpreter.prototype,
         ctx.pointers[Squeak.Context_instructionPointer] = this.nilObj;
         ctx.frame = null;
         ctx.dirty = true;
+    },
+    flushPageAndContinue: function(page) {
+        // serializar SOLO una página a contexts reales (stores a contexts casados
+        // suelen ser cirugía de cadena en una página; flushear todas — Dialogo
+        // hacía 23k flushes totales por 10M sends — era el martillo grande)
+        this.nFlushPage = (this.nFlushPage || 0) + 1;
+        this.saveActivePage();
+        var isActive = page === this.zonePage;
+        if (this.pageStats) { this.pageStats.flushActive += isActive ? 1 : 0; this.pageStats.flushSusp += isActive ? 0 : 1; if (!page.live) this.pageStats.flushDead++; }
+        var top = isActive ? this.marryFrame(page, this.fp) : null;
+        if (!isActive && page.fp >= 0) this.marryFrame(page, page.fp);
+        for (var fp = page.fp; fp >= 0; fp = page.slots[fp + Squeak.Frame_savedFp])
+            this.marryFrame(page, fp);
+        this.syncPage(page);
+        for (var fp = page.fp; fp >= 0; fp = page.slots[fp + Squeak.Frame_savedFp]) {
+            var ctx = page.slots[fp + Squeak.Frame_context];
+            if (ctx) ctx.frame = null;
+        }
+        page.live = false;
+        if (isActive) {
+            this.zonePage = null;
+            this.makeBaseFrameZ(top);
+        }
     },
     flushAllAndContinue: function() {
         // serialize every live frame to its (married) context, kill all pages,

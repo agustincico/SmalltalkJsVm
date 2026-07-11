@@ -220,6 +220,8 @@ image.readFromBuffer(data.buffer, function startRunning() {
         };
     }
     if (process.env.PFNDBG) vm.primFnDebug = true;
+    if (process.env.PAGEDBG) { vm.pageStats = {fresh:0, reused:0, flushActive:0, flushSusp:0, flushDead:0}; process.on("exit", function(){ console.error("PAGES:", JSON.stringify(vm.pageStats)); }); }
+    if (process.env.SMCDBG) { vm.smcStats = {}; process.on("exit", function() { console.error("SMC stores por índice:", JSON.stringify(vm.smcStats)); }); }
     if (process.env.FADBG) {
         // loguear llamadas a FloatArrayPlugin.primitiveAt: (sc, sp-antes, success-después, sp-después)
         var faCount = 0;
@@ -501,6 +503,10 @@ image.readFromBuffer(data.buffer, function startRunning() {
                 if (vm.zonePages[i].live) live++;
                 if (vm.zonePages[i].slots.length > maxSlots) maxSlots = vm.zonePages[i].slots.length;
             }
+            var vacias = 0;
+            for (var i = 0; i < vm.zonePages.length; i++)
+                if (vm.zonePages[i].live && vm.zonePages[i].fp < 0) vacias++;
+            console.log("pages live vacías (fp<0): " + vacias + " flushPage=" + (vm.nFlushPage || 0));
             console.log("zona: pages=" + vm.zonePages.length + " live=" + live + " maxSlots=" + maxSlots
                 + " married=" + (vm.nMarriedContexts || 0) + " flushAll=" + (vm.nFlushAll || 0)
                 + " byClosure=" + (vm.nMarryClosure || 0) + " byThisCtx=" + (vm.nMarryThisCtx || 0)
