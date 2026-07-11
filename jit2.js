@@ -259,6 +259,10 @@ Object.subclass('Squeak.Compiler2',
             throw e;
         }
     },
+    envNo: function(tag) {
+        return typeof process !== "undefined" && process.env && process.env.JIT2NO
+            && process.env.JIT2NO.split(",").indexOf(tag) >= 0;
+    },
     bail: function(why) {
         throw { bail: true, why: why };
     },
@@ -511,11 +515,22 @@ Object.subclass('Squeak.Compiler2',
                 b3 = this.method.bytes[this.pc++];
                 switch (b2 >> 5) {
                     case 0: this.generateSend(1 + b3, b2 & 31); break;
+                    case 1: if (this.envNo("super")) this.bail("super"); this.generateSend(1 + b3, b2 & 31, true); break;
                     case 2: this.push("inst[" + b3 + "]"); break;
                     case 3: this.push("lit[" + (1 + b3) + "]"); break;
                     case 4: this.push("lit[" + (1 + b3) + "].pointers[1]"); break;
                     default: this.bail("doubleExtended op " + (b2 >> 5));
                 }
+                break;
+            case 0x85: // single extended send to super
+                if (this.envNo("super")) this.bail("super");
+                b2 = this.method.bytes[this.pc++];
+                this.generateSend(1 + (b2 & 31), b2 >> 5, true);
+                break;
+            case 0x86: // second extended send
+                if (this.envNo("send2")) this.bail("send2");
+                b2 = this.method.bytes[this.pc++];
+                this.generateSend(1 + (b2 & 0x3F), b2 >> 6);
                 break;
             case 0x87: // pop
                 this.depth--; break;
@@ -525,10 +540,44 @@ Object.subclass('Squeak.Compiler2',
                 this.spillAll();
                 this.push("vm.exportThisContext()");
                 break;
+            case 0x8A: { // closure temps (array de indirección)
+                if (this.envNo("ctemps")) this.bail("ctemps");
+                b2 = this.method.bytes[this.pc++];
+                var popValues = b2 > 127, count = b2 & 127;
+                this.emit("var arr = vm.instantiateClass(vm.specialObjects[7], ", count, ");\n");
+                if (popValues) {
+                    for (var ci = 0; ci < count; ci++)
+                        this.emit("arr.pointers[", ci, "] = ", this.slotAt(count - ci - 1), ";\n");
+                    this.depth -= count;
+                }
+                this.push("arr");
+                break;
+            }
+            case 0x8C:
+                if (this.envNo("vec")) this.bail("vec");
+                // remote push from temp vector
+                b2 = this.method.bytes[this.pc++];
+                b3 = this.method.bytes[this.pc++];
+                this.push("zone[tB + " + b3 + "].pointers[" + b2 + "]");
+                break;
+            case 0x8D: { // remote store into temp vector
+                if (this.envNo("vec")) this.bail("vec");
+                b2 = this.method.bytes[this.pc++];
+                b3 = this.method.bytes[this.pc++];
+                this.emit("var tv = zone[tB + ", b3, "]; tv.pointers[", b2, "] = ", this.top(), "; tv.dirty = true;\n");
+                break;
+            }
+            case 0x8E: { // remote store and pop
+                if (this.envNo("vec")) this.bail("vec");
+                b2 = this.method.bytes[this.pc++];
+                b3 = this.method.bytes[this.pc++];
+                this.emit("var tv = zone[tB + ", b3, "]; tv.pointers[", b2, "] = ", this.pop(), "; tv.dirty = true;\n");
+                break;
+            }
             case 0x8F: // pushClosureCopy
                 this.generateClosureCopy(); break;
             default:
-                this.bail("extended " + byte); // 0x85/0x86 super, 0x8A-0x8E: jit1
+                this.bail("extended " + byte); // 0x8B callPrimitive: jit1
         }
     },
     generateStoreInst: function(index, popIt) {
@@ -574,7 +623,7 @@ Object.subclass('Squeak.Compiler2',
         this.markJumpTarget(dest);
         this.markResume(this.pc, this.depth);
     },
-    generateSend: function(litIndex, argCount) {
+    generateSend: function(litIndex, argCount, superFlag) {
         var ic = this.ics.length;
         this.ics.push({ c: null, m: null, a: 0, p: 0, k: null });
         var rcvrSlot = this.slotAt(argCount);
@@ -582,7 +631,13 @@ Object.subclass('Squeak.Compiler2',
         for (var i = argCount - 1; i >= 0; i--) argSlots.push(this.slotAt(i));
         this.emit("vm.pc = ", this.pc, ";\n");
         this.emit("var ic = ics[", ic, "], rc = typeof ", rcvrSlot, " === 'number' ? vm.smallIntClass_ : ", rcvrSlot, ".sqClass;\n");
-        this.emit("if (rc !== ic.c) vm.jit2FillIC(ic, lit[", litIndex, "], ", argCount, ", rc);\n");
+        if (superFlag) {
+            // super: la clase de lookup es estática (superclase de la clase del
+            // método) — el IC se llena una sola vez y vale para todo receiver
+            this.emit("if (ic.c === null) vm.jit2FillSuperIC(ic, lit[", litIndex, "], ", argCount, ");\n");
+        } else {
+            this.emit("if (rc !== ic.c) vm.jit2FillIC(ic, lit[", litIndex, "], ", argCount, ", rc);\n");
+        }
         // leaf fast path: sin spill, sin frame, args como argumentos JS. Solo con
         // interruptCheckCounter > 0 (paridad exacta de cadencia con el golden:
         // vencido => camino framed, donde executeNewMethod chequea como siempre)
@@ -598,7 +653,7 @@ Object.subclass('Squeak.Compiler2',
         this.emit("else {\n");
         this.spillAll();
         this.emit("if (rc === vm.contextClass_ && ", rcvrSlot, ".frame != null) vm.syncMarriedContext(", rcvrSlot, ");\n");
-        this.emit("if (ic.p) { vm.verifyAtSelector = lit[", litIndex, "]; vm.verifyAtClass = rc; }\n");
+        this.emit("if (ic.p) { vm.verifyAtSelector = lit[", litIndex, "]; vm.verifyAtClass = ", superFlag ? "ic.c" : "rc", "; }\n");
         this.emit("vm.executeNewMethod(", rcvrSlot, ", ic.m, ic.a, ic.p, ic.k, lit[", litIndex, "]);\n");
         this.emit(this.activationCheck());
         this.emit(resultSlot, " = zone[vm.sp];\n");
@@ -741,7 +796,24 @@ Object.subclass('Squeak.Compiler2',
                 // tras el return el resultado queda en zone: el resume lo recarga
                 return;
             }
-            default: // next nextPut: atEnd blockCopy: new new: x y -> jit1
+            case 0x3: case 0x5: case 0xC: case 0xE: case 0xF: { // next atEnd new x y (0 args)
+                if (this.envNo("qp0")) this.bail("qp0");
+                this.spillAll(); // receiver ya está en el stack virtual
+                this.emit("vm.primHandler.success = true; vm.pc = ", this.pc, "; vm.sendSpecial(", lo + 16, "); ", this.activationCheck());
+                this.emit(this.top(), " = zone[vm.sp];\n");
+                this.markResume(this.pc, this.depth);
+                return;
+            }
+            case 0x4: case 0xD: { // nextPut: new: (1 arg)
+                if (this.envNo("qp1")) this.bail("qp1");
+                this.spillAll();
+                this.emit("vm.primHandler.success = true; vm.pc = ", this.pc, "; vm.sendSpecial(", lo + 16, "); ", this.activationCheck());
+                this.depth--;
+                this.emit(this.top(), " = zone[vm.sp];\n");
+                this.markResume(this.pc, this.depth);
+                return;
+            }
+            default: // blockCopy: do: -> jit1
                 this.bail("quick prim " + lo);
         }
     },
@@ -777,6 +849,11 @@ Object.subclass('Squeak.Compiler2',
 
 // vm-side support
 Object.extend(Squeak.Interpreter.prototype, 'jit2 support', {
+    jit2FillSuperIC: function(ic, selector, argCount) {
+        // super: lookup estático en la superclase de la clase del método activo
+        var lookupClass = this.method.methodClassForSuper().superclass();
+        this.jit2FillIC(ic, selector, argCount, lookupClass);
+    },
     jit2FillIC: function(ic, selector, argCount, lookupClass) {
         var entry = this.findSelectorInClass(selector, argCount, lookupClass);
         ic.c = lookupClass;
