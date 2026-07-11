@@ -50,6 +50,7 @@ Object.extend(Squeak.Interpreter.prototype,
         // megamórficos sobre receivers arbitrarios (medido: 24% del tiempo)
         this.contextClass_ = this.specialObjects[Squeak.splOb_ClassMethodContext];
         this.smallIntClass_ = this.specialObjects[Squeak.splOb_ClassInteger];
+        this.LEAF_DEOPT_ = Squeak.LEAF_DEOPT;
         var vm = this;
         // rebind execution methods to the frames variants
         this.send = this.sendZ;

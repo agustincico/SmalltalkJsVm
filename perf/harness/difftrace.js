@@ -136,10 +136,15 @@ Object.extend(Squeak.Primitives.prototype, {
 // Driver síncrono + hash de traza
 // ---------------------------------------------------------------------------
 var hash = 2166136261 >>> 0; // FNV-1a
+var mixLog = process.env.MIXLOG ? [] : null;
 function mix(v) {
+    if (mixLog) mixLog.push(v);
     hash = (hash ^ (v >>> 0)) >>> 0;
     hash = Math.imul(hash, 16777619) >>> 0;
 }
+process.on("exit", function() {
+    if (mixLog) require("fs").writeFileSync(process.env.MIXLOG, mixLog.join("\n") + "\n");
+});
 
 // La imagen escribe artefactos junto a sí misma (crea el .changes si falta,
 // logs de debug). Limpiarlos antes de correr para que toda corrida parta del
@@ -219,7 +224,9 @@ image.readFromBuffer(data.buffer, function startRunning() {
         var z7id = parseInt(process.env.ZDBG7_ID), z7From = parseInt(process.env.ZDBG7_FROM || "0");
         var chainDesc = function() {
             var desc = [];
-            if (vm.useStackZone) {
+            if (vm.useStackZone)
+            console.log("leafCalls=" + vm.nLeafCalls + " deopts=" + vm.nLeafDeopts + " hookFires=" + (vm.jit2HookFires||0));
+        if (vm.useStackZone) {
                 var page = vm.zonePage, fp = vm.fp, hops = 0;
                 while (fp >= 0 && hops++ < 20) {
                     var m = page.slots[fp + Squeak.Frame_method];
@@ -354,6 +361,30 @@ image.readFromBuffer(data.buffer, function startRunning() {
         // Muestreo en checkpoints fijos de sendCount: independiente de la
         // representación (contexts/frames) Y de la cadencia de interrupciones
         // (que difiere con/sin jit). Es la señal que entra al hash.
+        var traceIdOf = function(m) {
+            if (m._traceId === undefined) {
+                var fpv = m.bytes ? m.bytes.length : 0;
+                if (m.bytes) for (var bi = 0; bi < Math.min(m.bytes.length, 16); bi++)
+                    fpv = ((fpv * 31) + m.bytes[bi]) | 0;
+                m._traceId = fpv;
+            }
+            return m._traceId;
+        };
+        // leaf-sends: mismo muestreo que executeNewMethod (sc = sendCount pre-incremento)
+        vm.jit2HookFires = 0;
+        vm.jit2LeafHook = function(method, sc, rcvr, sel) {
+            vm.jit2HookFires++;
+            if (sc < maxSends && (sc & 4095) === 0) {
+                mix(sc);
+                mix(traceIdOf(method));
+                mix(vm.pc);
+                if (logLines) logLines.push("s=" + sc + " h=" + traceIdOf(method) + " pc=" + vm.pc);
+            }
+            if (logLines && sc >= logFrom && sc <= logTo)
+                logLines.push("S=" + sc + " h=" + traceIdOf(method) + " pc=" + vm.pc + " args=? prim=0"
+                    + " cm=" + (vm.method ? traceIdOf(vm.method) : "?")
+                    + " rcls=" + vm.getClass(rcvr).className() + " sel=" + (sel && sel.bytesAsString ? sel.bytesAsString() : "?") + " [leaf]");
+        };
         var origENM = vm.executeNewMethod;
         vm.executeNewMethod = function(newRcvr, newMethod, argumentCount, primitiveIndex, optClass, optSel) {
             // método identificado por fingerprint de contenido (los oops temporales
@@ -440,6 +471,8 @@ image.readFromBuffer(data.buffer, function startRunning() {
         console.log("bench: " + vm.sendCount + " sends en " + wallMs.toFixed(0) + " ms  (" +
             (vm.sendCount / (wallMs / 1000) / 1e6).toFixed(2) + "M sends/s), stop: " + stopReason);
         if (vm.useStackZone) {
+            console.log("leaf calls=" + vm.nLeafCalls + " deopts=" + vm.nLeafDeopts
+                + " (de " + vm.sendCount + " sends)");
             var live = 0, maxSlots = 0;
             for (var i = 0; i < vm.zonePages.length; i++) {
                 if (vm.zonePages[i].live) live++;
@@ -454,7 +487,8 @@ image.readFromBuffer(data.buffer, function startRunning() {
     }
 
     if (vm.compiler && vm.compiler.okCount !== undefined)
-        console.log("jit2: ok=" + vm.compiler.okCount + " bail=" + vm.compiler.bailCount);
+        console.log("jit2: ok=" + vm.compiler.okCount + " bail=" + vm.compiler.bailCount
+            + " leaves=" + (vm.compiler.leafCount || 0));
     if (vm.useStackZone)
         console.log("married=" + (vm.nMarriedContexts||0) + " byClosure=" + (vm.nMarryClosure||0)
             + " byThisCtx=" + (vm.nMarryThisCtx||0) + " bySenderFill=" + (vm.nMarrySenderFill||0));

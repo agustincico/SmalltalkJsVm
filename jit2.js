@@ -14,6 +14,8 @@
  * Only active in stack-zone mode (generated code assumes frames).
  */
 
+Squeak.LEAF_DEOPT = { leafDeopt: true }; // sentinel: el leaf no pudo, re-ejecutar framed
+
 Object.subclass('Squeak.Compiler2',
 'initialization', {
     initialize: function(vm) {
@@ -51,8 +53,12 @@ Object.subclass('Squeak.Compiler2',
         if (fn) {
             this.okCount++;
             method.compiled = fn;
+            method.compiledLeaf = this.generateLeaf(method,
+                ((clsName || "M") + "_" + (sel || "m")).replace(/[^a-zA-Z0-9_]/g, "ː")) || null;
+            if (method.compiledLeaf) this.leafCount = (this.leafCount || 0) + 1;
         } else {
             this.bailCount++;
+            method.compiledLeaf = null;
             return this.fallback.compile(method, optClassObj, optSelObj);
         }
     },
@@ -62,6 +68,189 @@ Object.subclass('Squeak.Compiler2',
     },
 },
 'generating', {
+    generateLeaf: function(method, funcName) {
+        // Forma "leaf" de un método: función JS pura que recibe (vm, rcvr, args...)
+        // y devuelve el resultado o Squeak.LEAF_DEOPT. Sin frame, sin zona, sin
+        // alocaciones (el overflow aritmético deoptimiza — el restart re-ejecuta
+        // el camino framed y ahí sí se aloca, exactamente una vez). Stores a inst
+        // vars permitidos solo si no hay puntos de deopt posteriores (restart-safe:
+        // los temps son locals JS, invisibles).
+        if (method.methodPrimitiveIndex() !== 0) return null;
+        var bytes = method.bytes;
+        var numArgs = method.methodNumArgs();
+        var tempCount = method.methodTempCount();
+        var src = [];
+        var depth = 0, maxDepth = 0;
+        var pc = 0, endPC = 0;
+        var labelDepth = {}, emitted = {};
+        var knownDepth = true;
+        var instStoreSeen = false, deoptSeen = false;
+        var MIN = Squeak.MinSmallInt, MAX = Squeak.MaxSmallInt;
+        function push(expr) { src.push("v" + depth + " = " + expr + ";\n"); depth++; if (depth > maxDepth) maxDepth = depth; }
+        function pop() { depth--; return "v" + depth; }
+        function top() { return "v" + (depth - 1); }
+        function deopt() { deoptSeen = true; if (instStoreSeen) throw { bail: true }; return "return Squeak.LEAF_DEOPT;\n"; }
+        function jumpTo(dest, atDepth) {
+            if (dest <= pc) throw { bail: true }; // sin loops: trabajo acotado, sin interrupt checks
+            if (labelDepth[dest] === undefined) labelDepth[dest] = atDepth;
+            else if (labelDepth[dest] !== atDepth) throw { bail: true };
+            if (dest > endPC) endPC = dest;
+        }
+        try {
+            var done = false;
+            while (!done) {
+                var instStart = pc;
+                if (!knownDepth) {
+                    if (labelDepth[instStart] === undefined) throw { bail: true };
+                    depth = labelDepth[instStart];
+                    knownDepth = true;
+                } else if (labelDepth[instStart] !== undefined && labelDepth[instStart] !== depth) {
+                    throw { bail: true };
+                }
+                if (labelDepth[instStart] !== undefined) src.push("case " + instStart + ":\n");
+                emitted[instStart] = depth;
+                var b = bytes[pc++], b2;
+                switch (b & 0xF8) {
+                    case 0x00: case 0x08: push("inst[" + (b & 0xF) + "]"); break;
+                    case 0x10: case 0x18: push("t" + (b & 0xF)); break;
+                    case 0x20: case 0x28: case 0x30: case 0x38: push("lit[" + (1 + (b & 0x1F)) + "]"); break;
+                    case 0x40: case 0x48: case 0x50: case 0x58: push("lit[" + (1 + (b & 0x1F)) + "].pointers[1]"); break;
+                    case 0x60: // storeAndPop inst (receiver garantizado no-casado por el gate del call site)
+                        if (deoptSeen) throw { bail: true }; // conservador: store tras posible deopt previo re-ejecutable? el restart re-ejecuta TODO: stores previos a deopts posteriores son el problema; deopts previos ya retornaron. Permitir.
+                        instStoreSeen = true;
+                        src.push("inst[" + (b & 7) + "] = " + pop() + "; rcvr.dirty = true;\n"); break;
+                    case 0x68: src.push("t" + (b & 7) + " = " + pop() + ";\n"); break;
+                    case 0x70:
+                        switch (b) {
+                            case 0x70: push("rcvr"); break;
+                            case 0x71: push("vm.trueObj"); break;
+                            case 0x72: push("vm.falseObj"); break;
+                            case 0x73: push("vm.nilObj"); break;
+                            case 0x74: push("-1"); break;
+                            case 0x75: push("0"); break;
+                            case 0x76: push("1"); break;
+                            case 0x77: push("2"); break;
+                        }
+                        break;
+                    case 0x78:
+                        switch (b) {
+                            case 0x78: src.push("return rcvr;\n"); break;
+                            case 0x79: src.push("return vm.trueObj;\n"); break;
+                            case 0x7A: src.push("return vm.falseObj;\n"); break;
+                            case 0x7B: src.push("return vm.nilObj;\n"); break;
+                            case 0x7C: src.push("return " + pop() + ";\n"); break;
+                            default: throw { bail: true };
+                        }
+                        knownDepth = false;
+                        done = pc > endPC;
+                        break;
+                    case 0x80: case 0x88:
+                        switch (b) {
+                            case 0x80:
+                                b2 = bytes[pc++];
+                                switch (b2 >> 6) {
+                                    case 0: push("inst[" + (b2 & 0x3F) + "]"); break;
+                                    case 1: push("t" + (b2 & 0x3F)); break;
+                                    case 2: push("lit[" + (1 + (b2 & 0x3F)) + "]"); break;
+                                    case 3: push("lit[" + (1 + (b2 & 0x3F)) + "].pointers[1]"); break;
+                                }
+                                break;
+                            case 0x81:
+                                b2 = bytes[pc++];
+                                if ((b2 >> 6) === 1) { src.push("t" + (b2 & 0x3F) + " = " + top() + ";\n"); break; }
+                                if ((b2 >> 6) === 0) { instStoreSeen = true; src.push("inst[" + (b2 & 0x3F) + "] = " + top() + "; rcvr.dirty = true;\n"); break; }
+                                throw { bail: true };
+                            case 0x82:
+                                b2 = bytes[pc++];
+                                if ((b2 >> 6) === 1) { src.push("t" + (b2 & 0x3F) + " = " + pop() + ";\n"); break; }
+                                if ((b2 >> 6) === 0) { instStoreSeen = true; src.push("inst[" + (b2 & 0x3F) + "] = " + pop() + "; rcvr.dirty = true;\n"); break; }
+                                throw { bail: true };
+                            case 0x87: depth--; break;
+                            case 0x88: push(top()); break;
+                            default: throw { bail: true };
+                        }
+                        break;
+                    case 0x90: { var d = (b & 7) + 1; jumpTo(pc + d, depth); src.push("{ pcx = " + (pc + d) + "; continue; }\n"); knownDepth = false; done = pc > endPC; break; }
+                    case 0x98: { var d = (b & 7) + 1, dest = pc + d, c = pop();
+                        jumpTo(dest, depth);
+                        src.push("if (" + c + " === vm.falseObj) { pcx = " + dest + "; continue; }\n");
+                        src.push("else if (" + c + " !== vm.trueObj) " + deopt());
+                        break; }
+                    case 0xA0: { b2 = bytes[pc++]; var d = ((b & 7) - 4) * 256 + b2; jumpTo(pc + d, depth); src.push("{ pcx = " + (pc + d) + "; continue; }\n"); knownDepth = false; done = pc > endPC; break; }
+                    case 0xA8: { b2 = bytes[pc++]; var d = (b & 3) * 256 + b2, dest = pc + d, c = pop(), ifTrue = b < 0xAC;
+                        jumpTo(dest, depth);
+                        src.push("if (" + c + " === vm." + ifTrue + "Obj) { pcx = " + dest + "; continue; }\n");
+                        src.push("else if (" + c + " !== vm." + !ifTrue + "Obj) " + deopt());
+                        break; }
+                    case 0xB0: case 0xB8: { // aritmética: smallint-in smallint-out, si no deopt
+                        var op = b & 0xF, bb = pop(), aa = top();
+                        var guard = "if (typeof " + aa + " !== 'number' || typeof " + bb + " !== 'number') " + deopt();
+                        switch (op) {
+                            case 0x0: case 0x1: {
+                                var o = op === 0 ? "+" : "-";
+                                src.push(guard);
+                                src.push("var r" + depth + " = " + aa + " " + o + " " + bb + "; if (r" + depth + " < " + MIN + " || r" + depth + " > " + MAX + ") " + deopt());
+                                src.push(aa + " = r" + depth + ";\n");
+                                break;
+                            }
+                            case 0x2: case 0x3: case 0x4: case 0x5: {
+                                var cmp = ["<", ">", "<=", ">="][op - 2];
+                                src.push(guard);
+                                src.push(aa + " = " + aa + " " + cmp + " " + bb + " ? vm.trueObj : vm.falseObj;\n");
+                                break;
+                            }
+                            case 0x6: case 0x7: {
+                                src.push(guard);
+                                src.push(aa + " = " + aa + " " + (op === 6 ? "===" : "!==") + " " + bb + " ? vm.trueObj : vm.falseObj;\n");
+                                break;
+                            }
+                            case 0xE: case 0xF: {
+                                src.push(guard);
+                                src.push(aa + " = " + aa + " " + (op === 0xE ? "&" : "|") + " " + bb + ";\n");
+                                break;
+                            }
+                            default: throw { bail: true };
+                        }
+                        break;
+                    }
+                    case 0xC0: case 0xC8: {
+                        var lo = b & 0xF;
+                        if (lo === 0x6) { var b6 = pop(), a6 = top(); src.push(a6 + " = " + a6 + " === " + b6 + " ? vm.trueObj : vm.falseObj;\n"); break; }
+                        if (lo === 0x7) { var t7 = top(); src.push(t7 + " = typeof " + t7 + " === 'number' ? vm.specialObjects[5] : " + t7 + ".sqClass;\n"); break; }
+                        throw { bail: true };
+                    }
+                    default: throw { bail: true }; // sends reales, closures, thisContext: no-leaf
+                }
+            }
+        } catch (e) {
+            if (e && e.bail) return null;
+            throw e;
+        }
+        // ensamblar
+        var head = [];
+        var params = ["vm", "rcvr"];
+        for (var i = 0; i < numArgs; i++) params.push("t" + i);
+        var decls = [];
+        for (var i = numArgs; i < tempCount; i++) decls.push("t" + i + " = vm.nilObj");
+        for (var i = 0; i < maxDepth; i++) decls.push("v" + i);
+        head.push("'use strict';\nvar lit = arguments[0];\nreturn function LEAF_" + funcName + "(" + params.join(", ") + ") {\n");
+        head.push("var inst = rcvr.pointers;\n");
+        if (decls.length) head.push("var " + decls.join(", ") + ";\n");
+        var hasLabels = Object.keys(labelDepth).length > 0;
+        var body;
+        if (hasLabels) {
+            body = "var pcx = 0;\nwhile (true) switch (pcx) {\ncase 0:\n" + src.join("") + "default: return Squeak.LEAF_DEOPT;\n}\n";
+        } else {
+            body = src.join("") + "return Squeak.LEAF_DEOPT;\n";
+        }
+        // lit se pasa via bind para no leer method.pointers por llamada
+        var full = head.join("") + body + "}";
+        try {
+            return new Function(full)(method.pointers); // literales cerrados en la función
+        } catch (e) {
+            return null;
+        }
+    },
     generate2: function(method, optClass, optSel) {
         try {
             return this.generateV3R(method, optClass, optSel);
@@ -389,17 +578,33 @@ Object.subclass('Squeak.Compiler2',
         var ic = this.ics.length;
         this.ics.push({ c: null, m: null, a: 0, p: 0, k: null });
         var rcvrSlot = this.slotAt(argCount);
-        this.spillAll();
+        var argSlots = [];
+        for (var i = argCount - 1; i >= 0; i--) argSlots.push(this.slotAt(i));
         this.emit("vm.pc = ", this.pc, ";\n");
         this.emit("var ic = ics[", ic, "], rc = typeof ", rcvrSlot, " === 'number' ? vm.smallIntClass_ : ", rcvrSlot, ".sqClass;\n");
         this.emit("if (rc !== ic.c) vm.jit2FillIC(ic, lit[", litIndex, "], ", argCount, ", rc);\n");
-        // receivers que son contexts casados: refrescar snapshot (mismo gate que sendZ)
+        // leaf fast path: sin spill, sin frame, args como argumentos JS. Solo con
+        // interruptCheckCounter > 0 (paridad exacta de cadencia con el golden:
+        // vencido => camino framed, donde executeNewMethod chequea como siempre)
+        this.emit("var lr = vm.LEAF_DEOPT_;\n");
+        this.emit("if (ic.a === ", argCount, " && ic.m.compiledLeaf != null && rc !== vm.contextClass_ && vm.interruptCheckCounter > 0) {\n");
+        this.emit("  var sc = vm.sendCount++; vm.interruptCheckCounter--;\n");
+        this.emit("  lr = ic.m.compiledLeaf(vm, ", [rcvrSlot].concat(argSlots).join(", "), ");\n");
+        this.emit("  if (lr === vm.LEAF_DEOPT_) { vm.sendCount--; vm.interruptCheckCounter++; vm.nLeafDeopts++; }\n");
+        this.emit("  else { vm.nLeafCalls++; if (vm.jit2LeafHook) vm.jit2LeafHook(ic.m, sc, ", rcvrSlot, ", lit[", litIndex, "]); }\n");
+        this.emit("}\n");
+        var resultSlot = "s" + (this.depth - argCount - 1);
+        this.emit("if (lr !== vm.LEAF_DEOPT_) { ", resultSlot, " = lr; }\n");
+        this.emit("else {\n");
+        this.spillAll();
         this.emit("if (rc === vm.contextClass_ && ", rcvrSlot, ".frame != null) vm.syncMarriedContext(", rcvrSlot, ");\n");
         this.emit("if (ic.p) { vm.verifyAtSelector = lit[", litIndex, "]; vm.verifyAtClass = rc; }\n");
         this.emit("vm.executeNewMethod(", rcvrSlot, ", ic.m, ic.a, ic.p, ic.k, lit[", litIndex, "]);\n");
         this.emit(this.activationCheck());
+        this.emit(resultSlot, " = zone[vm.sp];\n");
+        this.emit("}\n");
         this.depth -= argCount + 1;
-        this.push("zone[vm.sp]"); // result (fast-path prim; resume reloads instead)
+        this.depth++; if (this.depth > this.maxDepth) this.maxDepth = this.depth;
         this.markResume(this.pc, this.depth);
     },
     generateNumericOp: function(byte) {
