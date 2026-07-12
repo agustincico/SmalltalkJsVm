@@ -220,6 +220,47 @@ image.readFromBuffer(data.buffer, function startRunning() {
         };
     }
     if (process.env.PFNDBG) vm.primFnDebug = true;
+    if (process.env.SSDBG) {
+        var c2 = vm.compiler;
+        if (c2) {
+            var origESS = c2.enableSingleStepping.bind(c2);
+            c2.enableSingleStepping = function(method, optClass, optSel) {
+                vm.nSingleStep = (vm.nSingleStep || 0) + 1;
+                if (vm.nSingleStep <= 5) console.error("SINGLESTEP #" + vm.nSingleStep + " s=" + vm.sendCount + " pc=" + vm.pc + " mbytes=" + (method.bytes ? method.bytes.length : "?"));
+                return origESS(method, optClass, optSel);
+            };
+        }
+    }
+    if (process.env.FREEZE_SIM) {
+        // replica el patrón del FilePlugin del browser (fileContentsDo):
+        // el primitivo congela el VM y retorna true sin efecto de stack; un
+        // callback diferido hace unfreeze() y LUEGO aplica el efecto original
+        var wrapFrozen = function(mod, fnName) {
+            var orig = mod[fnName].bind(mod);
+            mod[fnName] = function(argCount) {
+                if (vm.frozen) return orig(argCount); // ya diferido: ejecutar directo
+                vm.nFreezeSim = (vm.nFreezeSim || 0) + 1;
+                vm.freeze(function(unfreeze) {
+                    setImmediate(function() {
+                        unfreeze();
+                        orig(argCount);
+                    });
+                });
+                return true;
+            };
+        };
+        var origLM2 = vm.primHandler.loadModule.bind(vm.primHandler);
+        vm.primHandler.loadModule = function(name) {
+            var m = origLM2(name);
+            if (name === "FilePlugin" && m && !m._frozenSim) {
+                m._frozenSim = true;
+                for (var k in m)
+                    if (typeof m[k] === "function" && /^primitive/.test(k))
+                        wrapFrozen(m, k);
+            }
+            return m;
+        };
+    }
     if (process.env.PAGEDBG) { vm.pageStats = {fresh:0, reused:0, flushActive:0, flushSusp:0, flushDead:0}; process.on("exit", function(){ console.error("PAGES:", JSON.stringify(vm.pageStats)); }); }
     if (process.env.SMCDBG) { vm.smcStats = {}; process.on("exit", function() { console.error("SMC stores por índice:", JSON.stringify(vm.smcStats)); }); }
     if (process.env.FADBG) {
@@ -441,12 +482,23 @@ image.readFromBuffer(data.buffer, function startRunning() {
             return origENM.call(vm, newRcvr, newMethod, argumentCount, primitiveIndex, optClass, optSel);
         };
     }
+    var noop = function() {};
     var wallStart = process.hrtime.bigint();
     clockRunning = true;
+    mainLoop();
+    async function mainLoop() {
     try {
+        var frozenYields = 0;
         while (vm.sendCount < maxSends) {
             if (display.quitFlag) { stopReason = "quit"; break; }
-            var result = vm.interpret(5);
+            if (vm.frozen) {
+                // ceder el event loop para que el unfreeze diferido corra
+                if (++frozenYields > 1000000) { stopReason = "frozen-livelock"; break; }
+                await new Promise(function(r) { setImmediate(r); });
+                continue;
+            }
+            var result = vm.interpret(5, noop); // thenDo: freeze necesita continueFunc
+            if (result === "frozen") continue;
             slices++;
             // el hash se alimenta solo de los checkpoints por sendCount (arriba);
             // los límites de slice dependen de la cadencia de interrupciones,
@@ -522,6 +574,7 @@ image.readFromBuffer(data.buffer, function startRunning() {
     if (vm.useStackZone)
         console.log("married=" + (vm.nMarriedContexts||0) + " byClosure=" + (vm.nMarryClosure||0)
             + " byThisCtx=" + (vm.nMarryThisCtx||0) + " bySenderFill=" + (vm.nMarrySenderFill||0));
+    if (vm.nFreezeSim) console.log("freezes simulados: " + vm.nFreezeSim + " singleSteps: " + (vm.nSingleStep || 0));
     console.log("trace: sends=" + report.sendCount + " slices=" + report.slices +
         " stop=" + report.stopReason + " hash=" + report.hash + " virtualMs=" + report.virtualMs +
         "  (wall " + wallMs.toFixed(0) + " ms)");
@@ -549,4 +602,5 @@ image.readFromBuffer(data.buffer, function startRunning() {
             process.exit(1);
         }
     }
+    } // fin mainLoop
 });
