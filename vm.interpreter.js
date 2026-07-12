@@ -32,11 +32,15 @@ Object.subclass('Squeak.Interpreter',
         this.primHandler = new Squeak.Primitives(this, display);
         this.loadImageState();
         this.initVMState();
-        if (this.options.stackZone && this.enableStackZone) this.enableStackZone();
+        // presencia del flag alcanza: el launcher puede reescribir #stackZone
+        // como stackZone= (valor string vacío, falsy)
+        if (this.options.stackZone !== undefined && this.options.stackZone !== false
+            && this.enableStackZone) this.enableStackZone();
         this.loadInitialContext();
         this.hackImage();
         this.initCompiler();
-        if (this.useStackZone && this.options.jit2 && this.compiler && Squeak.Compiler2)
+        if (this.useStackZone && this.options.jit2 !== undefined && this.options.jit2 !== false
+            && this.compiler && Squeak.Compiler2)
             this.compiler = new Squeak.Compiler2(this); // stack-to-register jit (WIP, opt-in)
         console.log('squeak: ready');
     },
