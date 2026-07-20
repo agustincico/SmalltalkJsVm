@@ -102,24 +102,24 @@ Object.subclass('Squeak.Primitives',
             case 19: return false;                                 // Guard primitive for simulation -- *must* fail
             // LargeInteger Primitives (20-39)
             // 32-bit logic is aliased to Integer prims above
-            case 20: this.vm.warnOnce("missing primitive: 20 (primitiveRemLargeIntegers)"); return false;
-            case 21: this.vm.warnOnce("missing primitive: 21 (primitiveAddLargeIntegers)"); return false;
-            case 22: this.vm.warnOnce("missing primitive: 22 (primitiveSubtractLargeIntegers)"); return false;
+            case 20: return this.primitiveRemLargeIntegers(argCount);
+            case 21: return this.primitiveAddLargeIntegers(argCount);
+            case 22: return this.primitiveSubtractLargeIntegers(argCount);
             case 23: return this.primitiveLessThanLargeIntegers(argCount);
             case 24: return this.primitiveGreaterThanLargeIntegers(argCount);
             case 25: return this.primitiveLessOrEqualLargeIntegers(argCount);
             case 26: return this.primitiveGreaterOrEqualLargeIntegers(argCount);
             case 27: return this.primitiveEqualLargeIntegers(argCount);
             case 28: return this.primitiveNotEqualLargeIntegers(argCount);
-            case 29: this.vm.warnOnce("missing primitive: 29 (primitiveMultiplyLargeIntegers)"); return false;
-            case 30: this.vm.warnOnce("missing primitive: 30 (primitiveDivideLargeIntegers)"); return false;
-            case 31: this.vm.warnOnce("missing primitive: 31 (primitiveModLargeIntegers)"); return false;
-            case 32: this.vm.warnOnce("missing primitive: 32 (primitiveDivLargeIntegers)"); return false;
-            case 33: this.vm.warnOnce("missing primitive: 33 (primitiveQuoLargeIntegers)"); return false;
-            case 34: this.vm.warnOnce("missing primitive: 34 (primitiveBitAndLargeIntegers)"); return false;
-            case 35: this.vm.warnOnce("missing primitive: 35 (primitiveBitOrLargeIntegers)"); return false;
-            case 36: this.vm.warnOnce("missing primitive: 36 (primitiveBitXorLargeIntegers)"); return false;
-            case 37: this.vm.warnOnce("missing primitive: 37 (primitiveBitShiftLargeIntegers)"); return false;
+            case 29: return this.primitiveMultiplyLargeIntegers(argCount);
+            case 30: return this.primitiveDivideLargeIntegers(argCount);
+            case 31: return this.primitiveModLargeIntegers(argCount);
+            case 32: return this.primitiveDivLargeIntegers(argCount);
+            case 33: return this.primitiveQuoLargeIntegers(argCount);
+            case 34: return this.primitiveBitAndLargeIntegers(argCount);
+            case 35: return this.primitiveBitOrLargeIntegers(argCount);
+            case 36: return this.primitiveBitXorLargeIntegers(argCount);
+            case 37: return this.primitiveBitShiftLargeIntegers(argCount);
             case 38: return this.popNandPushIfOK(argCount+1, this.objectAt(false,false,false)); // Float basicAt
             case 39: return this.popNandPushIfOK(argCount+1, this.objectAtPut(false,false,false)); // Float basicAtPut
             // Float Primitives (40-59)
@@ -811,6 +811,113 @@ Object.subclass('Squeak.Primitives',
     },
     primitiveNotEqualLargeIntegers: function(argCount) {
         return this.popNandPushBoolIfOK(argCount+1, this.stackSigned53BitInt(1) !== this.stackSigned53BitInt(0));
+    },
+    // --- Aritmética LargeInteger (21,22,29,30-33,20) y bit-ops (34-37) ---
+    // Faltaban en SqueakJS: cada operación caía a la implementación en Smalltalk
+    // (cientos de sends: digitAdd:, normalize, ...). Acá se hacen con BigInt, que
+    // es exacto para cualquier tamaño y respeta las semánticas de Squeak. Los
+    // operandos pueden ser SmallInteger o LargeInteger; el resultado se normaliza
+    // a SmallInteger si entra en rango. Toggle: primHandler.largeIntPrims=false
+    // restaura el fallback (para medir A/B).
+    bigIntFromStackInt: function(nDeep) {
+        var v = this.vm.stackValue(nDeep);
+        if (typeof v === "number") return BigInt(v);       // SmallInteger
+        var isPos = this.isA(v, Squeak.splOb_ClassLargePositiveInteger);
+        if ((isPos || this.isA(v, Squeak.splOb_ClassLargeNegativeInteger)) && v.bytes) {
+            var bytes = v.bytes, val = 0n;
+            for (var i = bytes.length - 1; i >= 0; i--) val = (val << 8n) | BigInt(bytes[i]);
+            return isPos ? val : -val;
+        }
+        this.success = false;
+        return 0n;
+    },
+    squeakIntFromBigInt: function(b) {
+        if (b >= BigInt(Squeak.MinSmallInt) && b <= BigInt(Squeak.MaxSmallInt)) return Number(b);
+        var neg = b < 0n, mag = neg ? -b : b, bytes = [];
+        while (mag > 0n) { bytes.push(Number(mag & 255n)); mag >>= 8n; }
+        if (bytes.length === 0) bytes.push(0);
+        var cls = this.vm.specialObjects[neg ? Squeak.splOb_ClassLargeNegativeInteger : Squeak.splOb_ClassLargePositiveInteger],
+            obj = this.vm.instantiateClass(cls, bytes.length);
+        for (var i = 0; i < bytes.length; i++) obj.bytes[i] = bytes[i];
+        return obj;
+    },
+    primitiveAddLargeIntegers: function(argCount) {
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success) return false;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a + b));
+    },
+    primitiveSubtractLargeIntegers: function(argCount) {
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success) return false;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a - b));
+    },
+    primitiveMultiplyLargeIntegers: function(argCount) {
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success) return false;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a * b));
+    },
+    primitiveDivideLargeIntegers: function(argCount) { // 30: / exacto (falla si no divide)
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success || b === 0n || a % b !== 0n) return false;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a / b));
+    },
+    primitiveDivLargeIntegers: function(argCount) { // 32: // división con piso
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success || b === 0n) return false;
+        var q = a / b, r = a % b;
+        if (r !== 0n && ((r < 0n) !== (b < 0n))) q -= 1n;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(q));
+    },
+    primitiveModLargeIntegers: function(argCount) { // 31: \\ módulo con piso (signo del divisor)
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success || b === 0n) return false;
+        var r = a % b;
+        if (r !== 0n && ((r < 0n) !== (b < 0n))) r += b;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(r));
+    },
+    primitiveQuoLargeIntegers: function(argCount) { // 33: quo: truncado hacia cero
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success || b === 0n) return false;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a / b));
+    },
+    primitiveRemLargeIntegers: function(argCount) { // 20: rem: (signo del dividendo)
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success || b === 0n) return false;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a % b));
+    },
+    primitiveBitAndLargeIntegers: function(argCount) { // 34
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success || a < 0n || b < 0n) return false; // negativos: two's complement infinito, fallback
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a & b));
+    },
+    primitiveBitOrLargeIntegers: function(argCount) { // 35
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success || a < 0n || b < 0n) return false;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a | b));
+    },
+    primitiveBitXorLargeIntegers: function(argCount) { // 36
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success || a < 0n || b < 0n) return false;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a ^ b));
+    },
+    primitiveBitShiftLargeIntegers: function(argCount) { // 37
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), shift = this.vm.stackValue(0);
+        if (typeof shift !== "number" || a < 0n) { this.success = false; return false; }
+        if (!this.success) return false;
+        var s = BigInt(shift), res = s >= 0n ? (a << s) : (a >> -s);
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(res));
     },
 },
 'utils', {
