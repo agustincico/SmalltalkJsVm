@@ -31,6 +31,7 @@ function argValue(name, deflt) {
 }
 var maxSends = parseInt(argValue("--sends", "20000000"), 10);
 var untilMs = parseInt(argValue("--until-ms", "0"), 10); // parar al alcanzar este tiempo-virtual (mide "tiempo para el mismo trabajo")
+var untilStable = args.indexOf("--until-stable") >= 0; // parar cuando el dibujo se estabiliza (= trabajo real terminado; excluye idle-spin)
 var uiW = parseInt(argValue("--width", "1024"), 10);
 var uiH = parseInt(argValue("--height", "768"), 10);
 // Grabación de eventos (--events): la leemos temprano para dimensionar el display
@@ -594,6 +595,22 @@ image.readFromBuffer(data.buffer, function startRunning() {
         }
     }
 
+    // Detección de quiescencia: el dibujo dejó de cambiar por 2 chequeos seguidos
+    // (~1M sends) y no quedan eventos → el trabajo real terminó. Mide el costo de
+    // la acción sin el idle-spin que el clock-warp sobre-representa.
+    var stLastHash = null, stStable = 0, stLastCheck = 0;
+    function checkStable() {
+        if (!untilStable || !uiMod) return false;
+        if (vm.sendCount - stLastCheck < 500000) return false;
+        stLastCheck = vm.sendCount;
+        var fp = uiMod.displayFingerprint(vm), h = fp ? fp.hash : null;
+        var eventsDone = !evSched || evIdx >= evSched.length;
+        if (h && h === stLastHash && eventsDone) { if (++stStable >= 2) return true; }
+        else stStable = 0;
+        stLastHash = h;
+        return false;
+    }
+
     var noop = function() {};
     var wallStart = process.hrtime.bigint();
     clockRunning = true;
@@ -614,6 +631,7 @@ image.readFromBuffer(data.buffer, function startRunning() {
             var result = vm.interpret(5, noop); // thenDo: freeze necesita continueFunc
             if (result === "frozen") continue;
             slices++;
+            if (checkStable()) { stopReason = "stable"; break; }
             // el hash se alimenta solo de los checkpoints por sendCount (arriba);
             // los límites de slice dependen de la cadencia de interrupciones,
             // que varía entre modos (jit/no-jit) sin implicar divergencia semántica
