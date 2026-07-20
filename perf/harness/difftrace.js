@@ -173,6 +173,7 @@ fs.readdirSync(imageDir).forEach(function(f) {
     }
 });
 
+if (process.env.PERCLASS === "1") Squeak.perClassShape = true; // A/B: volver a constructores por-clase (revertir monomorfización)
 var data = fs.readFileSync(imagePath);
 var image = new Squeak.Image(imagePath.replace(/\.image$/, ""));
 image.readFromBuffer(data.buffer, function startRunning() {

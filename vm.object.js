@@ -481,11 +481,27 @@ Object.subclass('Squeak.Object',
     },
     classInstProto: function(className) {
         if (this.instProto) return this.instProto;
+        // Monomorfización (default desde 2026-07-12): un ÚNICO constructor
+        // compartido para todos los objetos → V8 ve pocos maps (~4-5, por formato
+        // pointers/bytes/words/float) en vez de cientos (uno por clase), volviendo
+        // el LoadIC de `.sqClass`/`.pointers`/`.bytes` mono/poli en vez de
+        // megamórfico. Medido con la vara honesta (tiempo hasta renderizar el
+        // resultado, no microbench): ~7% más rápido en el workload real de Dialogo,
+        // semántica byte-idéntica (trace + dibujo + ctx≡frames en V3 y Cuis). El
+        // LoadIC desaparece del perfil (era ~26% del trabajo felt). Distinto del
+        // intento "flat shape" previo (−7%, shape con TODOS los campos y medido
+        // send-heavy engañoso): acá los campos por-formato se mantienen, solo se
+        // comparte el constructor. Opt-out para debugging (nombres por clase en
+        // devtools): Squeak.perClassShape = true.
+        if (Squeak.perClassShape !== true) {
+            if (!Squeak.sharedInstProto) {
+                Squeak.sharedInstProto = new Function("return function SqueakObject() { this.oop = 0; this.hash = 0; this.dirty = false; this.mark = false; this.nextObject = null; };")();
+                Squeak.sharedInstProto.prototype = this.defaultInst().prototype;
+            }
+            Object.defineProperty(this, 'instProto', { value: Squeak.sharedInstProto });
+            return Squeak.sharedInstProto;
+        }
         var proto = this.defaultInst();  // in case below fails
-        // Nota de experimento (2026-07-11): una única shape plana para todos los
-        // objetos (en vez de constructores por clase) midió ~7% MÁS LENTO en el
-        // bench frames+jit2 — los maps por clase + ICs polimórficos de V8 ya
-        // rinden bien; no repetir sin nueva evidencia.
         try {
             if (!className) className = this.className();
             var safeName = className.replace(/[^A-Za-z0-9]/g,'_');
