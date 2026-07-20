@@ -30,6 +30,7 @@ function argValue(name, deflt) {
     return i >= 0 && args[i + 1] !== undefined ? args[i + 1] : deflt;
 }
 var maxSends = parseInt(argValue("--sends", "20000000"), 10);
+var untilMs = parseInt(argValue("--until-ms", "0"), 10); // parar al alcanzar este tiempo-virtual (mide "tiempo para el mismo trabajo")
 var uiW = parseInt(argValue("--width", "1024"), 10);
 var uiH = parseInt(argValue("--height", "768"), 10);
 // Grabación de eventos (--events): la leemos temprano para dimensionar el display
@@ -183,6 +184,7 @@ image.readFromBuffer(data.buffer, function startRunning() {
     }
     var vm = new Squeak.Interpreter(image, display, useFrames ? { stackZone: true, jit2: useJit2 } : {});
     if (noJit) vm.compiler = null;
+    if (process.env.LARGEINT === "0") vm.primHandler.largeIntPrims = false; // A/B: desactivar prims LargeInteger
     if (process.env.JIT2DBG) vm.jit2Debug = true;
     if (process.env.SEMDBG) {
         var origSS = vm.primHandler.synchronousSignal;
@@ -239,6 +241,31 @@ image.readFromBuffer(data.buffer, function startRunning() {
         };
     }
     if (process.env.PFNDBG) vm.primFnDebug = true;
+    if (process.env.HOTSEL) {
+        // top métodos Smalltalk por activaciones (rcvrClass>>selector) — muestra
+        // en qué gasta sends la imagen real (¿desperdicio algorítmico o costo base?)
+        var hot = {};
+        var origENMh = vm.executeNewMethod;
+        vm.executeNewMethod = function(r, m, ac, pi, oc, sel) {
+            var key = (oc ? oc.className() : (vm.getClass(r).className())) + ">>" + (sel && sel.bytesAsString ? sel.bytesAsString() : "?");
+            hot[key] = (hot[key] || 0) + 1;
+            return origENMh.call(vm, r, m, ac, pi, oc, sel);
+        };
+        process.on("exit", function() {
+            var arr = Object.keys(hot).map(function(k){ return [k, hot[k]]; }).sort(function(a,b){ return b[1]-a[1]; });
+            var tot = arr.reduce(function(s,e){ return s+e[1]; }, 0);
+            console.error("HOTSEL top 30 de " + arr.length + " selectores (" + tot + " sends):");
+            arr.slice(0, 30).forEach(function(e){ console.error("  " + (100*e[1]/tot).toFixed(1) + "%  " + e[1] + "  " + e[0]); });
+            // agregado por clase receptora
+            var byC = {};
+            arr.forEach(function(e){ var c = e[0].split(">>")[0]; byC[c] = (byC[c]||0) + e[1]; });
+            var carr = Object.keys(byC).map(function(k){ return [k, byC[k]]; }).sort(function(a,b){ return b[1]-a[1]; });
+            console.error("HOTSEL top 15 por CLASE receptora:");
+            carr.slice(0, 15).forEach(function(e){ console.error("  " + (100*e[1]/tot).toFixed(1) + "%  " + e[1] + "  " + e[0]); });
+            var largeInt = (byC["LargePositiveInteger"]||0) + (byC["LargeNegativeInteger"]||0);
+            console.error("→ LargeInteger (receptor): " + (100*largeInt/tot).toFixed(1) + "% de sends");
+        });
+    }
     if (process.env.UNWINDDBG) {
         // cobertura: contar activaciones por selector (watchlist de unwind/terminación)
         // + process switches + resumes de contextos casados. Responde "¿el workload
@@ -576,6 +603,7 @@ image.readFromBuffer(data.buffer, function startRunning() {
         var frozenYields = 0;
         while (vm.sendCount < maxSends) {
             if (display.quitFlag) { stopReason = "quit"; break; }
+            if (untilMs > 0 && virtualMs >= untilMs) { stopReason = "untilMs"; break; }
             if (vm.frozen) {
                 // ceder el event loop para que el unfreeze diferido corra
                 if (++frozenYields > 1000000) { stopReason = "frozen-livelock"; break; }
