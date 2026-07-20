@@ -32,6 +32,16 @@ function argValue(name, deflt) {
 var maxSends = parseInt(argValue("--sends", "20000000"), 10);
 var uiW = parseInt(argValue("--width", "1024"), 10);
 var uiH = parseInt(argValue("--height", "768"), 10);
+// Grabación de eventos (--events): la leemos temprano para dimensionar el display
+// headless igual que el browser donde se grabó (coordenadas → mismos morphs).
+var evData = null;
+if (useUI && argValue("--events", null)) {
+    evData = JSON.parse(fs.readFileSync(path.resolve(argValue("--events", null)), "utf8"));
+    if (!Array.isArray(evData)) { // wrapper {width, height, events}
+        if (args.indexOf("--width") < 0 && evData.width) uiW = evData.width;
+        if (args.indexOf("--height") < 0 && evData.height) uiH = evData.height;
+    }
+}
 var imagePath = path.resolve(repoRoot, argValue("--image", "ws/client/cuis.image"));
 var goldenPath = path.join(__dirname, "golden.json");
 var logPath = argValue("--log", null); // traza por checkpoint, para ubicar divergencias
@@ -520,15 +530,29 @@ image.readFromBuffer(data.buffer, function startRunning() {
     if (useUI) {
         var evFile = argValue("--events", null);
         if (evFile) {
-            // JSON: [ {at, ev:[type,ts,...]}, ... ]  o  [ [type,relMs,...], ... ] con --evfrom
-            var raw = JSON.parse(fs.readFileSync(path.resolve(evFile), "utf8"));
-            evSched = raw.map(function(e, i) {
-                return Array.isArray(e) ? { at: Math.floor(maxSends * (0.4 + 0.5 * i / raw.length)), ev: e } : e;
-            });
+            // Grabado con #record del browser: [ {at: sendCount, ev:[type,ts,...]}, ... ].
+            // Se rebasa: el 1er evento cae en --evstart y los deltas de sendCount del
+            // browser se preservan pero capados a --evgap (comprime las pausas del
+            // usuario). También acepta el formato plano [ [type,ms,...], ... ].
+            var raw = Array.isArray(evData) ? evData : evData.events;
+            var evStart = parseInt(argValue("--evstart", "800000"), 10);
+            var evGapCap = parseInt(argValue("--evgap", "250000"), 10);
+            if (raw.length && Array.isArray(raw[0])) {
+                evSched = raw.map(function(e, i) { return { at: Math.floor(maxSends * (0.3 + 0.6 * i / raw.length)), ev: e }; });
+            } else {
+                var acc = evStart, prev = raw.length ? raw[0].at : 0;
+                evSched = raw.map(function(e) {
+                    var gap = Math.min(Math.max(0, e.at - prev), evGapCap);
+                    acc += gap; prev = e.at;
+                    return { at: acc, ev: e.ev };
+                });
+            }
         } else {
             evSched = uiMod.syntheticScript(uiW, uiH, Math.floor(maxSends * 0.5), Math.floor(maxSends * 0.9));
         }
-        console.log("eventos agendados: " + evSched.length + (evFile ? " (de " + evFile + ")" : " (sintéticos)"));
+        var lastAt = evSched.length ? evSched[evSched.length - 1].at : 0;
+        console.log("eventos agendados: " + evSched.length + (evFile ? " (de " + evFile + ", último en send " + lastAt + ")" : " (sintéticos)")
+            + (lastAt > maxSends ? "  ⚠️ subí --sends a >" + lastAt + " para no cortar la interacción" : ""));
     }
     function injectDueEvents() {
         if (!evSched) return;

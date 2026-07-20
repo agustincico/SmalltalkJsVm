@@ -222,14 +222,16 @@ function recordMouseEvent(what, evt, canvas, display, options) {
     }
     display.buttons = buttons | recordModifiers(evt, display);
     if (display.eventQueue) {
-        display.eventQueue.push([
+        var sqEvt = [
             Squeak.EventTypeMouse,
             evt.timeStamp,  // converted to Squeak time in makeSqueakEvent()
             display.mouseX,
             display.mouseY,
             display.buttons & Squeak.Mouse_All,
             display.buttons >> 3,
-        ]);
+        ];
+        display.eventQueue.push(sqEvt);
+        if (display.recordedEvents) display.recordedEvents.push({at: SqueakJS.vm && SqueakJS.vm.sendCount || 0, ev: sqEvt});
         if (display.signalInputEvent)
             display.signalInputEvent();
     }
@@ -255,6 +257,7 @@ function recordWheelEvent(evt, display) {
         display.buttons >> 3,
     ];
     display.eventQueue.push(squeakEvt);
+    if (display.recordedEvents) display.recordedEvents.push({at: SqueakJS.vm && SqueakJS.vm.sendCount || 0, ev: squeakEvt});
     if (display.signalInputEvent)
         display.signalInputEvent();
     display.idle = 0;
@@ -289,14 +292,16 @@ function recordKeyboardEvent(unicode, timestamp, display) {
     var macCode = UnicodeToMacRoman[unicode] || (unicode < 128 ? unicode : 0);
     var modifiersAndKey = (display.buttons >> 3) << 8 | macCode;
     if (display.eventQueue) {
-        display.eventQueue.push([
+        var sqKeyEvt = [
             Squeak.EventTypeKeyboard,
             timestamp,  // converted to Squeak time in makeSqueakEvent()
             macCode, // MacRoman
             Squeak.EventKeyChar,
             display.buttons >> 3,
             unicode,  // Unicode
-        ]);
+        ];
+        display.eventQueue.push(sqKeyEvt);
+        if (display.recordedEvents) display.recordedEvents.push({at: SqueakJS.vm && SqueakJS.vm.sendCount || 0, ev: sqKeyEvt});
         if (display.signalInputEvent)
             display.signalInputEvent();
         // There are some old images that use both event-based
@@ -316,7 +321,7 @@ function recordKeyboardEvent(unicode, timestamp, display) {
 function recordDragDropEvent(type, evt, canvas, display) {
     if (!display.vm || !display.eventQueue) return;
     updateMousePos(evt, canvas, display);
-    display.eventQueue.push([
+    var sqDropEvt = [
         Squeak.EventTypeDragDropFiles,
         evt.timeStamp,  // converted to Squeak time in makeSqueakEvent()
         type,
@@ -324,7 +329,9 @@ function recordDragDropEvent(type, evt, canvas, display) {
         display.mouseY,
         display.buttons >> 3,
         display.droppedFiles.length,
-    ]);
+    ];
+    display.eventQueue.push(sqDropEvt);
+    if (display.recordedEvents) display.recordedEvents.push({at: SqueakJS.vm && SqueakJS.vm.sendCount || 0, ev: sqDropEvt});
     if (display.signalInputEvent)
         display.signalInputEvent();
     display.idle = 0;
@@ -382,6 +389,30 @@ function createSqueakDisplay(canvas, options) {
     if (options.pixelated) {
         canvas.classList.add("pixelated");
         display.cursorCanvas && display.cursorCanvas.classList.add("pixelated");
+    }
+
+    if (options.record) {
+        // Grabador de eventos para el oráculo diferencial (perf/harness --events).
+        // Captura cada evento en el punto de encolado junto con el sendCount, para
+        // reproducir el timing/interleaving headless. Volcar con SqueakJS.downloadEvents().
+        display.recordedEvents = [];
+        SqueakJS.downloadEvents = function(filename) {
+            // capturar la resolución real del Display (splOb_TheDisplay=14) para que
+            // el replay headless use el mismo tamaño y las coordenadas peguen en los
+            // mismos morphs
+            var disp = SqueakJS.vm && SqueakJS.vm.specialObjects && SqueakJS.vm.specialObjects[14];
+            var w = disp && disp.pointers ? disp.pointers[1] : (display.width || 0);
+            var h = disp && disp.pointers ? disp.pointers[2] : (display.height || 0);
+            var payload = { width: w, height: h, events: display.recordedEvents };
+            var blob = new Blob([JSON.stringify(payload)], {type: "application/json"});
+            var a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = filename || "dialogo-events.json";
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            console.log("SqueakJS: descargados " + display.recordedEvents.length + " eventos (display " + w + "x" + h + ")");
+            return display.recordedEvents.length;
+        };
+        console.log("SqueakJS: grabador de eventos ACTIVO (#record). Hacé la interacción y luego ejecutá SqueakJS.downloadEvents() en la consola.");
     }
 
     display.reset = function() {
