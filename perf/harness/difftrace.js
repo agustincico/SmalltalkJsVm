@@ -229,6 +229,29 @@ image.readFromBuffer(data.buffer, function startRunning() {
         };
     }
     if (process.env.PFNDBG) vm.primFnDebug = true;
+    if (process.env.UNWINDDBG) {
+        // cobertura: contar activaciones por selector (watchlist de unwind/terminación)
+        // + process switches + resumes de contextos casados. Responde "¿el workload
+        // siquiera toca los paths donde crashea el browser?"
+        var watch = (process.env.UNWINDDBG_SEL ||
+            "terminateTo:,resume:through:,resume:,aboutToReturn:through:,cannotReturn:,valueUninterruptably")
+            .split(",");
+        var counts = {}; watch.forEach(function(s){ counts[s]=0; });
+        counts["<transferTo/processSwitch>"] = 0;
+        counts["<resume married ctx>"] = 0;
+        var origENMu = vm.executeNewMethod;
+        vm.executeNewMethod = function(r, m, ac, pi, oc, sel) {
+            if (sel && sel.bytesAsString) { var s = sel.bytesAsString(); if (counts[s] !== undefined) counts[s]++; }
+            return origENMu.call(vm, r, m, ac, pi, oc, sel);
+        };
+        var origTTu = vm.primHandler.transferTo;
+        vm.primHandler.transferTo = function(p){ counts["<transferTo/processSwitch>"]++; return origTTu.call(this,p); };
+        if (vm.newActiveContext) {
+            var origNACu = vm.newActiveContext;
+            vm.newActiveContext = function(c){ if (vm.useStackZone && c && c.frame != null) counts["<resume married ctx>"]++; return origNACu.call(vm,c); };
+        }
+        process.on("exit", function(){ console.error("UNWIND cobertura:", JSON.stringify(counts)); });
+    }
     if (process.env.SSDBG) {
         var c2 = vm.compiler;
         if (c2) {
