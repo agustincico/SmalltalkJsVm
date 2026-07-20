@@ -24,11 +24,14 @@ var mode = args.indexOf("--golden") >= 0 ? "golden"
 var useFrames = args.indexOf("--frames") >= 0; // correr con el stack zone activado
 var useJit2 = args.indexOf("--jit2") >= 0; // stack-to-register jit (requiere --frames)
 var noJit = args.indexOf("--nojit") >= 0; // apagar el jit (para aislar divergencias jit vs frames)
+var useUI = args.indexOf("--ui") >= 0; // display offscreen real: levanta el World y ejercita la UI (ver uidisplay.js)
 function argValue(name, deflt) {
     var i = args.indexOf(name);
     return i >= 0 && args[i + 1] !== undefined ? args[i + 1] : deflt;
 }
 var maxSends = parseInt(argValue("--sends", "20000000"), 10);
+var uiW = parseInt(argValue("--width", "1024"), 10);
+var uiH = parseInt(argValue("--height", "768"), 10);
 var imagePath = path.resolve(repoRoot, argValue("--image", "ws/client/cuis.image"));
 var goldenPath = path.join(__dirname, "golden.json");
 var logPath = argValue("--log", null); // traza por checkpoint, para ubicar divergencias
@@ -161,7 +164,13 @@ fs.readdirSync(imageDir).forEach(function(f) {
 var data = fs.readFileSync(imagePath);
 var image = new Squeak.Image(imagePath.replace(/\.image$/, ""));
 image.readFromBuffer(data.buffer, function startRunning() {
-    var display = { vmOptions: ["-vm-display-null", "-nodisplay"] };
+    var uiMod = null, display;
+    if (useUI) {
+        uiMod = require(path.join(__dirname, "uidisplay.js"));
+        display = uiMod.install(Squeak, { width: uiW, height: uiH });
+    } else {
+        display = { vmOptions: ["-vm-display-null", "-nodisplay"] };
+    }
     var vm = new Squeak.Interpreter(image, display, useFrames ? { stackZone: true, jit2: useJit2 } : {});
     if (noJit) vm.compiler = null;
     if (process.env.JIT2DBG) vm.jit2Debug = true;
@@ -482,6 +491,35 @@ image.readFromBuffer(data.buffer, function startRunning() {
             return origENM.call(vm, newRcvr, newMethod, argumentCount, primitiveIndex, optClass, optSel);
         };
     }
+    // Agenda de eventos de entrada (solo --ui). Determinista: cada evento se
+    // inyecta al cruzar su umbral de sendCount, idéntico entre representaciones.
+    var evSched = null, evIdx = 0;
+    if (useUI) {
+        var evFile = argValue("--events", null);
+        if (evFile) {
+            // JSON: [ {at, ev:[type,ts,...]}, ... ]  o  [ [type,relMs,...], ... ] con --evfrom
+            var raw = JSON.parse(fs.readFileSync(path.resolve(evFile), "utf8"));
+            evSched = raw.map(function(e, i) {
+                return Array.isArray(e) ? { at: Math.floor(maxSends * (0.4 + 0.5 * i / raw.length)), ev: e } : e;
+            });
+        } else {
+            evSched = uiMod.syntheticScript(uiW, uiH, Math.floor(maxSends * 0.5), Math.floor(maxSends * 0.9));
+        }
+        console.log("eventos agendados: " + evSched.length + (evFile ? " (de " + evFile + ")" : " (sintéticos)"));
+    }
+    function injectDueEvents() {
+        if (!evSched) return;
+        while (evIdx < evSched.length && vm.sendCount >= evSched[evIdx].at) {
+            var e = evSched[evIdx++].ev.slice();
+            e[1] = vm.primHandler.millisecondClockValue(); // ts en el dominio del reloj del VM
+            // reflejar posición/botones en el display para los prims de polling
+            if (e[0] === 1) { display.mouseX = e[2]; display.mouseY = e[3]; display.buttons = e[4]; }
+            display.eventQueue.push(e);
+            if (display.signalInputEvent) display.signalInputEvent();
+            display.idle = 0;
+        }
+    }
+
     var noop = function() {};
     var wallStart = process.hrtime.bigint();
     clockRunning = true;
@@ -497,6 +535,7 @@ image.readFromBuffer(data.buffer, function startRunning() {
                 await new Promise(function(r) { setImmediate(r); });
                 continue;
             }
+            injectDueEvents();
             var result = vm.interpret(5, noop); // thenDo: freeze necesita continueFunc
             if (result === "frozen") continue;
             slices++;
@@ -534,6 +573,7 @@ image.readFromBuffer(data.buffer, function startRunning() {
         }
     }
 
+    var fp = uiMod ? uiMod.displayFingerprint(vm) : null;
     var report = {
         image: path.relative(repoRoot, imagePath),
         maxSends: maxSends,
@@ -542,6 +582,7 @@ image.readFromBuffer(data.buffer, function startRunning() {
         stopReason: stopReason,
         hash: hash.toString(16),
         virtualMs: virtualMs,
+        displayHash: fp ? fp.hash : undefined,
     };
 
     if (mode === "bench") {
@@ -575,6 +616,10 @@ image.readFromBuffer(data.buffer, function startRunning() {
         console.log("married=" + (vm.nMarriedContexts||0) + " byClosure=" + (vm.nMarryClosure||0)
             + " byThisCtx=" + (vm.nMarryThisCtx||0) + " bySenderFill=" + (vm.nMarrySenderFill||0));
     if (vm.nFreezeSim) console.log("freezes simulados: " + vm.nFreezeSim + " singleSteps: " + (vm.nSingleStep || 0));
+    if (fp) console.log("display: " + fp.w + "x" + fp.h + " depth=" + fp.depth
+        + " hash=" + fp.hash + " nonzero=" + fp.nonzero + "/" + (fp.words || "?") + " words"
+        + " damage=" + (display.damage ? JSON.stringify(display.damage) : "none")
+        + " eventsLeft=" + (display.eventQueue ? display.eventQueue.length : "?"));
     console.log("trace: sends=" + report.sendCount + " slices=" + report.slices +
         " stop=" + report.stopReason + " hash=" + report.hash + " virtualMs=" + report.virtualMs +
         "  (wall " + wallMs.toFixed(0) + " ms)");
@@ -592,6 +637,7 @@ image.readFromBuffer(data.buffer, function startRunning() {
         // dependen de la cadencia de interrupciones y la granularidad del slice,
         // no de la semántica
         var keys = ["image", "maxSends", "stopReason", "hash"];
+        if (golden.displayHash !== undefined && report.displayHash !== undefined) keys.push("displayHash");
         var diffs = keys.filter(function(k) { return String(golden[k]) !== String(report[k]); });
         if (diffs.length === 0) {
             console.log("OK: traza idéntica al golden");
