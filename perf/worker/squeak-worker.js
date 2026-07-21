@@ -37,6 +37,7 @@ import "../../plugins/FloatArrayPlugin.js";
 import "../../plugins/B2DPlugin.js";
 import "../../plugins/Matrix2x3Plugin.js";
 import "../../plugins/ZipPlugin.js";
+import "../../plugins/JPEGReaderPlugin.js"; // JPEG puro-JS (jpeg2.browser usa DOM, no sirve en worker)
 
 var display = null, ctx = null, vm = null;
 
