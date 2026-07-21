@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SqueakJS en Web Worker — spike</title>
+<style>
+  body { font-family: sans-serif; margin: 8px; }
+  #c { border: 1px solid #888; image-rendering: pixelated; }
+  #status { font-family: monospace; margin: 6px 0; }
+  .alive { color: green; font-weight: bold; }
+</style>
+</head>
+<body>
+<div id="status">arrancando…</div>
+<div id="alive" class="alive">main thread: —</div>
+<canvas id="c" width="1024" height="768"></canvas>
+<script>
+var canvas = document.getElementById("c");
+var statusEl = document.getElementById("status");
+var aliveEl = document.getElementById("alive");
+
+// El indicador de responsiveness: si el main thread estuviera bloqueado por el VM,
+// este contador (actualizado por requestAnimationFrame) se congelaría. Si sigue
+// subiendo fluido mientras el worker trabaja al 100%, la UI NO está bloqueada.
+var frames = 0, lastT = performance.now(), fps = 0;
+function tick(t) {
+    frames++;
+    if (t - lastT > 500) { fps = Math.round(frames * 1000 / (t - lastT)); frames = 0; lastT = t; }
+    aliveEl.textContent = "main thread VIVO — rAF fps: " + fps + " (t=" + Math.round(t) + ")";
+    requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+var offscreen = canvas.transferControlToOffscreen();
+var worker = new Worker("squeak-worker.js", { type: "module" });
+worker.postMessage({ type: "init", canvas: offscreen, width: 1024, height: 768, image: "/Dialogo.32bits.image" }, [offscreen]);
+
+var frameCount = 0;
+worker.onmessage = function(e) {
+    var m = e.data;
+    if (m.type === "ready") statusEl.textContent = "VM READY en el worker — corriendo…";
+    else if (m.type === "frame") { frameCount++; }
+    else if (m.type === "tick") { frameCount++; statusEl.textContent = "VM en worker | renders: " + frameCount + " | sends: " + m.sends; }
+    else if (m.type === "error") { statusEl.textContent = "ERROR worker: " + m.msg.split("\n")[0]; console.error("worker error:", m.msg); }
+};
+worker.onerror = function(e) { statusEl.textContent = "WORKER ONERROR: " + e.message; console.error(e); };
+
+function sendEvent(x, y, buttons) {
+    var r = canvas.getBoundingClientRect();
+    var cx = Math.round((x - r.left) * canvas.width / r.width);
+    var cy = Math.round((y - r.top) * canvas.height / r.height);
+    worker.postMessage({ type: "event", ev: [1, Date.now(), cx, cy, buttons, 0] });
+}
+canvas.addEventListener("mousemove", function(e) { sendEvent(e.clientX, e.clientY, e.buttons & 1 ? 4 : 0); });
+canvas.addEventListener("mousedown", function(e) { sendEvent(e.clientX, e.clientY, 4); });
+canvas.addEventListener("mouseup", function(e) { sendEvent(e.clientX, e.clientY, 0); });
+</script>
+</body>
+</html>
