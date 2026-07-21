@@ -31,9 +31,15 @@ function tick(t) {
 }
 requestAnimationFrame(tick);
 
+// imagen y tamaño configurables por la URL: #image=/otra.image&w=1024&h=768
+// (fijar el tamaño ANTES de transferir el canvas al worker)
+var params = new URLSearchParams((location.hash || "#").slice(1));
+var imageUrl = params.get("image") || "/Dialogo.32bits.image";
+var W = parseInt(params.get("w") || "1024", 10), H = parseInt(params.get("h") || "768", 10);
+canvas.width = W; canvas.height = H;
 var offscreen = canvas.transferControlToOffscreen();
 var worker = new Worker("squeak-worker.js", { type: "module" });
-worker.postMessage({ type: "init", canvas: offscreen, width: 1024, height: 768, image: "/Dialogo.32bits.image" }, [offscreen]);
+worker.postMessage({ type: "init", canvas: offscreen, width: W, height: H, image: imageUrl }, [offscreen]);
 
 var frameCount = 0;
 worker.onmessage = function(e) {
