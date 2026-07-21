@@ -111,16 +111,21 @@ self.onmessage = function(e) {
     }
 };
 
+var BUILD = "worker-v4 templates+keys+await";
 function boot(imageUrl) {
     Object.extend(Squeak, { vmPath: "/", platformSubtype: "Worker", osVersion: "worker", windowSystem: "worker" });
     // cargar los archivos de proyecto de Dialogo (lazy, vía XHR) en el FS del worker,
     // igual que #templates en el browser. IndexedDB/XHR funcionan en workers.
     Squeak.fetchTemplateDir("/", "/dialogo-fs");
+    // esperar a que los XHR de templates registren la estructura de directorios ANTES
+    // de que la imagen enumere sus proyectos al arrancar (evita una race consistente)
     fetch(imageUrl).then(function(r) { return r.arrayBuffer(); }).then(function(data) {
+      setTimeout(function() {
+        var tdirs = Object.keys(self.localStorage).filter(function(k){ return k.indexOf("squeak-template:") === 0; }).length;
         var image = new Squeak.Image("Dialogo");
         image.readFromBuffer(data, function() {
             vm = new Squeak.Interpreter(image, display);
-            self.postMessage({ type: "ready" });
+            self.postMessage({ type: "ready", build: BUILD, templateDirs: tdirs });
             function run() {
                 try { vm.interpret(50, function(ms) { setTimeout(run, ms === "sleep" ? 10 : ms); }); }
                 catch (err) { self.postMessage({ type: "error", msg: String(err && err.stack || err) }); }
@@ -130,8 +135,10 @@ function boot(imageUrl) {
             // sin depender de que la imagen llame forceDisplayUpdate
             setInterval(function() {
                 renderDisplay();
-                self.postMessage({ type: "tick", sends: vm.sendCount });
+                var tdirs = Object.keys(Squeak.Settings).filter(function(k){ return k.indexOf("squeak-template:") === 0; }).length;
+                self.postMessage({ type: "tick", sends: vm.sendCount, templateDirs: tdirs });
             }, 33);
         });
+      }, 800);
     }).catch(function(err) { self.postMessage({ type: "error", msg: "fetch: " + err }); });
 }

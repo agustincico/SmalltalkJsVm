@@ -41,12 +41,12 @@ var offscreen = canvas.transferControlToOffscreen();
 var worker = new Worker("squeak-worker.js", { type: "module" });
 worker.postMessage({ type: "init", canvas: offscreen, width: W, height: H, image: imageUrl }, [offscreen]);
 
-var frameCount = 0;
+var frameCount = 0, buildInfo = "";
 worker.onmessage = function(e) {
     var m = e.data;
-    if (m.type === "ready") statusEl.textContent = "VM READY en el worker — corriendo…";
+    if (m.type === "ready") buildInfo = "[" + m.build + "] ";
     else if (m.type === "frame") { frameCount++; }
-    else if (m.type === "tick") { frameCount++; statusEl.textContent = "VM en worker | renders: " + frameCount + " | sends: " + m.sends; }
+    else if (m.type === "tick") { frameCount++; statusEl.textContent = buildInfo + "proyectos: " + m.templateDirs + " dirs · sends: " + m.sends; }
     else if (m.type === "error") { statusEl.textContent = "ERROR worker: " + m.msg.split("\n")[0]; console.error("worker error:", m.msg); }
 };
 worker.onerror = function(e) { statusEl.textContent = "WORKER ONERROR: " + e.message; console.error(e); };
