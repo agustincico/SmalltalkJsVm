@@ -37,7 +37,7 @@ import "../../plugins/FloatArrayPlugin.js";
 import "../../plugins/B2DPlugin.js";
 import "../../plugins/Matrix2x3Plugin.js";
 import "../../plugins/ZipPlugin.js";
-import "../../plugins/JPEGReaderPlugin.js"; // JPEG puro-JS (jpeg2.browser usa DOM, no sirve en worker)
+import "../../vm.plugins.jpeg2.browser.js"; // define las funciones jpeg2_* (el módulo JPEGReadWriter2Plugin es builtin pero vacío sin esto)
 
 var display = null, ctx = null, vm = null;
 
@@ -80,6 +80,25 @@ Object.extend(Squeak.Primitives.prototype, "worker-display", {
     primitiveKeyboardPeek: function(argCount) { return this.popNandPushIfOK(argCount + 1, display.keys.length ? this.ensureSmallInt(display.keys[0]) : this.vm.nilObj); },
     primitiveBeep: function(argCount) { return true; },
     primitiveClipboardText: function(argCount) { return false; },
+});
+
+// JPEG worker-safe: jpeg2.browser decodifica con `new Image()` + <canvas> del DOM,
+// que no existe en un worker. Se sobrescriben SOLO las 2 funciones DOM de lectura
+// con `createImageBitmap` (decoder JPEG nativo del browser, disponible en workers)
+// + `OffscreenCanvas`. El resto del plugin (freeze async, copyPixelsToForm*) es
+// puro-JS y se reusa tal cual. (El write/encode queda para después.)
+Object.extend(Squeak.Primitives.prototype, "jpeg2-worker-overrides", {
+    jpeg2_readImageFromBytes: function(bytes, thenDo, errorDo) {
+        createImageBitmap(new Blob([bytes], { type: "image/jpeg" }))
+            .then(function(bmp) { thenDo(bmp); })
+            .catch(function() { errorDo(); });
+    },
+    jpeg2_getPixelsFromImage: function(image) {
+        var canvas = new OffscreenCanvas(image.width, image.height),
+            context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0);
+        return context.getImageData(0, 0, image.width, image.height);
+    },
 });
 
 function renderDisplay() {
