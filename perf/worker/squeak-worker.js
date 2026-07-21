@@ -112,6 +112,9 @@ self.onmessage = function(e) {
 
 function boot(imageUrl) {
     Object.extend(Squeak, { vmPath: "/", platformSubtype: "Worker", osVersion: "worker", windowSystem: "worker" });
+    // cargar los archivos de proyecto de Dialogo (lazy, vía XHR) en el FS del worker,
+    // igual que #templates en el browser. IndexedDB/XHR funcionan en workers.
+    Squeak.fetchTemplateDir("/", "/dialogo-fs");
     fetch(imageUrl).then(function(r) { return r.arrayBuffer(); }).then(function(data) {
         var image = new Squeak.Image("Dialogo");
         image.readFromBuffer(data, function() {
