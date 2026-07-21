@@ -78,7 +78,7 @@ var hardKill = setTimeout(function(){ console.error("HARD TIMEOUT — matando");
     console.log("modo: " + JSON.stringify(mode));
 
     var traceFile = opt("--trace", null);
-    if (traceFile) { await page.tracing.start({ path: traceFile, categories: ["devtools.timeline", "v8.cpu_profiler", "disabled-by-default-v8.cpu_profiler"] }); console.log("tracing → " + traceFile); }
+    if (traceFile) { await page.tracing.start({ path: traceFile, categories: ["devtools.timeline", "toplevel", "v8.cpu_profiler", "disabled-by-default-v8.cpu_profiler"] }); console.log("tracing → " + traceFile); }
 
     if (eventsFile && fs.existsSync(eventsFile)) {
         var rec = JSON.parse(fs.readFileSync(eventsFile, "utf8"));

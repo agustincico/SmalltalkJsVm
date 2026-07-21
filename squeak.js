@@ -94,6 +94,14 @@ Object.extend(Squeak, {
 
 // UI namespace
 window.SqueakJS = {};
+// Time-slice budget (ms of wall-clock) the interpreter runs before yielding back
+// to the browser event loop, so it can paint/handle input between slices. Default
+// 50ms; #sliceMs=N in the URL overrides it (spike: smaller slices trade a little
+// throughput for much shorter perceived freezes on long CPU bursts).
+(function() {
+    var m = /[#&]sliceMs=([0-9]+)/.exec(location.hash || location.search);
+    if (m) SqueakJS.sliceMs = parseInt(m[1], 10);
+})();
 
 //////////////////////////////////////////////////////////////////////////////
 // display & event setup
@@ -1179,7 +1187,7 @@ SqueakJS.runImage = function(buffer, name, display, options) {
             function run() {
                 try {
                     if (display.quitFlag) SqueakJS.onQuit(vm, display, options);
-                    else vm.interpret(50, function runAgain(ms) {
+                    else vm.interpret(SqueakJS.sliceMs || 50, function runAgain(ms) {
                         if (ms == "sleep") ms = 200;
                         if (spinner) updateSpinner(spinner, ms, vm, display);
                         loop = window.setTimeout(run, ms);
