@@ -101,7 +101,7 @@ self.onmessage = function(e) {
         ctx = msg.canvas.getContext("2d");
         display = { width: msg.width, height: msg.height, mouseX: msg.width >> 1, mouseY: msg.height >> 1,
                     buttons: 0, keys: [], eventQueue: [], signalInputEvent: null };
-        boot(msg.image);
+        boot(msg.image, msg.notemplates);
     } else if (msg.type === "event") {
         var ev = msg.ev;
         if (ev[0] === 1) { display.mouseX = ev[2]; display.mouseY = ev[3]; display.buttons = ev[4]; }
@@ -112,11 +112,11 @@ self.onmessage = function(e) {
 };
 
 var BUILD = "worker-v4 templates+keys+await";
-function boot(imageUrl) {
+function boot(imageUrl, notemplates) {
     Object.extend(Squeak, { vmPath: "/", platformSubtype: "Worker", osVersion: "worker", windowSystem: "worker" });
     // cargar los archivos de proyecto de Dialogo (lazy, vía XHR) en el FS del worker,
     // igual que #templates en el browser. IndexedDB/XHR funcionan en workers.
-    Squeak.fetchTemplateDir("/", "/dialogo-fs");
+    if (!notemplates) Squeak.fetchTemplateDir("/", "/dialogo-fs");
     // esperar a que los XHR de templates registren la estructura de directorios ANTES
     // de que la imagen enumere sus proyectos al arrancar (evita una race consistente)
     fetch(imageUrl).then(function(r) { return r.arrayBuffer(); }).then(function(data) {

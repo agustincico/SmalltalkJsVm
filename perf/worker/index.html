@@ -39,7 +39,7 @@ var W = parseInt(params.get("w") || "1024", 10), H = parseInt(params.get("h") ||
 canvas.width = W; canvas.height = H;
 var offscreen = canvas.transferControlToOffscreen();
 var worker = new Worker("squeak-worker.js", { type: "module" });
-worker.postMessage({ type: "init", canvas: offscreen, width: W, height: H, image: imageUrl }, [offscreen]);
+worker.postMessage({ type: "init", canvas: offscreen, width: W, height: H, image: imageUrl, notemplates: params.has("notemplates") }, [offscreen]);
 
 var frameCount = 0, buildInfo = "";
 worker.onmessage = function(e) {
