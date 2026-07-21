@@ -45,15 +45,40 @@ worker.onmessage = function(e) {
 };
 worker.onerror = function(e) { statusEl.textContent = "WORKER ONERROR: " + e.message; console.error(e); };
 
-function sendEvent(x, y, buttons) {
+// mapeo de botones/modificadores igual que vm.input del browser
+// botones Squeak: Red=4 (izq), Yellow=2 (medio), Blue=1 (der); mods: shift8 ctrl16 alt32 cmd64
+function mods(e) { return (e.shiftKey?8:0)|(e.ctrlKey?16:0)|(e.altKey?32:0)|(e.metaKey?64:0); }
+function buttonsFrom(e, downButton) {
+    if (downButton !== undefined) {
+        var b = downButton === 0 ? 4 : downButton === 1 ? 2 : downButton === 2 ? 1 : 0;
+        if (b === 4 && (e.altKey || e.metaKey)) b = 2; // alt/cmd-click = middle (menú)
+        return b;
+    }
+    return (e.buttons & 1 ? 4 : 0) | (e.buttons & 2 ? 1 : 0) | (e.buttons & 4 ? 2 : 0);
+}
+function mouseEv(e, x, y, buttons) {
     var r = canvas.getBoundingClientRect();
     var cx = Math.round((x - r.left) * canvas.width / r.width);
     var cy = Math.round((y - r.top) * canvas.height / r.height);
-    worker.postMessage({ type: "event", ev: [1, Date.now(), cx, cy, buttons, 0] });
+    worker.postMessage({ type: "event", ev: [1, Date.now(), cx, cy, buttons, mods(e) ] });
 }
-canvas.addEventListener("mousemove", function(e) { sendEvent(e.clientX, e.clientY, e.buttons & 1 ? 4 : 0); });
-canvas.addEventListener("mousedown", function(e) { sendEvent(e.clientX, e.clientY, 4); });
-canvas.addEventListener("mouseup", function(e) { sendEvent(e.clientX, e.clientY, 0); });
+canvas.addEventListener("mousemove", function(e) { mouseEv(e, e.clientX, e.clientY, buttonsFrom(e)); });
+canvas.addEventListener("mousedown", function(e) { e.preventDefault(); mouseEv(e, e.clientX, e.clientY, buttonsFrom(e, e.button)); });
+canvas.addEventListener("mouseup", function(e) { mouseEv(e, e.clientX, e.clientY, 0); });
+canvas.addEventListener("contextmenu", function(e) { e.preventDefault(); }); // botón derecho = Squeak, no menú del browser
+// teclado (foco en el canvas)
+canvas.tabIndex = 0;
+function keyEv(down, e) {
+    var uni = e.key.length === 1 ? e.key.charCodeAt(0)
+        : e.key === "Enter" ? 13 : e.key === "Backspace" ? 8 : e.key === "Tab" ? 9 : e.key === "Escape" ? 27
+        : e.key === "ArrowLeft" ? 28 : e.key === "ArrowRight" ? 29 : e.key === "ArrowUp" ? 30 : e.key === "ArrowDown" ? 31 : 0;
+    if (!uni) return;
+    var mac = uni < 128 ? uni : 0;
+    // EventTypeKeyboard=2, ts, macCode, EventKeyChar=0, mods, unicode
+    worker.postMessage({ type: "event", ev: [2, Date.now(), mac, 0, mods(e), uni] });
+}
+canvas.addEventListener("keydown", function(e) { if (e.key.length === 1 || ["Enter","Backspace","Tab","Escape","ArrowLeft","ArrowRight","ArrowUp","ArrowDown"].indexOf(e.key) >= 0) { e.preventDefault(); keyEv(true, e); } });
+canvas.focus();
 </script>
 </body>
 </html>
