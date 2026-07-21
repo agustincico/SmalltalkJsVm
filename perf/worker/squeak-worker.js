@@ -105,6 +105,7 @@ self.onmessage = function(e) {
     } else if (msg.type === "event") {
         var ev = msg.ev;
         if (ev[0] === 1) { display.mouseX = ev[2]; display.mouseY = ev[3]; display.buttons = ev[4]; }
+        else if (ev[0] === 2) display.keys.push((ev[4] << 8) | ev[2]); // teclado: también el polling interface (Sensor, p/ modales)
         display.eventQueue.push(ev);
         if (display.signalInputEvent) display.signalInputEvent();
     }
