@@ -24,6 +24,7 @@ import "../../jit.js";
 import "../../vm.stackzone.js";
 import "../../jit2.js";
 import "../../vm.display.js";
+import "../../vm.display.browser.js"; // primitivos de display (scanCharacters, etc.); las funciones DOM/render las piso abajo
 import "../../vm.input.js";
 import "../../vm.plugins.js";
 import "../../vm.plugins.file.browser.js";
@@ -41,24 +42,18 @@ import "../../vm.plugins.jpeg2.browser.js"; // define las funciones jpeg2_* (el 
 
 var display = null, ctx = null, vm = null;
 
-// --- backend de display+input para el worker (OffscreenCanvas + cola de eventos) ---
+// --- backend de display+input para el worker ---
+// La MAYORÍA de los primitivos de display de vm.display.browser.js ya son worker-safe:
+// las ramas DOM están guardadas por this.display.cursorCanvas / fullscreenRequest /
+// highdpi (que no seteamos) y renderizan al OffscreenCanvas vía this.display.context
+// (mismo camino showForm/showDisplayBits). Por eso NO los reimplementamos: dejamos que
+// corra el batching real de deferDisplayUpdates. Solo pisamos lo que SÍ toca DOM/audio
+// (beep/clipboard, screenDepth que solo existe en headless) y el INPUT: en el browser
+// llega por listeners del DOM; acá llega por postMessage → cola de eventos.
 Object.extend(Squeak.Primitives.prototype, "worker-display", {
-    primitiveScreenSize: function(argCount) {
-        return this.popNandPushIfOK(argCount + 1, this.makePointWithXandY(display.width, display.height));
-    },
     primitiveScreenDepth: function(argCount) { return this.popNandPushIfOK(argCount + 1, 32); },
-    primitiveScreenScaleFactor: function(argCount) { return this.popNandPushIfOK(argCount + 1, 1); },
-    primitiveBeDisplay: function(argCount) {
-        this.vm.specialObjects[Squeak.splOb_TheDisplay] = this.vm.stackValue(0);
-        this.vm.popN(argCount); return true;
-    },
-    primitiveDeferDisplayUpdates: function(argCount) { this.vm.popN(argCount); return true; },
-    primitiveForceDisplayUpdate: function(argCount) { renderDisplay(); this.vm.popN(argCount); return true; },
-    primitiveShowDisplayRect: function(argCount) { renderDisplay(); this.vm.popN(argCount); return true; },
-    primitiveReverseDisplay: function(argCount) { this.vm.popN(argCount); return true; },
-    primitiveSetFullScreen: function(argCount) { this.vm.popN(argCount); return true; },
-    primitiveBeCursor: function(argCount) { this.vm.popN(argCount); return true; },
-    primitiveTestDisplayDepth: function(argCount) { return this.popNandPushIfOK(argCount + 1, this.vm.trueObj); },
+    primitiveBeep: function(argCount) { this.vm.popN(argCount); return true; },
+    primitiveClipboardText: function(argCount) { return false; },
     // input
     primitiveInputSemaphore: function(argCount) {
         var idx = this.stackInteger(0); if (!this.success) return false;
@@ -78,8 +73,6 @@ Object.extend(Squeak.Primitives.prototype, "worker-display", {
     primitiveMousePoint: function(argCount) { return this.popNandPushIfOK(argCount + 1, this.makePointWithXandY(display.mouseX | 0, display.mouseY | 0)); },
     primitiveKeyboardNext: function(argCount) { return this.popNandPushIfOK(argCount + 1, display.keys.length ? this.ensureSmallInt(display.keys.shift()) : this.vm.nilObj); },
     primitiveKeyboardPeek: function(argCount) { return this.popNandPushIfOK(argCount + 1, display.keys.length ? this.ensureSmallInt(display.keys[0]) : this.vm.nilObj); },
-    primitiveBeep: function(argCount) { return true; },
-    primitiveClipboardText: function(argCount) { return false; },
 });
 
 // JPEG worker-safe: jpeg2.browser decodifica con `new Image()` + <canvas> del DOM,
@@ -119,7 +112,8 @@ self.onmessage = function(e) {
     var msg = e.data;
     if (msg.type === "init") {
         ctx = msg.canvas.getContext("2d");
-        display = { width: msg.width, height: msg.height, mouseX: msg.width >> 1, mouseY: msg.height >> 1,
+        // context: lo usa la ruta de render de vm.display.browser.js (showForm/showDisplayBits)
+        display = { width: msg.width, height: msg.height, context: ctx, mouseX: msg.width >> 1, mouseY: msg.height >> 1,
                     buttons: 0, keys: [], eventQueue: [], signalInputEvent: null };
         boot(msg.image, msg.notemplates);
     } else if (msg.type === "event") {
@@ -131,7 +125,7 @@ self.onmessage = function(e) {
     }
 };
 
-var BUILD = "worker-v4 templates+keys+await";
+var BUILD = "worker-v5 display.browser+scanChars";
 function boot(imageUrl, notemplates) {
     Object.extend(Squeak, { vmPath: "/", platformSubtype: "Worker", osVersion: "worker", windowSystem: "worker" });
     // cargar los archivos de proyecto de Dialogo (lazy, vía XHR) en el FS del worker,
