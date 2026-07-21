@@ -77,6 +77,9 @@ var hardKill = setTimeout(function(){ console.error("HARD TIMEOUT — matando");
     }).catch(function(){ return null; });
     console.log("modo: " + JSON.stringify(mode));
 
+    var traceFile = opt("--trace", null);
+    if (traceFile) { await page.tracing.start({ path: traceFile, categories: ["devtools.timeline", "v8.cpu_profiler", "disabled-by-default-v8.cpu_profiler"] }); console.log("tracing → " + traceFile); }
+
     if (eventsFile && fs.existsSync(eventsFile)) {
         var rec = JSON.parse(fs.readFileSync(eventsFile, "utf8"));
         var evs = Array.isArray(rec) ? rec : rec.events;
@@ -104,6 +107,7 @@ var hardKill = setTimeout(function(){ console.error("HARD TIMEOUT — matando");
     }
 
     await new Promise(function(r){ setTimeout(r, secs * 1000); });
+    if (traceFile) { await page.tracing.stop(); console.log("trace guardado: " + traceFile); }
     var sends2 = await page.evaluate(function(){ return window.SqueakJS && SqueakJS.vm ? SqueakJS.vm.sendCount : null; }).catch(function(){ return null; });
     if (shot) { await page.screenshot({ path: shot }).catch(function(){}); console.log("screenshot: " + shot); }
 
