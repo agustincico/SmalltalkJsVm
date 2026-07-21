@@ -463,12 +463,20 @@ Object.subclass('Squeak.Primitives',
         return this.success;
     },
     doNamedPrimitive: function(argCount, primMethod) {
-        if (primMethod.pointersSize() < 2) return false;
-        var firstLiteral = primMethod.pointers[1]; // skip method header
-        if (firstLiteral.pointersSize() !== 4) return false;
+        // Los nombres de módulo/función viven en el 1er literal y NO cambian para
+        // un método dado. Decodificarlos con bytesAsString EN CADA llamada era ~10%
+        // del trabajo en workloads con muchos primitivos-117 (medido en profile del
+        // browser, modo ctx). Se cachean en el método (el modo frames ya cachea la
+        // función resuelta vía primFn; esto es el equivalente mínimo para ctx).
+        var moduleName = primMethod._primModName, functionName = primMethod._primFuncName;
+        if (moduleName === undefined) {
+            if (primMethod.pointersSize() < 2) return false;
+            var firstLiteral = primMethod.pointers[1]; // skip method header
+            if (firstLiteral.pointersSize() !== 4) return false;
+            moduleName = primMethod._primModName = firstLiteral.pointers[0].bytesAsString();
+            functionName = primMethod._primFuncName = firstLiteral.pointers[1].bytesAsString();
+        }
         this.primMethod = primMethod;
-        var moduleName = firstLiteral.pointers[0].bytesAsString();
-        var functionName = firstLiteral.pointers[1].bytesAsString();
         return this.namedPrimitive(moduleName, functionName, argCount);
     },
     fakePrimitive: function(prim, retVal, argCount) {
