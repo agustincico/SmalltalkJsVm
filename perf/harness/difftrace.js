@@ -243,6 +243,42 @@ image.readFromBuffer(data.buffer, function startRunning() {
         };
     }
     if (process.env.PFNDBG) vm.primFnDebug = true;
+    if (process.env.COUNTBV) {
+        var ph = vm.primHandler, cnt = { blockValue:0, blockValueArgs:0, closureAct:0, closureActFull:0 };
+        var o1 = ph.primitiveBlockValue.bind(ph); ph.primitiveBlockValue = function(a){ cnt.blockValue++; return o1(a); };
+        var o2 = ph.primitiveBlockValueWithArgs.bind(ph); ph.primitiveBlockValueWithArgs = function(a){ cnt.blockValueArgs++; return o2(a); };
+        if (ph.activateNewClosureMethod) { var o3 = ph.activateNewClosureMethod.bind(ph); ph.activateNewClosureMethod = function(b,a){ cnt.closureAct++; return o3(b,a); }; }
+        process.on("exit", function(){ console.error("COUNTBV " + JSON.stringify(cnt) + " byClosure(marriages)=" + (vm.nMarryClosure||0)); });
+    }
+    if (process.env.CLEANBLK) {
+        // ¿cuántos closures son "clean" (nunca usan su outerContext)? Un clean block
+        // no necesitaría casar el frame → eliminaría marriages del stack zone.
+        // Conservador: clean = numCopied 0 Y ningún bytecode que toque estado externo
+        // (rcvr vars/self/thisContext/^/remote temps/extendidos que podrían).
+        var dirty = {}; [0x70,0x7C,0x81,0x82,0x84,0x85,0x89,0x8C,0x8D,0x8E].forEach(function(b){dirty[b]=1;});
+        var stats = { total:0, clean:0, numCopied0:0, byCopied:{} };
+        var origPCC = vm.pushClosureCopy.bind(vm);
+        vm.pushClosureCopy = function() {
+            var savedPc = vm.pc, m = vm.method;
+            var nac = m.bytes[vm.pc], numCopied = nac >> 4;
+            var bsHi = m.bytes[vm.pc+1], blockSize = bsHi*256 + m.bytes[vm.pc+2];
+            var blockStart = vm.pc + 3, isClean = (numCopied === 0);
+            if (isClean) for (var p = blockStart; p < blockStart + blockSize; p++) {
+                var b = m.bytes[p];
+                if (b <= 0x0F || (b >= 0x60 && b <= 0x67) || dirty[b]) { isClean = false; break; }
+            }
+            stats.total++;
+            if (numCopied === 0) stats.numCopied0++;
+            stats.byCopied[numCopied] = (stats.byCopied[numCopied]||0)+1;
+            if (isClean) stats.clean++;
+            return origPCC();
+        };
+        process.on("exit", function(){
+            console.error("CLEANBLK closures=" + stats.total + " clean=" + stats.clean
+                + " (" + (100*stats.clean/stats.total).toFixed(1) + "%) numCopied0=" + stats.numCopied0
+                + " (" + (100*stats.numCopied0/stats.total).toFixed(1) + "%) byCopied=" + JSON.stringify(stats.byCopied));
+        });
+    }
     if (process.env.HOTSEL) {
         // top métodos Smalltalk por activaciones (rcvrClass>>selector) — muestra
         // en qué gasta sends la imagen real (¿desperdicio algorítmico o costo base?)
