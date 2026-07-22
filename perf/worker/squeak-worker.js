@@ -146,7 +146,7 @@ self.onmessage = function(e) {
     }
 };
 
-var BUILD = "worker-v9 prompt-shim only (reverted headroom+numComponents)";
+var BUILD = "worker-v10 event recorder (VM: v9 prompt-shim)";
 function boot(imageUrl, notemplates, nostream) {
     Object.extend(Squeak, { vmPath: "/", platformSubtype: "Worker", osVersion: "worker", windowSystem: "worker" });
     // cargar los archivos de proyecto de Dialogo (lazy, vía XHR) en el FS del worker,

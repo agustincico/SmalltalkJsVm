@@ -13,6 +13,11 @@
 <body>
 <div id="status">arrancando…</div>
 <div id="alive" class="alive">main thread: —</div>
+<div id="rec-bar" style="margin:6px 0;font-family:monospace;">
+  <button id="rec-reset">● reiniciar grabación</button>
+  <button id="rec-dl">⬇ descargar eventos (<span id="rec-n">0</span>)</button>
+  <span id="rec-hint" style="color:#666;"> — grabá abriendo un proyecto y descargá el JSON para el test</span>
+</div>
 <canvas id="c" width="1024" height="768"></canvas>
 <script>
 var canvas = document.getElementById("c");
@@ -69,12 +74,38 @@ function buttonsFrom(e, downButton) {
     }
     return (e.buttons & 1 ? 4 : 0) | (e.buttons & 2 ? 1 : 0) | (e.buttons & 4 ? 2 : 0);
 }
+// grabación de eventos: cada evento se envía al worker Y se guarda con timestamp,
+// en el mismo formato que consume el harness ({width,height,events:[{at,ev}]}), para
+// poder reproducir headless (ej. abrir un proyecto y provocar el OOM) y validar fixes.
+var recording = [], recN = document.getElementById("rec-n");
+function sendEv(ev) {
+    worker.postMessage({ type: "event", ev: ev });
+    recording.push({ at: Date.now(), ev: ev });
+    recN.textContent = recording.length;
+}
 function mouseEv(e, x, y, buttons) {
     var r = canvas.getBoundingClientRect();
     var cx = Math.round((x - r.left) * canvas.width / r.width);
     var cy = Math.round((y - r.top) * canvas.height / r.height);
-    worker.postMessage({ type: "event", ev: [1, Date.now(), cx, cy, buttons, mods(e) ] });
+    sendEv([1, Date.now(), cx, cy, buttons, mods(e)]);
 }
+// hook de replay headless: reproduce una grabación posteando los eventos al worker con
+// el timing real (deltas de `at`, capeados). Lo usa perf/worker/replay.js vía puppeteer.
+window.__replayEvents = function(events) {
+    var t0 = events.length ? events[0].at : 0;
+    events.forEach(function(e) {
+        setTimeout(function() { worker.postMessage({ type: "event", ev: e.ev }); }, Math.min(Math.max(0, e.at - t0), 120000));
+    });
+    return events.length;
+};
+document.getElementById("rec-reset").onclick = function() { recording = []; recN.textContent = 0; };
+document.getElementById("rec-dl").onclick = function() {
+    var data = JSON.stringify({ width: W, height: H, events: recording });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([data], { type: "application/json" }));
+    a.download = "dialogo-worker-events.json";
+    a.click();
+};
 canvas.addEventListener("mousemove", function(e) { mouseEv(e, e.clientX, e.clientY, buttonsFrom(e)); });
 canvas.addEventListener("mousedown", function(e) { e.preventDefault(); mouseEv(e, e.clientX, e.clientY, buttonsFrom(e, e.button)); });
 canvas.addEventListener("mouseup", function(e) { mouseEv(e, e.clientX, e.clientY, 0); });
@@ -88,7 +119,7 @@ function keyEv(down, e) {
     if (!uni) return;
     var mac = uni < 128 ? uni : 0;
     // EventTypeKeyboard=2, ts, macCode, EventKeyChar=0, mods, unicode
-    worker.postMessage({ type: "event", ev: [2, Date.now(), mac, 0, mods(e), uni] });
+    sendEv([2, Date.now(), mac, 0, mods(e), uni]);
 }
 canvas.addEventListener("keydown", function(e) { if (e.key.length === 1 || ["Enter","Backspace","Tab","Escape","ArrowLeft","ArrowRight","ArrowUp","ArrowDown"].indexOf(e.key) >= 0) { e.preventDefault(); keyEv(true, e); } });
 canvas.focus();
