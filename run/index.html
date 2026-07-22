@@ -53,6 +53,12 @@
         var W = window.innerWidth, H = window.innerHeight;
         sqCanvas.width = W; sqCanvas.height = H;
         sqCanvas.tabIndex = 0;
+        // the canvas is position:fixed with no offsets, so it lands at its static position
+        // (offset by the body's 8px margin) and overflows the viewport. Pin it to 0,0 and
+        // kill scrolling so it fills the screen exactly. (Worker mode only.)
+        sqCanvas.style.left = "0"; sqCanvas.style.top = "0";
+        document.documentElement.style.overflow = "hidden";
+        document.body.style.overflow = "hidden";
         var offscreen = sqCanvas.transferControlToOffscreen();
         var worker = new Worker("../squeak_worker.js", { type: "module" });
         var buf = buffer instanceof ArrayBuffer ? buffer : (buffer.buffer || buffer);
