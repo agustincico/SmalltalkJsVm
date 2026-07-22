@@ -45,6 +45,13 @@ var frameCount = 0, buildInfo = "";
 worker.onmessage = function(e) {
     var m = e.data;
     if (m.type === "ready") buildInfo = "[" + m.build + "] ";
+    else if (m.type === "cursor") {
+        // la imagen definió el cursor → lo aplicamos como cursor CSS nativo (hardware,
+        // tracking perfecto). Convertimos el ImageBitmap a data URL vía un canvas temporal.
+        var tc = document.createElement("canvas"); tc.width = m.bitmap.width; tc.height = m.bitmap.height;
+        tc.getContext("2d").drawImage(m.bitmap, 0, 0);
+        canvas.style.cursor = "url(" + tc.toDataURL() + ") " + m.hotX + " " + m.hotY + ", auto";
+    }
     else if (m.type === "frame") { frameCount++; }
     else if (m.type === "tick") { frameCount++; statusEl.textContent = buildInfo + "proyectos: " + m.templateDirs + " dirs · sends: " + m.sends; }
     else if (m.type === "error") { statusEl.textContent = "ERROR worker: " + m.msg.split("\n")[0]; console.error("worker error:", m.msg); }

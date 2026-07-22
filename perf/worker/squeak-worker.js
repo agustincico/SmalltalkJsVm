@@ -54,6 +54,33 @@ Object.extend(Squeak.Primitives.prototype, "worker-display", {
     primitiveScreenDepth: function(argCount) { return this.popNandPushIfOK(argCount + 1, 32); },
     primitiveBeep: function(argCount) { this.vm.popN(argCount); return true; },
     primitiveClipboardText: function(argCount) { return false; },
+    // Cursor manejado por la imagen (paridad con desktop): construimos el bitmap del
+    // cursor con showForm sobre un OffscreenCanvas y lo mandamos al main thread, que lo
+    // pone como cursor CSS nativo (url(...) hotX hotY). Así el browser lo renderiza por
+    // hardware, sin overlay ni lag. El offset de Squeak es negativo (se suma a la pos del
+    // mouse) → el hotspot CSS es -offset.
+    primitiveBeCursor: function(argCount) {
+        try {
+            var cursorForm = this.loadForm(this.stackNonInteger(argCount), true),
+                maskForm = argCount === 1 ? this.loadForm(this.stackNonInteger(0)) : null;
+            if (this.success && cursorForm) {
+                var w = cursorForm.width, h = cursorForm.height,
+                    oc = new OffscreenCanvas(w, h), octx = oc.getContext("2d"),
+                    bounds = { left: 0, top: 0, right: w, bottom: h }, form = cursorForm;
+                if (form.depth === 1) {
+                    if (maskForm) { form = this.cursorMergeMask(form, maskForm);
+                        this.showForm(octx, form, bounds, [0x00000000, 0xFF0000FF, 0xFFFFFFFF, 0xFF000000]);
+                    } else this.showForm(octx, form, bounds, [0x00000000, 0xFF000000]);
+                } else this.showForm(octx, form, bounds, true);
+                var bmp = oc.transferToImageBitmap();
+                self.postMessage({ type: "cursor", bitmap: bmp,
+                    hotX: Math.max(0, Math.min(w - 1, -(form.offsetX | 0))),
+                    hotY: Math.max(0, Math.min(h - 1, -(form.offsetY | 0))) }, [bmp]);
+            }
+        } catch (e) { /* si falla, se queda con el cursor anterior */ }
+        this.vm.popN(argCount);
+        return true;
+    },
     // input
     primitiveInputSemaphore: function(argCount) {
         var idx = this.stackInteger(0); if (!this.success) return false;
@@ -111,7 +138,7 @@ self.onmessage = function(e) {
     }
 };
 
-var BUILD = "worker-v6 displayDirty render (no flicker)";
+var BUILD = "worker-v7 image-managed cursor + stream prims";
 function boot(imageUrl, notemplates) {
     Object.extend(Squeak, { vmPath: "/", platformSubtype: "Worker", osVersion: "worker", windowSystem: "worker" });
     // cargar los archivos de proyecto de Dialogo (lazy, vía XHR) en el FS del worker,
