@@ -140,7 +140,8 @@
         // there): opens the native file browser (Files/Downloads). Drops the file at the
         // screen center via the same drop path, so the image handles it identically.
         var openBtn = document.getElementById("sqOpenBtn"), fileInput = document.getElementById("sqFileOpen");
-        if (openBtn && fileInput) {
+        var showOpenBtn = new URLSearchParams(location.hash.slice(1)).has("openbtn");
+        if (openBtn && fileInput && showOpenBtn) {
             openBtn.style.display = "block";
             openBtn.onclick = function() { fileInput.value = ""; fileInput.click(); };
             fileInput.onchange = function() {
@@ -291,6 +292,7 @@
         var params = new URLSearchParams(location.hash.slice(1));
         params.set("image", imageName);
         if (workerToggle && workerToggle.checked) params.set("worker", ""); else params.delete("worker");
+        if (openBtnToggle && openBtnToggle.checked) params.set("openbtn", ""); else params.delete("openbtn");
         location.hash = "#" + params.toString();
         return false;
     }
@@ -395,6 +397,7 @@
         <h2>Run Squeak images from your local machine</h2>
         Use drag-and-drop to run a Squeak image from your machine: drop the image (perhaps together with a changes and sources file) into this page.
         <div><label><input id="workerToggle" type="checkbox"> Run in a Web Worker (experimental) — keeps the page responsive (no freeze) by running the VM off the main thread. Local images only.</label></div>
+        <div><label><input id="openBtnToggle" type="checkbox" checked> Show a 📂 button to open files (worker mode) — needed on mobile, where drag-drop isn't available.</label></div>
         <div id="images"></div>
         All images and related files are stored persistently in a database inside your browser.
         The box below shows the files that are currently in your database.  Inside Squeak, you can use a FileList
