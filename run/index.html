@@ -12,6 +12,14 @@
         // Squeak.debugFiles = true;
         sqText.style.display = "none";
         sqCanvas.style.display = "block";
+        // #worker: run the VM in a Web Worker (off the main thread) so the page stays
+        // responsive (no freeze / ruedita). Only for local images (read from IndexedDB);
+        // URL/zip images fall through to the normal main-thread path.
+        var params = new URLSearchParams(location.hash.slice(1));
+        imageName = imageName || params.get("image");
+        if (params.has("worker") && imageName && !/^https?:/i.test(imageName) && !params.has("zip") && !params.has("url")) {
+            return runSqueakInWorker(imageName);
+        }
         SqueakJS.runSqueak(imageName, sqCanvas,{
             spinner: sqSpinner,
             appName: imageName && imageName.replace(/.*\//, "").replace(/\.image$/, ""),
@@ -27,6 +35,71 @@
                     location.href = location.href.replace(/\?.*/, "");
                 }, 0);
             },
+        });
+    }
+    // --- #worker mode: run the VM in a Web Worker rendering to an OffscreenCanvas ---
+    function runSqueakInWorker(imageName) {
+        var path = Squeak.splitFilePath(imageName);
+        Squeak.fileGet(path.fullname, function(buffer) {
+            startWorker(path.basename, buffer);
+        }, function(err) {
+            // not a local file (or read failed) → fall back to the main-thread VM
+            console.warn("worker mode: could not read local image (" + err + "), falling back to main thread");
+            var p = new URLSearchParams(location.hash.slice(1)); p.delete("worker");
+            location.hash = "#" + p.toString();
+        });
+    }
+    function startWorker(name, buffer) {
+        var W = window.innerWidth, H = window.innerHeight;
+        sqCanvas.width = W; sqCanvas.height = H;
+        sqCanvas.tabIndex = 0;
+        var offscreen = sqCanvas.transferControlToOffscreen();
+        var worker = new Worker("../squeak_worker.js", { type: "module" });
+        var buf = buffer instanceof ArrayBuffer ? buffer : (buffer.buffer || buffer);
+        worker.postMessage({ type: "init", canvas: offscreen, width: W, height: H,
+            image: buf, name: name.replace(/\.image$/i, "") }, [offscreen, buf]);
+        worker.onmessage = function(e) {
+            var m = e.data;
+            if (m.type === "ready") { if (sqSpinner) sqSpinner.style.display = "none"; }
+            else if (m.type === "cursor") {
+                var tc = document.createElement("canvas"); tc.width = m.bitmap.width; tc.height = m.bitmap.height;
+                tc.getContext("2d").drawImage(m.bitmap, 0, 0);
+                sqCanvas.style.cursor = "url(" + tc.toDataURL() + ") " + m.hotX + " " + m.hotY + ", auto";
+            }
+            else if (m.type === "error") { console.error("worker error:", m.msg); }
+        };
+        worker.onerror = function(e) { console.error("worker onerror:", e.message || e); };
+        wireWorkerInput(worker);
+        sqCanvas.focus();
+    }
+    // forward mouse/keyboard to the worker in Squeak event format
+    // buttons: Red=4 (left), Yellow=2 (middle), Blue=1 (right); mods: shift8 ctrl16 alt32 cmd64
+    function wireWorkerInput(worker) {
+        function mods(e) { return (e.shiftKey?8:0)|(e.ctrlKey?16:0)|(e.altKey?32:0)|(e.metaKey?64:0); }
+        function buttonsFrom(e, downButton) {
+            if (downButton !== undefined) {
+                var b = downButton === 0 ? 4 : downButton === 1 ? 2 : downButton === 2 ? 1 : 0;
+                if (b === 4 && (e.altKey || e.metaKey)) b = 2; // alt/cmd-click = middle (menu)
+                return b;
+            }
+            return (e.buttons & 1 ? 4 : 0) | (e.buttons & 2 ? 1 : 0) | (e.buttons & 4 ? 2 : 0);
+        }
+        function mouseEv(e, buttons) {
+            var r = sqCanvas.getBoundingClientRect();
+            var cx = Math.round((e.clientX - r.left) * sqCanvas.width / r.width);
+            var cy = Math.round((e.clientY - r.top) * sqCanvas.height / r.height);
+            worker.postMessage({ type: "event", ev: [1, Date.now(), cx, cy, buttons, mods(e)] });
+        }
+        sqCanvas.addEventListener("mousemove", function(e) { mouseEv(e, buttonsFrom(e)); });
+        sqCanvas.addEventListener("mousedown", function(e) { e.preventDefault(); sqCanvas.focus(); mouseEv(e, buttonsFrom(e, e.button)); });
+        sqCanvas.addEventListener("mouseup", function(e) { mouseEv(e, 0); });
+        sqCanvas.addEventListener("contextmenu", function(e) { e.preventDefault(); });
+        sqCanvas.addEventListener("keydown", function(e) {
+            var special = { Enter:13, Backspace:8, Tab:9, Escape:27, ArrowLeft:28, ArrowRight:29, ArrowUp:30, ArrowDown:31, Delete:127, Home:1, End:4, PageUp:11, PageDown:12 };
+            var uni = e.key.length === 1 ? e.key.charCodeAt(0) : special[e.key] || 0;
+            if (!uni) return;
+            e.preventDefault();
+            worker.postMessage({ type: "event", ev: [2, Date.now(), uni < 128 ? uni : 0, 0, mods(e), uni] });
         });
     }
     function importItems(items) {
@@ -117,6 +190,14 @@
         params.set("image", imageName);
         return params.toString();
     }
+    // launch a local image, honoring the "Run in a Web Worker" checkbox
+    function launchImage(imageName) {
+        var params = new URLSearchParams(location.hash.slice(1));
+        params.set("image", imageName);
+        if (workerToggle && workerToggle.checked) params.set("worker", ""); else params.delete("worker");
+        location.hash = "#" + params.toString();
+        return false;
+    }
     function showFiles() {
         var imgList = [],
             fileList = [],
@@ -131,7 +212,7 @@
                 var entry = entries[f],
                     path = dir + '/' + f;
                 if (!entry[3] && f.match(/\.image$/))
-                    imgList.push('<li><a href="#' + paramsForImage(path) + '">' + path + '</a> (' + (entry[4]/1000000).toFixed(1) + ' MB)</li>');
+                    imgList.push('<li><a href="#' + paramsForImage(path) + '" onclick="return launchImage(\'' + path + '\')">' + path + '</a> (' + (entry[4]/1000000).toFixed(1) + ' MB)</li>');
                 if (entry[3]) {
                     dirs.push(path);
                     nDirs++;
@@ -217,6 +298,7 @@
 
         <h2>Run Squeak images from your local machine</h2>
         Use drag-and-drop to run a Squeak image from your machine: drop the image (perhaps together with a changes and sources file) into this page.
+        <div><label><input id="workerToggle" type="checkbox"> Run in a Web Worker (experimental) — keeps the page responsive (no freeze) by running the VM off the main thread. Local images only.</label></div>
         <div id="images"></div>
         All images and related files are stored persistently in a database inside your browser.
         The box below shows the files that are currently in your database.  Inside Squeak, you can use a FileList

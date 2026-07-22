@@ -43,8 +43,13 @@ var imageUrl = params.get("image") || "/Dialogo.32bits.image";
 var W = parseInt(params.get("w") || "1024", 10), H = parseInt(params.get("h") || "768", 10);
 canvas.width = W; canvas.height = H;
 var offscreen = canvas.transferControlToOffscreen();
-var worker = new Worker("squeak-worker.js", { type: "module" });
-worker.postMessage({ type: "init", canvas: offscreen, width: W, height: H, image: imageUrl, notemplates: params.has("notemplates"), nostream: params.has("nostream") }, [offscreen]);
+// usa el worker genérico de la raíz; le pasamos config de Dialogo (imagen por URL +
+// templates del directorio de proyectos) vía el mensaje init.
+var worker = new Worker("../../squeak_worker.js", { type: "module" });
+worker.postMessage({ type: "init", canvas: offscreen, width: W, height: H,
+    image: imageUrl, name: "Dialogo",
+    templates: params.has("notemplates") ? null : { root: "/", url: "/dialogo-fs" },
+    nostream: params.has("nostream") }, [offscreen]);
 
 var frameCount = 0, buildInfo = "";
 worker.onmessage = function(e) {
@@ -58,7 +63,7 @@ worker.onmessage = function(e) {
         canvas.style.cursor = "url(" + tc.toDataURL() + ") " + m.hotX + " " + m.hotY + ", auto";
     }
     else if (m.type === "frame") { frameCount++; }
-    else if (m.type === "tick") { frameCount++; statusEl.textContent = buildInfo + "proyectos: " + m.templateDirs + " dirs · sends: " + m.sends; }
+    else if (m.type === "tick") { frameCount++; statusEl.textContent = buildInfo + "sends: " + m.sends; }
     else if (m.type === "error") { statusEl.textContent = "ERROR worker: " + m.msg.split("\n")[0]; console.error("worker error:", m.msg); }
 };
 worker.onerror = function(e) { statusEl.textContent = "WORKER ONERROR: " + e.message; console.error(e); };
