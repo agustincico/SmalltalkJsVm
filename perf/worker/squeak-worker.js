@@ -127,13 +127,6 @@ Object.extend(Squeak.Primitives.prototype, "jpeg2-worker-overrides", {
         context.drawImage(image, 0, 0);
         return context.getImageData(0, 0, image.width, image.height);
     },
-    // El plugin estándar no implementa esto → "missing primitive", y la imagen cae a
-    // un camino de decode en Smalltalk que aloca millones de temporales (churn → low
-    // space → crash). createImageBitmap siempre decodifica a RGB, así que informamos
-    // 3 componentes y la imagen usa la ruta rápida por primitiva.
-    jpeg2_primImageNumComponents: function(argCount) {
-        return this.popNandPushIfOK(argCount + 1, 3);
-    },
 });
 
 self.onmessage = function(e) {
@@ -153,7 +146,7 @@ self.onmessage = function(e) {
     }
 };
 
-var BUILD = "worker-v8 prompt-shim + headroom + numComponents";
+var BUILD = "worker-v9 prompt-shim only (reverted headroom+numComponents)";
 function boot(imageUrl, notemplates, nostream) {
     Object.extend(Squeak, { vmPath: "/", platformSubtype: "Worker", osVersion: "worker", windowSystem: "worker" });
     // cargar los archivos de proyecto de Dialogo (lazy, vía XHR) en el FS del worker,
@@ -165,11 +158,6 @@ function boot(imageUrl, notemplates, nostream) {
       setTimeout(function() {
         var tdirs = Object.keys(self.localStorage).filter(function(k){ return k.indexOf("squeak-template:") === 0; }).length;
         var image = new Squeak.Image("Dialogo");
-        // Más headroom que el default (100MB): cargar un proyecto grande de Dialogo
-        // (grafo de morphs + PNGs/JPEGs embebidos) hace un pico transitorio de objetos
-        // temporales que superaba el límite y gatillaba low-space. Un worker puede usar
-        // bastante RAM; le damos 512MB de margen para que el pico no toque el umbral.
-        image.headRoom = 512000000;
         image.readFromBuffer(data, function() {
             vm = new Squeak.Interpreter(image, display);
             if (nostream) vm.primHandler.streamPrims = false; // A/B: #nostream desactiva prims 65/66/67
