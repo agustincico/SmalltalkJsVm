@@ -94,20 +94,6 @@ Object.extend(Squeak.Primitives.prototype, "jpeg2-worker-overrides", {
     },
 });
 
-function renderDisplay() {
-    var disp = vm.specialObjects[Squeak.splOb_TheDisplay];
-    if (!disp || !disp.pointers) return;
-    var bits = disp.pointers[0], w = disp.pointers[1], h = disp.pointers[2];
-    if (!bits || !bits.words || !w || !h) return;
-    var words = bits.words, n = Math.min(words.length, w * h);
-    var img = ctx.createImageData(w, h), dst = new Uint32Array(img.data.buffer);
-    for (var i = 0; i < n; i++) {
-        var argb = words[i];
-        dst[i] = (argb & 0xFF00FF00) | ((argb & 0x00FF0000) >> 16) | ((argb & 0x000000FF) << 16) | 0xFF000000;
-    }
-    ctx.putImageData(img, 0, 0);
-}
-
 self.onmessage = function(e) {
     var msg = e.data;
     if (msg.type === "init") {
@@ -125,7 +111,7 @@ self.onmessage = function(e) {
     }
 };
 
-var BUILD = "worker-v5 display.browser+scanChars";
+var BUILD = "worker-v6 displayDirty render (no flicker)";
 function boot(imageUrl, notemplates) {
     Object.extend(Squeak, { vmPath: "/", platformSubtype: "Worker", osVersion: "worker", windowSystem: "worker" });
     // cargar los archivos de proyecto de Dialogo (lazy, vía XHR) en el FS del worker,
@@ -145,13 +131,13 @@ function boot(imageUrl, notemplates) {
                 catch (err) { self.postMessage({ type: "error", msg: String(err && err.stack || err) }); }
             }
             run();
-            // render decoplado del VM: copiar el Display Form al canvas ~30fps,
-            // sin depender de que la imagen llame forceDisplayUpdate
+            // NO renderizamos en un timer aparte: el render lo maneja la ruta real
+            // displayDirty→showForm (respeta deferDisplayUpdates de Morphic, sin capturar
+            // frames a mitad de dibujo → sin flicker). Este intervalo es solo status.
             setInterval(function() {
-                renderDisplay();
                 var tdirs = Object.keys(Squeak.Settings).filter(function(k){ return k.indexOf("squeak-template:") === 0; }).length;
                 self.postMessage({ type: "tick", sends: vm.sendCount, templateDirs: tdirs });
-            }, 33);
+            }, 250);
         });
       }, 800);
     }).catch(function(err) { self.postMessage({ type: "error", msg: "fetch: " + err }); });
