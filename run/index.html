@@ -85,7 +85,56 @@
         };
         worker.onerror = function(e) { console.error("worker onerror:", e.message || e); };
         wireWorkerInput(worker);
+        wireWorkerResizeAndDrop(worker);
         sqCanvas.focus();
+    }
+    // dynamic resize + drag/drop of files onto the running environment (worker mode)
+    function wireWorkerResizeAndDrop(worker) {
+        var resizeTimer;
+        window.addEventListener("resize", function() {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(function() {
+                worker.postMessage({ type: "resize", width: window.innerWidth, height: window.innerHeight });
+            }, 250);
+        });
+        function hasFiles(evt) {
+            var t = evt.dataTransfer && evt.dataTransfer.types;
+            for (var i = 0; t && i < t.length; i++) if (t[i] === "Files") return true;
+            return false;
+        }
+        function dragCoords(evt) {
+            var r = sqCanvas.getBoundingClientRect();
+            return [Math.round((evt.clientX - r.left) * sqCanvas.width / r.width),
+                    Math.round((evt.clientY - r.top) * sqCanvas.height / r.height)];
+        }
+        function postDrag(dragType, evt, numFiles) {
+            var c = dragCoords(evt);
+            worker.postMessage({ type: "event", ev: [3, Date.now(), dragType, c[0], c[1], 0, numFiles] });
+        }
+        // stopPropagation so these don't reach the page's import-to-FS drop handler
+        sqCanvas.addEventListener("dragenter", function(evt) { if (hasFiles(evt)) { evt.preventDefault(); evt.stopPropagation(); postDrag(1, evt, 1); } });
+        sqCanvas.addEventListener("dragover", function(evt) { if (hasFiles(evt)) { evt.preventDefault(); evt.stopPropagation(); evt.dataTransfer.dropEffect = "copy"; postDrag(2, evt, 1); } });
+        sqCanvas.addEventListener("dragleave", function(evt) { if (hasFiles(evt)) { evt.stopPropagation(); postDrag(3, evt, 0); } });
+        sqCanvas.addEventListener("drop", function(evt) {
+            if (!hasFiles(evt)) return;
+            evt.preventDefault(); evt.stopPropagation();
+            var files = [].slice.call(evt.dataTransfer.files), paths = [], loaded = 0, c = dragCoords(evt);
+            if (!files.length) return;
+            files.forEach(function(f) {
+                var path = "/" + f.name; paths.push(path);
+                var reader = new FileReader();
+                reader.onload = function() {
+                    // store in the shared IndexedDB, then hand the paths to the image
+                    Squeak.filePut(path, this.result, function() {
+                        if (++loaded < files.length) return;
+                        var settings = {};
+                        for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); settings[k] = localStorage.getItem(k); }
+                        worker.postMessage({ type: "drop", files: paths, settings: settings, ev: [3, Date.now(), 4, c[0], c[1], 0, paths.length] });
+                    });
+                };
+                reader.readAsArrayBuffer(f);
+            });
+        });
     }
     // forward mouse/keyboard to the worker in Squeak event format
     // buttons: Red=4 (left), Yellow=2 (middle), Blue=1 (right); mods: shift8 ctrl16 alt32 cmd64

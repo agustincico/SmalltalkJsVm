@@ -36,6 +36,7 @@ import "./vm.display.browser.js"; // display primitives (scanCharacters etc.); D
 import "./vm.input.js";
 import "./vm.plugins.js";
 import "./vm.plugins.file.browser.js";
+import "./vm.plugins.drop.browser.js"; // primitiveDropRequestFileName/Handle (read dropped files)
 import "./vm.files.browser.js";
 import "./plugins/BitBltPlugin.js";
 import "./plugins/LargeIntegers.js";
@@ -147,7 +148,22 @@ self.onmessage = function(e) {
         var ev = msg.ev;
         if (ev[0] === 1) { display.mouseX = ev[2]; display.mouseY = ev[3]; display.buttons = ev[4]; }
         else if (ev[0] === 2) display.keys.push((ev[4] << 8) | ev[2]); // keyboard: also feed the polling interface (Sensor, for modals)
+        else if (ev[0] === 3) { display.mouseX = ev[3]; display.mouseY = ev[4]; } // drag: [3,ts,type,x,y,...] → update pointer pos
         display.eventQueue.push(ev);
+        if (display.signalInputEvent) display.signalInputEvent();
+    } else if (msg.type === "resize") {
+        // window resized: change the display resolution; the image picks up the new screen
+        // size on its next display cycle and relayouts (or letterboxes, its choice).
+        display.width = msg.width; display.height = msg.height;
+        ctx.canvas.width = msg.width; ctx.canvas.height = msg.height;
+    } else if (msg.type === "drop") {
+        // files were stored in the shared IndexedDB by the host; merge their new directory
+        // entries so the image can open them, expose the paths in display.droppedFiles, and
+        // queue the drop event. The image decides whether to load or reject each file
+        // (via primitiveDropRequestFileName/Handle) — exactly like the desktop VM.
+        if (msg.settings) Object.assign(Squeak.Settings, msg.settings);
+        display.droppedFiles = msg.files;
+        display.eventQueue.push(msg.ev);
         if (display.signalInputEvent) display.signalInputEvent();
     }
 };
