@@ -187,6 +187,7 @@ image.readFromBuffer(data.buffer, function startRunning() {
     var vm = new Squeak.Interpreter(image, display, useFrames ? { stackZone: true, jit2: useJit2 } : {});
     if (noJit) vm.compiler = null;
     if (process.env.LARGEINT === "0") vm.primHandler.largeIntPrims = false; // A/B: desactivar prims LargeInteger
+    if (process.env.STREAMPRIM === "0") vm.primHandler.streamPrims = false; // A/B: desactivar prims Stream 65/66/67
     if (process.env.JIT2DBG) vm.jit2Debug = true;
     if (process.env.SEMDBG) {
         var origSS = vm.primHandler.synchronousSignal;

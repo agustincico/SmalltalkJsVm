@@ -149,9 +149,9 @@ Object.subclass('Squeak.Primitives',
             case 62: return this.popNandPushIfOK(argCount+1, this.objectSize(false)); // size
             case 63: return this.popNandPushIfOK(argCount+1, this.objectAt(false,true,false)); // String.basicAt:
             case 64: return this.popNandPushIfOK(argCount+1, this.objectAtPut(false,true,false)); // String.basicAt:put:
-            case 65: this.vm.warnOnce("missing primitive: 65 (primitiveNext)"); return false;
-            case 66: this.vm.warnOnce("missing primitive: 66 (primitiveNextPut)"); return false;
-            case 67: this.vm.warnOnce("missing primitive: 67 (primitiveAtEnd)"); return false;
+            case 65: return this.primitiveStreamNext(argCount); // primitiveNext
+            case 66: return this.primitiveStreamNextPut(argCount); // primitiveNextPut
+            case 67: return this.primitiveStreamAtEnd(argCount); // primitiveAtEnd
             // StorageManagement Primitives (68-79)
             case 68: return this.popNandPushIfOK(argCount+1, this.objectAt(false,false,true)); // Method.objectAt:
             case 69: return this.popNandPushIfOK(argCount+1, this.objectAtPut(false,false,true)); // Method.objectAt:put:
@@ -1129,6 +1129,65 @@ Object.subclass('Squeak.Primitives',
     },
 },
 'indexing', {
+    // Stream primitives 65/66/67 (PositionableStream). Como el VM real de Squeak,
+    // solo manejan colecciones Array o String; ante cualquier otra cosa o borde
+    // (índice fuera de límite, tipos raros) devuelven false → fallback a Smalltalk,
+    // que es siempre correcto. Antes de mutar la posición validamos TODO, así un
+    // fallback nunca la doble-avanza. writeLimit es el instVar 3 (WriteStream).
+    primitiveStreamNext: function(argCount) {
+        if (this.streamPrims === false) return false;
+        var stream = this.stackNonInteger(0);
+        if (!stream.pointers || stream.pointers.length <= Squeak.Stream_limit) return false;
+        var array = stream.pointers[Squeak.Stream_array],
+            index = stream.pointers[Squeak.Stream_position],
+            limit = stream.pointers[Squeak.Stream_limit];
+        if (typeof index !== "number" || typeof limit !== "number") return false;
+        if (index >= limit || !array || !array.sqClass) return false;
+        var result;
+        if (array.sqClass === this.vm.specialObjects[Squeak.splOb_ClassArray]) {
+            if (!array.pointers || index >= array.pointers.length) return false;
+            result = array.pointers[index];
+        } else if (array.sqClass === this.vm.specialObjects[Squeak.splOb_ClassString]) {
+            if (!array.bytes || index >= array.bytes.length) return false;
+            result = this.charFromInt(array.bytes[index] & 0xFF);
+        } else return false;
+        if (result === undefined || result === null) return false;
+        stream.pointers[Squeak.Stream_position] = index + 1;
+        return this.popNandPushIfOK(argCount + 1, result);
+    },
+    primitiveStreamNextPut: function(argCount) {
+        if (this.streamPrims === false) return false;
+        var value = this.vm.stackValue(0),
+            stream = this.stackNonInteger(1);
+        if (!stream.pointers || stream.pointers.length <= 3) return false;
+        var array = stream.pointers[Squeak.Stream_array],
+            index = stream.pointers[Squeak.Stream_position],
+            limit = stream.pointers[3]; // writeLimit
+        if (typeof index !== "number" || typeof limit !== "number") return false;
+        if (index >= limit || !array || !array.sqClass) return false;
+        if (array.sqClass === this.vm.specialObjects[Squeak.splOb_ClassArray]) {
+            if (!array.pointers || index >= array.pointers.length) return false;
+            array.pointers[index] = value;
+            array.dirty = true;
+        } else if (array.sqClass === this.vm.specialObjects[Squeak.splOb_ClassString]) {
+            if (!array.bytes || index >= array.bytes.length) return false;
+            if (!value || value.sqClass !== this.vm.specialObjects[Squeak.splOb_ClassCharacter]) return false;
+            var ascii = this.charToInt(value);
+            if (typeof ascii !== "number" || ascii < 0 || ascii > 255) return false;
+            array.bytes[index] = ascii;
+        } else return false;
+        stream.pointers[Squeak.Stream_position] = index + 1;
+        return this.popNandPushIfOK(argCount + 1, value);
+    },
+    primitiveStreamAtEnd: function(argCount) {
+        if (this.streamPrims === false) return false;
+        var stream = this.stackNonInteger(0);
+        if (!stream.pointers || stream.pointers.length <= Squeak.Stream_limit) return false;
+        var index = stream.pointers[Squeak.Stream_position],
+            limit = stream.pointers[Squeak.Stream_limit];
+        if (typeof index !== "number" || typeof limit !== "number") return false;
+        return this.popNandPushIfOK(argCount + 1, index >= limit ? this.vm.trueObj : this.vm.falseObj);
+    },
     objectAt: function(cameFromBytecode, convertChars, includeInstVars) {
         //Returns result of at: or sets success false
         var array = this.stackNonInteger(1);
