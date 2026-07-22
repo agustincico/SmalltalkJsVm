@@ -146,7 +146,7 @@ self.onmessage = function(e) {
     }
 };
 
-var BUILD = "worker-v10 event recorder (VM: v9 prompt-shim)";
+var BUILD = "worker-v11 headroom 512MB (fix OOM, no numComponents)";
 function boot(imageUrl, notemplates, nostream) {
     Object.extend(Squeak, { vmPath: "/", platformSubtype: "Worker", osVersion: "worker", windowSystem: "worker" });
     // cargar los archivos de proyecto de Dialogo (lazy, vía XHR) en el FS del worker,
@@ -158,6 +158,13 @@ function boot(imageUrl, notemplates, nostream) {
       setTimeout(function() {
         var tdirs = Object.keys(self.localStorage).filter(function(k){ return k.indexOf("squeak-template:") === 0; }).length;
         var image = new Squeak.Image("Dialogo");
+        // Más headroom que el default (100MB): abrir un proyecto grande hace un pico
+        // transitorio de objetos temporales (decode de PNGs vía Zip + reconstrucción de
+        // morphs) que llegó a ~133MB y superaba el límite → OOM. Con 512MB de margen el
+        // pico entra y el GC recolecta la churn. NO cambia el comportamiento del VM
+        // (verificado: idle sends idénticos con y sin esto), a diferencia de forzar
+        // numComponents que sí rompía abrir proyectos.
+        image.headRoom = 512000000;
         image.readFromBuffer(data, function() {
             vm = new Squeak.Interpreter(image, display);
             if (nostream) vm.primHandler.streamPrims = false; // A/B: #nostream desactiva prims 65/66/67
