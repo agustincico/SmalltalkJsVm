@@ -133,6 +133,15 @@ self.onmessage = function(e) {
         // context: used by vm.display.browser.js's render path (showForm/showDisplayBits)
         display = { width: msg.width, height: msg.height, context: ctx, mouseX: msg.width >> 1, mouseY: msg.height >> 1,
                     buttons: 0, keys: [], eventQueue: [], signalInputEvent: null };
+        // The FilePlugin keeps its DIRECTORY structure in localStorage (Squeak.Settings),
+        // but a worker has no localStorage — so the host passes it in and we seed it here.
+        // (File CONTENTS live in IndexedDB, which is shared across the origin, so those
+        // come through on their own.) Without this the worker sees an empty FS → no saved
+        // projects. We remember it as the baseline for change detection on sync-back.
+        if (msg.settings) {
+            Object.assign(Squeak.Settings, msg.settings);
+            console.log("squeak_worker: seeded FS with " + Object.keys(Squeak.Settings).filter(function(k){ return k.indexOf("squeak:") === 0; }).length + " directory entries from host");
+        }
         boot(msg);
     } else if (msg.type === "event") {
         var ev = msg.ev;
@@ -175,6 +184,17 @@ function boot(opts) {
                 // showForm path (respects Morphic's deferDisplayUpdates, so no mid-draw
                 // frames → no flicker). This interval only posts status.
                 setInterval(function() { self.postMessage({ type: "tick", sends: vm.sendCount }); }, 250);
+                // Persist FS changes back to the host: the worker's directory updates live
+                // in its in-memory Squeak.Settings (no real localStorage), so files it
+                // creates would be orphaned in IndexedDB after a reload. Send the settings
+                // snapshot whenever it changes; the host writes it to localStorage.
+                var lastSettings = "";
+                setInterval(function() {
+                    var snap = {};
+                    for (var k in Squeak.Settings) if (typeof Squeak.Settings[k] === "string") snap[k] = Squeak.Settings[k];
+                    var ser = JSON.stringify(snap);
+                    if (ser !== lastSettings) { lastSettings = ser; self.postMessage({ type: "settings", settings: snap }); }
+                }, 700);
             });
         }, useTemplates ? 800 : 0);
     }).catch(function(err) { self.postMessage({ type: "error", msg: "load: " + err }); });

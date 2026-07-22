@@ -56,8 +56,12 @@
         var offscreen = sqCanvas.transferControlToOffscreen();
         var worker = new Worker("../squeak_worker.js", { type: "module" });
         var buf = buffer instanceof ArrayBuffer ? buffer : (buffer.buffer || buffer);
+        // A worker can't read localStorage, where the FilePlugin keeps its directory
+        // structure — so pass a snapshot in (file contents are in the shared IndexedDB).
+        var settings = {};
+        for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); settings[k] = localStorage.getItem(k); }
         worker.postMessage({ type: "init", canvas: offscreen, width: W, height: H,
-            image: buf, name: name.replace(/\.image$/i, "") }, [offscreen, buf]);
+            image: buf, name: name.replace(/\.image$/i, ""), settings: settings }, [offscreen, buf]);
         worker.onmessage = function(e) {
             var m = e.data;
             if (m.type === "ready") { if (sqSpinner) sqSpinner.style.display = "none"; }
@@ -65,6 +69,17 @@
                 var tc = document.createElement("canvas"); tc.width = m.bitmap.width; tc.height = m.bitmap.height;
                 tc.getContext("2d").drawImage(m.bitmap, 0, 0);
                 sqCanvas.style.cursor = "url(" + tc.toDataURL() + ") " + m.hotX + " " + m.hotY + ", auto";
+            }
+            else if (m.type === "settings") {
+                // persist FS changes the worker made back to localStorage (so new projects
+                // survive a reload). Update/add its keys, and delete only "squeak:" dir keys
+                // it removed — never touch other keys.
+                var incoming = m.settings;
+                for (var key in incoming) { if (localStorage.getItem(key) !== incoming[key]) localStorage.setItem(key, incoming[key]); }
+                for (var j = localStorage.length - 1; j >= 0; j--) {
+                    var lk = localStorage.key(j);
+                    if (lk.indexOf("squeak:") === 0 && !(lk in incoming)) localStorage.removeItem(lk);
+                }
             }
             else if (m.type === "error") { console.error("worker error:", m.msg); }
         };
