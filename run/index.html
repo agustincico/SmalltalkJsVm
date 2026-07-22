@@ -67,7 +67,7 @@
         var settings = {};
         for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); settings[k] = localStorage.getItem(k); }
         worker.postMessage({ type: "init", canvas: offscreen, width: W, height: H,
-            image: buf, name: name.replace(/\.image$/i, ""), settings: settings }, [offscreen, buf]);
+            image: buf, name: name.replace(/\.image$/i, ""), settings: settings, downloadOnSave: true }, [offscreen, buf]);
         worker.onmessage = function(e) {
             var m = e.data;
             if (m.type === "ready") { if (sqSpinner) sqSpinner.style.display = "none"; }
@@ -86,6 +86,15 @@
                     var lk = localStorage.key(j);
                     if (lk.indexOf("squeak:") === 0 && !(lk in incoming)) localStorage.removeItem(lk);
                 }
+            }
+            else if (m.type === "download") {
+                // the image saved a file → download it to the user's Downloads folder
+                var blob = new Blob([m.bytes], { type: "application/octet-stream" });
+                var a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = m.name || "download";
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(function() { URL.revokeObjectURL(a.href); }, 2000);
             }
             else if (m.type === "error") { console.error("worker error:", m.msg); }
         };

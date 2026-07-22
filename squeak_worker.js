@@ -47,7 +47,35 @@ import "./plugins/Matrix2x3Plugin.js";
 import "./plugins/ZipPlugin.js";
 import "./vm.plugins.jpeg2.browser.js"; // defines the jpeg2_* functions (module is builtin but empty without this)
 
-var display = null, ctx = null, vm = null;
+var display = null, ctx = null, vm = null, downloadOnSave = false;
+
+// Download-on-save: when the image closes a file it just wrote to its working (image)
+// directory, hand the bytes to the host so it downloads them into the user's Downloads
+// folder — turning Dialogo's "guardar" (which writes to the inaccessible image dir) into
+// a real, reachable save. Enabled via the init option so it stays off for the
+// template-based spike. Squeak internals and files inside subfolders are skipped.
+var _origFileClose = Squeak.Primitives.prototype.fileClose;
+Squeak.Primitives.prototype.fileClose = function(file) {
+    if (downloadOnSave && file && file.modified && file.contents) {
+        if (fileShouldDownload(file.name)) {
+            try {
+                var n = file.size || file.contents.length, copy = file.contents.slice(0, n);
+                console.log("[save→download] " + file.name + " (" + n + " bytes)");
+                self.postMessage({ type: "download", name: file.name.replace(/.*\//, ""), bytes: copy.buffer }, [copy.buffer]);
+            } catch (e) { console.warn("download-on-save failed for " + file.name, e); }
+        } else {
+            console.log("[save: not downloading] " + file.name);
+        }
+    }
+    return _origFileClose.apply(this, arguments);
+};
+function fileShouldDownload(path) {
+    var lower = (path || "").toLowerCase();
+    if (/\.(image|changes|sources|pref|prefs|log)$/.test(lower)) return false; // Squeak internals
+    if (/squeakdebug|\.lnk$/i.test(path)) return false;
+    var rel = path.replace(/^\/+/, "");
+    return rel.indexOf("/") < 0; // only the image/working dir (root), not subfolders/templates
+}
 
 // --- display + input backend for the worker ---
 // Most of vm.display.browser.js's display primitives are already worker-safe: their DOM
@@ -143,6 +171,7 @@ self.onmessage = function(e) {
             Object.assign(Squeak.Settings, msg.settings);
             console.log("squeak_worker: seeded FS with " + Object.keys(Squeak.Settings).filter(function(k){ return k.indexOf("squeak:") === 0; }).length + " directory entries from host");
         }
+        downloadOnSave = !!msg.downloadOnSave;
         boot(msg);
     } else if (msg.type === "event") {
         var ev = msg.ev;
