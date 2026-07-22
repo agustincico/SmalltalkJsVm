@@ -8,6 +8,14 @@
 // → los apuntamos a `self` (indexedDB SÍ existe en workers).
 self.window = self;
 self.localStorage = {};
+// En un worker no existen prompt/alert/confirm (son de window). El VM los usa en
+// signalLowSpaceIfNecessary (prompt) y para reportar errores (alert). Sin shim,
+// `prompt && prompt(...)` tira ReferenceError y crashea el worker en low-space.
+// Los hacemos no-ops seguros: prompt/confirm devuelven null → el VM cae a la rama
+// correcta (señalar low-space a la imagen); alert va a la consola.
+self.prompt = function() { return null; };
+self.confirm = function() { return false; };
+self.alert = function(msg) { console.warn("[squeak alert]", msg); };
 
 import "../../globals.js";
 import "../../vm.js";
@@ -119,6 +127,13 @@ Object.extend(Squeak.Primitives.prototype, "jpeg2-worker-overrides", {
         context.drawImage(image, 0, 0);
         return context.getImageData(0, 0, image.width, image.height);
     },
+    // El plugin estándar no implementa esto → "missing primitive", y la imagen cae a
+    // un camino de decode en Smalltalk que aloca millones de temporales (churn → low
+    // space → crash). createImageBitmap siempre decodifica a RGB, así que informamos
+    // 3 componentes y la imagen usa la ruta rápida por primitiva.
+    jpeg2_primImageNumComponents: function(argCount) {
+        return this.popNandPushIfOK(argCount + 1, 3);
+    },
 });
 
 self.onmessage = function(e) {
@@ -128,7 +143,7 @@ self.onmessage = function(e) {
         // context: lo usa la ruta de render de vm.display.browser.js (showForm/showDisplayBits)
         display = { width: msg.width, height: msg.height, context: ctx, mouseX: msg.width >> 1, mouseY: msg.height >> 1,
                     buttons: 0, keys: [], eventQueue: [], signalInputEvent: null };
-        boot(msg.image, msg.notemplates);
+        boot(msg.image, msg.notemplates, msg.nostream);
     } else if (msg.type === "event") {
         var ev = msg.ev;
         if (ev[0] === 1) { display.mouseX = ev[2]; display.mouseY = ev[3]; display.buttons = ev[4]; }
@@ -138,8 +153,8 @@ self.onmessage = function(e) {
     }
 };
 
-var BUILD = "worker-v7 image-managed cursor + stream prims";
-function boot(imageUrl, notemplates) {
+var BUILD = "worker-v8 prompt-shim + headroom + numComponents";
+function boot(imageUrl, notemplates, nostream) {
     Object.extend(Squeak, { vmPath: "/", platformSubtype: "Worker", osVersion: "worker", windowSystem: "worker" });
     // cargar los archivos de proyecto de Dialogo (lazy, vía XHR) en el FS del worker,
     // igual que #templates en el browser. IndexedDB/XHR funcionan en workers.
@@ -150,8 +165,14 @@ function boot(imageUrl, notemplates) {
       setTimeout(function() {
         var tdirs = Object.keys(self.localStorage).filter(function(k){ return k.indexOf("squeak-template:") === 0; }).length;
         var image = new Squeak.Image("Dialogo");
+        // Más headroom que el default (100MB): cargar un proyecto grande de Dialogo
+        // (grafo de morphs + PNGs/JPEGs embebidos) hace un pico transitorio de objetos
+        // temporales que superaba el límite y gatillaba low-space. Un worker puede usar
+        // bastante RAM; le damos 512MB de margen para que el pico no toque el umbral.
+        image.headRoom = 512000000;
         image.readFromBuffer(data, function() {
             vm = new Squeak.Interpreter(image, display);
+            if (nostream) vm.primHandler.streamPrims = false; // A/B: #nostream desactiva prims 65/66/67
             self.postMessage({ type: "ready", build: BUILD, templateDirs: tdirs });
             function run() {
                 try { vm.interpret(50, function(ms) { setTimeout(run, ms === "sleep" ? 10 : ms); }); }
