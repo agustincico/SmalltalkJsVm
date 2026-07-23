@@ -88,7 +88,25 @@ function fileShouldDownload(path) {
 Object.extend(Squeak.Primitives.prototype, "worker-display", {
     primitiveScreenDepth: function(argCount) { return this.popNandPushIfOK(argCount + 1, 32); },
     primitiveBeep: function(argCount) { this.vm.popN(argCount); return true; },
-    primitiveClipboardText: function(argCount) { return false; },
+    // Clipboard bridged to the main thread (navigator.clipboard is main-thread + gesture
+    // only). Copy: the image writes text → we post it to the host, which writes the system
+    // clipboard. Paste: on a cmd-V gesture the host reads the system clipboard and pushes it
+    // into display.clipboardString (see onmessage "clipboard-set") before the keystroke
+    // reaches the image, so this read returns the fresh value synchronously.
+    primitiveClipboardText: function(argCount) {
+        if (argCount === 0) { // read (paste)
+            if (typeof display.clipboardString !== "string") return false;
+            this.vm.popNandPush(1, this.makeStString(display.clipboardString));
+        } else { // write (copy)
+            var stringObj = this.vm.top();
+            if (stringObj.bytes) {
+                display.clipboardString = stringObj.bytesAsString();
+                self.postMessage({ type: "clipboard-write", text: display.clipboardString });
+            }
+            this.vm.pop();
+        }
+        return true;
+    },
     // Image-managed cursor (desktop parity): render the cursor form to an OffscreenCanvas
     // with showForm and post the ImageBitmap + hotspot to the main thread, which sets it
     // as a native CSS cursor (url(...) hotX hotY) — hardware-drawn, perfect tracking, no
@@ -210,7 +228,7 @@ self.onmessage = function(e) {
         ctx = msg.canvas.getContext("2d");
         // context: used by vm.display.browser.js's render path (showForm/showDisplayBits)
         display = { width: msg.width, height: msg.height, context: ctx, mouseX: msg.width >> 1, mouseY: msg.height >> 1,
-                    buttons: 0, keys: [], eventQueue: [], signalInputEvent: null };
+                    buttons: 0, keys: [], eventQueue: [], signalInputEvent: null, clipboardString: "" };
         // The FilePlugin keeps its DIRECTORY structure in localStorage (Squeak.Settings),
         // but a worker has no localStorage — so the host passes it in and we seed it here.
         // (File CONTENTS live in IndexedDB, which is shared across the origin, so those
@@ -243,6 +261,8 @@ self.onmessage = function(e) {
         display.droppedFiles = msg.files;
         display.eventQueue.push(msg.ev);
         if (display.signalInputEvent) display.signalInputEvent();
+    } else if (msg.type === "clipboard-set") {
+        display.clipboardString = typeof msg.text === "string" ? msg.text : "";
     } else if (msg.type === "sound-done") {
         // the main thread finished playing a buffer → free a slot and wake the image
         var ph = vm && vm.primHandler;

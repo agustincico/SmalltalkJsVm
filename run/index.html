@@ -125,6 +125,10 @@
                 document.body.appendChild(a); a.click(); a.remove();
                 setTimeout(function() { URL.revokeObjectURL(a.href); }, 2000);
             }
+            else if (m.type === "clipboard-write") {
+                // the image copied text → write it to the system clipboard
+                if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(m.text || "").catch(function(){});
+            }
             else if (m.type === "sound-start") { audioStart(m); }
             else if (m.type === "sound-play") { audioPlay(worker, m); }
             else if (m.type === "sound-stop") { audioStop(); }
@@ -255,6 +259,17 @@
         sqCanvas.addEventListener("mouseup", function(e) { mouseEv(e, 0); });
         sqCanvas.addEventListener("contextmenu", function(e) { e.preventDefault(); });
         sqCanvas.addEventListener("keydown", function(e) {
+            // paste: navigator.clipboard is main-thread + gesture-only, so on cmd/ctrl-V we
+            // read it here (in the gesture), push it into the worker, and only then send the
+            // keystroke — so the image reads the fresh clipboard when it handles the paste.
+            if ((e.metaKey || e.ctrlKey) && (e.key === "v" || e.key === "V") && navigator.clipboard && navigator.clipboard.readText) {
+                e.preventDefault();
+                navigator.clipboard.readText()
+                    .then(function(text) { worker.postMessage({ type: "clipboard-set", text: text }); })
+                    .catch(function() {})
+                    .then(function() { worker.postMessage({ type: "event", ev: [2, Date.now(), 118, 0, mods(e), 118] }); });
+                return;
+            }
             var special = { Enter:13, Backspace:8, Tab:9, Escape:27, ArrowLeft:28, ArrowRight:29, ArrowUp:30, ArrowDown:31, Delete:127, Home:1, End:4, PageUp:11, PageDown:12 };
             var uni = e.key.length === 1 ? e.key.charCodeAt(0) : special[e.key] || 0;
             if (!uni) return;
