@@ -68,6 +68,7 @@
     }
     function startWorker(name, imageSource) {
         var W = window.innerWidth, H = window.innerHeight;
+        var audioCtx = null, audioNextTime = 0, audioSampleRate = 0;
         sqCanvas.width = W; sqCanvas.height = H;
         sqCanvas.tabIndex = 0;
         // the canvas is position:fixed with no offsets, so it lands at its static position
@@ -116,11 +117,45 @@
                 document.body.appendChild(a); a.click(); a.remove();
                 setTimeout(function() { URL.revokeObjectURL(a.href); }, 2000);
             }
+            else if (m.type === "sound-start") { audioStart(m); }
+            else if (m.type === "sound-play") { audioPlay(worker, m); }
+            else if (m.type === "sound-stop") { audioStop(); }
             else if (m.type === "error") { console.error("worker error:", m.msg); }
         };
+        // Web Audio playback for the worker: the VM streams sample buffers, we schedule them
+        // back-to-back and tell the worker when each one drains (see squeak_worker.js).
+        function audioStart(m) {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === "suspended") audioCtx.resume();
+            audioSampleRate = m.samplesPerSec; audioNextTime = 0;
+        }
+        function audioPlay(worker, m) {
+            if (!audioCtx) audioStart({ samplesPerSec: 22050 });
+            var count = m.count, channels = m.channels || 1;
+            var buffer = audioCtx.createBuffer(channels, count, audioSampleRate || 22050);
+            if (!m.silence) {
+                var s = new Int16Array(m.samples);
+                for (var ch = 0; ch < channels; ch++) {
+                    var cd = buffer.getChannelData(ch);
+                    for (var i = 0; i < count; i++) cd[i] = s[i * channels + ch] / 32768;
+                }
+            }
+            var src = audioCtx.createBufferSource();
+            src.buffer = buffer; src.connect(audioCtx.destination);
+            if (audioNextTime < audioCtx.currentTime) audioNextTime = audioCtx.currentTime;
+            src.start(audioNextTime);
+            audioNextTime += buffer.duration;
+            setTimeout(function() { worker.postMessage({ type: "sound-done" }); }, Math.max(0, (audioNextTime - audioCtx.currentTime) * 1000));
+        }
+        function audioStop() { if (audioCtx) { try { audioCtx.close(); } catch (e) {} audioCtx = null; } }
         worker.onerror = function(e) { console.error("worker onerror:", e.message || e); };
         wireWorkerInput(worker);
         wireWorkerResizeAndDrop(worker);
+        // browsers start an AudioContext suspended until a user gesture — resume on the
+        // first pointer/touch so sound isn't silently blocked
+        var resumeAudio = function() { if (audioCtx && audioCtx.state === "suspended") audioCtx.resume(); };
+        sqCanvas.addEventListener("pointerdown", resumeAudio);
+        sqCanvas.addEventListener("touchstart", resumeAudio);
         sqCanvas.focus();
     }
     // dynamic resize + drag/drop of files onto the running environment (worker mode)

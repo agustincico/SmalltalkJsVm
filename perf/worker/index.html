@@ -62,6 +62,10 @@ worker.onmessage = function(e) {
         tc.getContext("2d").drawImage(m.bitmap, 0, 0);
         canvas.style.cursor = "url(" + tc.toDataURL() + ") " + m.hotX + " " + m.hotY + ", auto";
     }
+    else if (m.type === "sound-start") { window.__sndRate = m.samplesPerSec || 22050; }
+    else if (m.type === "sound-play") { // spike has no audio; echo sound-done after the buffer duration so the image's sound loop doesn't stall
+        setTimeout(function() { worker.postMessage({ type: "sound-done" }); }, m.count / (window.__sndRate || 22050) * 1000);
+    }
     else if (m.type === "frame") { frameCount++; }
     else if (m.type === "tick") { frameCount++; statusEl.textContent = buildInfo + "sends: " + m.sends; }
     else if (m.type === "error") { statusEl.textContent = "ERROR worker: " + m.msg.split("\n")[0]; console.error("worker error:", m.msg); }

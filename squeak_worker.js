@@ -155,6 +155,55 @@ Object.extend(Squeak.Primitives.prototype, "jpeg2-worker-overrides", {
     },
 });
 
+// Audio output: a worker has no AudioContext (Web Audio is main-thread only). We keep the
+// sound plugin's double-buffer bookkeeping here (so availableSpace/the sema still gate the
+// image) and stream the samples to the main thread, which plays them via Web Audio and
+// posts "sound-done" back when a buffer drains — releasing a slot and signaling the sema.
+// (Defining snd_* is enough; the SoundPlugin module is discovered by scanning for snd_.)
+Object.extend(Squeak.Primitives.prototype, "worker-sound", {
+    snd_primitiveSoundStart: function(argCount) { return this.snd_primitiveSoundStartWithSemaphore(argCount); },
+    snd_primitiveSoundStartWithSemaphore: function(argCount) {
+        var bufFrames = this.stackInteger(argCount - 1),
+            samplesPerSec = this.stackInteger(argCount - 2),
+            stereoFlag = this.stackBoolean(argCount - 3),
+            semaIndex = argCount > 3 ? this.stackInteger(argCount - 4) : 0;
+        if (!this.success) return false;
+        this.audioSema = semaIndex;
+        this.audioChannels = stereoFlag ? 2 : 1;
+        this.audioBufBytes = bufFrames * this.audioChannels * 2; // int16 → bytes (for availableSpace)
+        this.audioUnused = 2; // double-buffered, same as the browser plugin
+        self.postMessage({ type: "sound-start", bufFrames: bufFrames, samplesPerSec: samplesPerSec, channels: this.audioChannels });
+        return this.popNIfOK(argCount);
+    },
+    snd_primitiveSoundAvailableSpace: function(argCount) {
+        return this.popNandPushIfOK(argCount + 1, this.audioUnused > 0 ? this.audioBufBytes : 0);
+    },
+    snd_primitiveSoundPlaySamples: function(argCount) {
+        if (!this.audioUnused) return false;
+        var count = this.stackInteger(2),
+            sqSamples = this.stackNonInteger(1).wordsAsInt16Array(),
+            startIndex = this.stackInteger(0) - 1;
+        if (!this.success || !sqSamples) return false;
+        var n = count * this.audioChannels, out = new Int16Array(n); // interleaved L,R,L,R…
+        for (var i = 0; i < n; i++) out[i] = sqSamples[startIndex + i];
+        this.audioUnused--;
+        self.postMessage({ type: "sound-play", samples: out.buffer, count: count, channels: this.audioChannels }, [out.buffer]);
+        return this.popNIfOK(argCount);
+    },
+    snd_primitiveSoundPlaySilence: function(argCount) {
+        if (!this.audioUnused) return false;
+        var count = (this.audioBufBytes / (this.audioChannels * 2)) | 0;
+        this.audioUnused--;
+        self.postMessage({ type: "sound-play", silence: true, count: count, channels: this.audioChannels });
+        return this.popNandPushIfOK(argCount + 1, count);
+    },
+    snd_primitiveSoundStop: function(argCount) {
+        this.audioUnused = 0; this.audioSema = 0;
+        self.postMessage({ type: "sound-stop" });
+        return this.popNIfOK(argCount);
+    },
+});
+
 self.onmessage = function(e) {
     var msg = e.data;
     if (msg.type === "init") {
@@ -194,6 +243,14 @@ self.onmessage = function(e) {
         display.droppedFiles = msg.files;
         display.eventQueue.push(msg.ev);
         if (display.signalInputEvent) display.signalInputEvent();
+    } else if (msg.type === "sound-done") {
+        // the main thread finished playing a buffer → free a slot and wake the image
+        var ph = vm && vm.primHandler;
+        if (ph && ph.audioUnused != null) {
+            if (ph.audioUnused < 2) ph.audioUnused++;
+            if (ph.audioSema) ph.signalSemaphoreWithIndex(ph.audioSema);
+            vm.forceInterruptCheck();
+        }
     }
 };
 
