@@ -510,61 +510,33 @@
         <p class="muted">On the first run these are stored locally; subsequent starts are much faster since there's no download. (zip-based images fall back to the main-thread VM for now.)</p>
         </div>
 
-        <h2>Run SqueakJS apps</h2>
-        SqueakJS can be used to run Squeak apps. Here are some examples.
-        Note how they differ when you resize the browser window—Etoys is scaled,
-        whereas Scratch is resized.
-        The apps are configured to use template files (e.g. example projects and artwork)
-        that are loaded from a server on demand.
-        <ul>
-            <li><a href="../etoys/" target="_blank">Etoys</a></li>
-            <li><a href="../scratch/" target="_blank">Scratch</a></li>
-            <li>demo of the <a href="../demo/simple.html#document=JSBridge.st" target="_blank">JavaScript bridge</a> (not really an app)</li>
-            <li><a href="https://codefrau.github.io/jasmine/" target="_blank">Croquet Jasmine</a> (2004)</li>
-        </ul>
-        On some mobile devices you can save these apps to the home screen, and run them like a real app.
+        <h2>Embed it on your own site</h2>
+        <div class="card">
+            <p>This <code>run/</code> launcher is the reference: copy it and point it at your image. It runs the VM in a Web Worker and wires input, cursor, clipboard, sound, save-to-Downloads and the file picker. At its core:</p>
+            <pre>&lt;canvas id="sq"&gt;&lt;/canvas&gt;
+&lt;script type="module"&gt;
+  const canvas = document.getElementById("sq");
+  canvas.width = innerWidth; canvas.height = innerHeight;
+  const offscreen = canvas.transferControlToOffscreen();
+  const worker = new Worker("squeak_worker.js", { type: "module" });
+  worker.postMessage({
+    type: "init", canvas: offscreen,
+    width: canvas.width, height: canvas.height,
+    image: "my.image",   // a URL, or the image bytes (ArrayBuffer)
+    name:  "/my.image",  // full path, including .image
+  }, [offscreen]);
+  // then forward mouse/keyboard and handle cursor/clipboard/sound —
+  // see run/index.html for the complete wiring.
+&lt;/script&gt;</pre>
+            <p class="muted">For a classic single-thread embed you can still use <code>SqueakJS.runSqueak("my.image", canvas, {…})</code> from <code>squeak.js</code>.</p>
+        </div>
 
-        <h2>Use SqueakJS on your own website</h2>
-        Instead of passing options by URL to this page, you can
-        <a href="https://github.com/codefrau/SqueakJS">download SqueakJS</a>
-        from GitHub and use it on your own website like this:
-        <pre>
-        &lt;html&gt;
-            &lt;head&gt;
-                &lt;script src=&quot;squeak.js&quot;&gt;&lt;/script&gt;
-                &lt;script&gt;
-                    window.onload = function() {
-                        SqueakJS.runSqueak(&quot;my.image&quot;, sqCanvas, { /*put options here*/ });
-                    }
-                &lt;/script&gt;
-            &lt;/head&gt;
-            &lt;body&gt;
-                &lt;canvas id=&quot;sqCanvas&quot;&gt;&lt;/canvas&gt;
-            &lt;/body&gt;
-        &lt;/html&gt;
-        </pre>
-        Options include display resolution, template file URLs, etc.
-        For example usage take a look at the demo pages included in the GitHub repo:
-        <a href="../etoys/" target="_blank">Etoys</a>
-        (<a href="https://github.com/codefrau/SqueakJS/tree/master/etoys" target="_blank">source</a>) or
-        <a href="../scratch/" target="_blank">Scratch</a>
-        (<a href="https://github.com/codefrau/SqueakJS/tree/master/scratch" target="_blank">source</a>)
+        <h2>Credits &amp; source</h2>
+        <div class="card">
+            <p>SqueakJS is free software (MIT). The engine is by <a href="https://github.com/codefrau/SqueakJS" target="_blank">Vanessa Freudenberg</a>; the Web Worker mode and usability additions live in <a href="https://github.com/agustincico/SqueakJS" target="_blank">this fork</a> by Agustín Martínez. Bug reports and pull requests welcome.</p>
+        </div>
 
-        <h2>Modify SqueakJS</h2>
-        I am developing SqueakJS using “Lively”, a browser-based development environment for JavaScript inspired by Smalltalk.
-        Instead of having to constantly reload the page after every source code change,
-        I am executing Squeak in my <a href= "https://smalltalkzoo.thechm.org/HOPL-Squeak.html">Lively SqueakJS Debugger</a>
-        and can change its code while it is running.
-        That's why the SqueakJS source code has a somewhat unusual layout, it fits the Lively way of developing.
-        You can still use a plain text editor if you feel that's simpler.
-
-        <h2>Contribute to SqueakJS</h2>
-        SqueakJS is free software (MIT license).
-        You're very welcome to <a href="http://lists.squeakfoundation.org/mailman/listinfo/vm-dev">discuss</a>,
-        <a href="https://github.com/codefrau/SqueakJS/issues">report bugs</a>,
-        and <a href="https://github.com/codefrau/SqueakJS/">contribute code</a>.
-
-        <p>Have fun! — Vanessa Freudenberg</p>
+        <p class="muted" style="margin-top:22px">Have fun! — engine by Vanessa Freudenberg · usability additions by Agustín Martínez</p>
     </div>
     <canvas id="sqCanvas"></canvas>
     <div id="sqSpinner"><div></div></div>

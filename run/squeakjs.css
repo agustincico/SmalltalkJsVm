@@ -89,6 +89,13 @@ pre {
     font-size: 13px;
     line-height: 1.5;
 }
+code {
+    background: #eef1f5;
+    padding: 1px 6px;
+    border-radius: 5px;
+    font-size: .9em;
+}
+pre code { background: none; padding: 0; }
 #drop {
     color: var(--muted);
     border: 2px dashed #c3cbd4;
