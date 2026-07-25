@@ -13,12 +13,11 @@
         sqText.style.display = "none";
         sqCanvas.style.display = "block";
         // #worker: run the VM in a Web Worker (off the main thread) so the page stays
-        // responsive (no freeze / ruedita). Handles local images (IndexedDB) and images
-        // from the internet (image=<url> or url=BASE&files=[...]); zip still falls through
-        // to the main-thread path.
+        // responsive (no freeze / ruedita). Handles local images (IndexedDB), images from
+        // the internet (image=<url> or url=BASE&files=[...]) and zip bundles (zip=<url>).
         var params = new URLSearchParams(location.hash.slice(1));
         imageName = imageName || params.get("image");
-        if (params.has("worker") && (imageName || params.has("url")) && !params.has("zip")) {
+        if (params.has("worker") && (imageName || params.has("url") || params.has("zip"))) {
             return runSqueakInWorker(imageName, params);
         }
         SqueakJS.runSqueak(imageName, sqCanvas,{
@@ -40,6 +39,7 @@
     }
     // --- #worker mode: run the VM in a Web Worker rendering to an OffscreenCanvas ---
     function runSqueakInWorker(imageName, params) {
+        if (params.has("zip")) return runZipInWorker(params);
         var urlBase = params.get("url"), isHttp = imageName && /^https?:\/\//i.test(imageName);
         if (urlBase || isHttp) {
             // image from the internet: image=<full url>, or url=BASE&files=[img,changes,sources]
@@ -70,6 +70,45 @@
         }, function() {
             startWorker(path.fullname, imageName);
         });
+    }
+    // zip bundle(s) → download + unzip on the main thread (JSZip, loaded by squeak.js), store
+    // the aux files (changes/sources) in the shared FS, pick the image, and boot it in the
+    // worker. If a bundle ships several .image files and one is a 32-bit build, prefer it;
+    // otherwise take the first (SqueakJS reads 64-bit Spur images natively — no conversion).
+    function runZipInWorker(params) {
+        if (typeof JSZip === "undefined") return alert("JSZip not loaded");
+        var base = params.get("url") || "";
+        var toUrl = function(u){ return /^https?:\/\//i.test(u) ? u : base.replace(/\/+$/, "") + "/" + u; };
+        var zipUrls = params.get("zip").replace(/^\[|\]$/g, "").split(",").map(function(s){ return s.trim(); }).filter(Boolean);
+        var images = [], auxPuts = [];
+        if (sqSpinner) sqSpinner.style.display = "block";
+        (function nextZip(i){
+            if (i >= zipUrls.length) return Promise.all(auxPuts).then(finish);
+            return fetch(toUrl(zipUrls[i]))
+                .then(function(r){ if (!r.ok) throw new Error("HTTP " + r.status); return r.arrayBuffer(); })
+                .then(function(buf){ return JSZip.loadAsync(buf, { createFolders: true }); })
+                .then(function(zip){
+                    var names = [];
+                    zip.forEach(function(fn, meta){ if (!meta.dir && fn.indexOf("__MACOSX/") !== 0 && !/\.DS_Store$/.test(fn)) names.push(fn); });
+                    return Promise.all(names.map(function(fn){
+                        return zip.file(fn).async("arraybuffer").then(function(data){
+                            var path = "/" + fn;
+                            if (/\.image$/i.test(fn)) images.push({ name: path, data: data });
+                            else auxPuts.push(new Promise(function(res){ Squeak.filePut(path, data, res); }));
+                        });
+                    }));
+                })
+                .then(function(){ return nextZip(i + 1); });
+        })(0).catch(function(err){
+            if (sqSpinner) sqSpinner.style.display = "none";
+            alert("Could not download/unzip: " + err.message);
+        });
+        function finish() {
+            if (!images.length) { if (sqSpinner) sqSpinner.style.display = "none"; return alert("The zip has no .image"); }
+            var pick = images.filter(function(c){ return /32/.test(c.name); })[0] || images[0];
+            images.forEach(function(c){ if (c !== pick) Squeak.filePut(c.name, c.data); }); // keep the others too
+            startWorker(pick.name, pick.data);
+        }
     }
     function startWorker(name, imageSource) {
         var W = window.innerWidth, H = window.innerHeight;
