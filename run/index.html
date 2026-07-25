@@ -527,13 +527,13 @@
 
         <h2>Run images from the internet</h2>
         <div class="card">
-        <p>Link to this page with an image, a set of files, or a zip bundle. <em>The host must allow cross-origin reads (<a href="http://enable-cors.org/server.html" target="_blank">CORS</a>): jsdelivr and dialog.ar do; files.squeak.org, files.pharo.org and GitHub archives don't, so those are mirrored on dialog.ar.</em></p>
+        <p>Link to this page with an image, a set of files, or a zip bundle. <em>The host must allow cross-origin reads (<a href="http://enable-cors.org/server.html" target="_blank">CORS</a>); files.squeak.org and GitHub archives don't, so those are mirrored on dialog.ar or served via jsDelivr.</em></p>
         <ul>
-        <li><b>Pharo</b> — <a href="#zip=https://dialog.ar/Pharo.zip">latest</a></li>
-        <li><b>Squeak</b> — <a href="#zip=https://dialog.ar/Squeak.zip">latest</a></li>
+        <li><b>Squeak</b> — <a href="#zip=https://dialog.ar/Squeak.zip">6.0</a></li>
         <li><b>Cuis</b> — <a href="#highdpi&amp;url=https://cdn.jsdelivr.net/gh/Cuis-Smalltalk/Cuis6-2@6f984e8c/CuisImage&files=[32BitImages/Cuis6.2-32.image,32BitImages/Cuis6.2-32.changes,Cuis6.2.sources]">6.2</a></li>
         <li><b>Dialog.ar</b> — <a href="#zip=https://dialog.ar/Dialogo.zip">example drawing app for kids</a></li>
         </ul>
+        <p class="muted">SqueakJS runs Squeak and older Cuis (6.x); the newest <b>Cuis 7.x</b> (16-bit array objects) and <b>Pharo</b> (Cog primitives) use image features SqueakJS doesn't implement yet, so they don't load.</p>
         <p class="muted">On the first run these download and are cached in your browser; later starts are much faster. A 64-bit image opens directly — SqueakJS reads it natively, no 32-bit conversion; if a bundle ships both, the 32-bit build is used.</p>
         </div>
 
