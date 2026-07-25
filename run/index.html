@@ -2,7 +2,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
-<title>SqueakJS</title>
+<title>Smalltalk in your browser — Squeak · Pharo · Cuis</title>
 <link rel="icon" type="image/png" href="squeakjs.png">
 <link rel="stylesheet" href="../lib/gh-fork-ribbon.css">
 <link rel="stylesheet" href="squeakjs.css">
@@ -12,13 +12,15 @@
         // Squeak.debugFiles = true;
         sqText.style.display = "none";
         sqCanvas.style.display = "block";
-        // #worker: run the VM in a Web Worker (off the main thread) so the page stays
-        // responsive (no freeze / ruedita). Handles local images (IndexedDB) and images
-        // from the internet (image=<url> or url=BASE&files=[...]); zip still falls through
-        // to the main-thread path.
+        // Run the VM in a Web Worker (off the main thread) by default, so the page stays
+        // responsive (no freeze / ruedita). Handles local images (IndexedDB), images from
+        // the internet (image=<url> or url=BASE&files=[...]) and zip bundles (zip=<url>).
+        // Falls back to the main-thread VM only if the browser lacks OffscreenCanvas, or on
+        // #nomain=... to force it.
         var params = new URLSearchParams(location.hash.slice(1));
         imageName = imageName || params.get("image");
-        if (params.has("worker") && (imageName || params.has("url")) && !params.has("zip")) {
+        var canWorker = ("transferControlToOffscreen" in HTMLCanvasElement.prototype) && typeof Worker !== "undefined";
+        if (canWorker && !params.has("nomain") && (imageName || params.has("url") || params.has("zip"))) {
             return runSqueakInWorker(imageName, params);
         }
         SqueakJS.runSqueak(imageName, sqCanvas,{
@@ -40,6 +42,7 @@
     }
     // --- #worker mode: run the VM in a Web Worker rendering to an OffscreenCanvas ---
     function runSqueakInWorker(imageName, params) {
+        if (params.has("zip")) return runZipInWorker(params);
         var urlBase = params.get("url"), isHttp = imageName && /^https?:\/\//i.test(imageName);
         if (urlBase || isHttp) {
             // image from the internet: image=<full url>, or url=BASE&files=[img,changes,sources]
@@ -70,6 +73,50 @@
         }, function() {
             startWorker(path.fullname, imageName);
         });
+    }
+    // zip bundle(s) → download + unzip on the main thread (JSZip, loaded by squeak.js), store
+    // the aux files (changes/sources) in the shared FS, pick the image, and boot it in the
+    // worker. If a bundle ships several .image files and one is a 32-bit build, prefer it;
+    // otherwise take the first (SqueakJS reads 64-bit Spur images natively — no conversion).
+    function runZipInWorker(params) {
+        if (typeof JSZip === "undefined") return alert("JSZip not loaded");
+        var base = params.get("url") || "";
+        var toUrl = function(u){ return /^https?:\/\//i.test(u) ? u : base.replace(/\/+$/, "") + "/" + u; };
+        var zipUrls = params.get("zip").replace(/^\[|\]$/g, "").split(",").map(function(s){ return s.trim(); }).filter(Boolean);
+        // skip macOS metadata and desktop-bundle binaries the VM never reads (a Dialogo.zip
+        // ships a 22MB .exe etc.) — keep .image/.changes/.sources and the image's data files.
+        var skip = function(fn){ return fn.indexOf("__MACOSX/") === 0 || /(\.DS_Store|\.exe|\.dll|\.dylib|\.so|\.app|\.dmg|\.sh|\.bat|\.command)$/i.test(fn); };
+        var putFile = function(path, data){
+            var dir = path.replace(/\/[^\/]*$/, ""); // filePut needs the parent dir to exist
+            if (dir) Squeak.dirCreate(dir, true);     // create the whole hierarchy
+            return new Promise(function(res){ if (!Squeak.filePut(path, data, res)) res(); });
+        };
+        if (sqSpinner) sqSpinner.style.display = "block";
+        // process sequentially: unzipping + IndexedDB-writing ~hundreds of files concurrently
+        // overwhelms IndexedDB and never settles.
+        (async function() {
+            try {
+                var entries = [], images = [];
+                for (var i = 0; i < zipUrls.length; i++) {
+                    var r = await fetch(toUrl(zipUrls[i]));
+                    if (!r.ok) throw new Error("HTTP " + r.status);
+                    var zip = await JSZip.loadAsync(await r.arrayBuffer(), { createFolders: true });
+                    zip.forEach(function(fn, meta){ if (!meta.dir && !skip(fn)) entries.push({ fn: fn, zip: zip }); });
+                }
+                for (var j = 0; j < entries.length; j++) {
+                    var fn = entries[j].fn, data = await entries[j].zip.file(fn).async("arraybuffer");
+                    if (/\.image$/i.test(fn)) images.push({ name: "/" + fn, data: data });
+                    else await putFile("/" + fn, data);
+                }
+                if (!images.length) throw new Error("the zip has no .image");
+                var pick = images.filter(function(c){ return /32/.test(c.name); })[0] || images[0];
+                for (var k = 0; k < images.length; k++) if (images[k] !== pick) await putFile(images[k].name, images[k].data);
+                startWorker(pick.name, pick.data);
+            } catch (err) {
+                if (sqSpinner) sqSpinner.style.display = "none";
+                alert("Could not load the zip: " + err.message);
+            }
+        })();
     }
     function startWorker(name, imageSource) {
         var W = window.innerWidth, H = window.innerHeight;
@@ -365,11 +412,10 @@
         params.set("image", imageName);
         return params.toString();
     }
-    // launch a local image, honoring the "Run in a Web Worker" checkbox
+    // launch a local image (worker mode is the default), honoring the 📂-button checkbox
     function launchImage(imageName) {
         var params = new URLSearchParams(location.hash.slice(1));
         params.set("image", imageName);
-        if (workerToggle && workerToggle.checked) params.set("worker", ""); else params.delete("worker");
         if (openBtnToggle && openBtnToggle.checked) params.set("openbtn", ""); else params.delete("openbtn");
         location.hash = "#" + params.toString();
         return false;
@@ -463,51 +509,46 @@
 </head>
 <body>
     <div id="sqText">
-        <h1><img id="logo" src="squeakjs.png">SqueakJS</h1>
+        <h1><img id="logo" src="squeakjs.png">Smalltalk in your browser</h1>
         <div class="github-fork-ribbon-wrapper right">
             <div class="github-fork-ribbon">
-                <a href="https://github.com/codefrau/SqueakJS" target="_blank">Fork me on GitHub</a>
+                <a href="https://github.com/agustincico/SqueakJS" target="_blank">Fork me on GitHub</a>
             </div>
         </div>
-        <p class="tagline">An HTML5 runtime engine for <a href="http://squeak.org/" target="_blank">Squeak</a> Smalltalk, in pure JavaScript by Vanessa Freudenberg — with usability improvements by Agustín Martínez.</p>
+        <p class="tagline">Run <b>Squeak</b>, <b>Pharo</b> and <b>Cuis</b> images right in the browser — pure JavaScript, powered by <a href="https://github.com/codefrau/SqueakJS" target="_blank">SqueakJS</a> (the engine by Vanessa Freudenberg) with a Web-Worker runtime and usability additions by Agustín Martínez.</p>
         <div class="added">
-            <strong>Usability additions (Agustín Martínez)</strong>
+            <strong>What you get</strong>
             <ul>
-                <li><b>Web Worker mode</b> — the VM runs off the main thread, so the page stays responsive and never freezes (no spinner / “ruedita”), even under heavy work.</li>
-                <li>Image-managed cursor, flicker-free rendering, dynamic resize, and sound.</li>
+                <li>The VM runs off the main thread, so the page stays responsive and never freezes (no spinner / “ruedita”), even under heavy work.</li>
+                <li>Image-managed cursor, flicker-free rendering, dynamic resize, sound, and system clipboard.</li>
                 <li><b>Save straight to Downloads</b>, and open files by drag-and-drop or a 📂 button (works on mobile too).</li>
             </ul>
         </div>
-        <p>See the <a href="../" target="_blank">SqueakJS Project</a> page for more information.</p>
 
-        <h2>Run Squeak images from your local machine</h2>
+        <h2>Run images from the internet</h2>
         <div class="card">
-            <p>Use drag-and-drop to run a Squeak image from your machine: drop the image (perhaps together with a changes and sources file) here.</p>
+        <p>Link to this page with an image, a set of files, or a zip bundle. <em>The host must allow cross-origin reads (<a href="http://enable-cors.org/server.html" target="_blank">CORS</a>): dialog.ar, jsdelivr and files.squeak.org do; files.pharo.org and GitHub archives don't, so host those on your own site.</em></p>
+        <ul>
+        <li><b>Pharo</b> — <a href="#zip=https://dialog.ar/Pharo.zip">latest</a> <span class="muted">(hosted on dialog.ar)</span></li>
+        <li><b>Squeak</b> — <a href="#zip=https://files.squeak.org/6.0/Squeak6.0-22156-32bit/Squeak6.0-22156-32bit.zip">6.0</a></li>
+        <li><b>Cuis</b> — <a href="#highdpi&amp;url=https://cdn.jsdelivr.net/gh/Cuis-Smalltalk/Cuis6-2@6f984e8c/CuisImage&files=[32BitImages/Cuis6.2-32.image,32BitImages/Cuis6.2-32.changes,Cuis6.2.sources]">6.2</a></li>
+        <li><b>Dialog.ar</b> — <a href="#zip=https://dialog.ar/Dialogo.zip">example drawing app for kids</a></li>
+        </ul>
+        <p class="muted">On the first run these download and are cached in your browser; later starts are much faster. A 64-bit image opens directly — SqueakJS reads it natively, no 32-bit conversion; if a bundle ships both, the 32-bit build is used.</p>
+        </div>
+
+        <h2>Run an image from your device</h2>
+        <div class="card">
+            <p>Drag a Smalltalk image onto this page (together with its changes and sources files, if any) to run it.</p>
             <div class="opts">
-                <label><input id="workerToggle" type="checkbox" checked> <span>Run in a Web Worker (experimental) — keeps the page responsive (no freeze) by running the VM off the main thread.</span></label>
-                <label><input id="openBtnToggle" type="checkbox"> <span>Show a 📂 button to open files (worker mode) — needed on mobile, where drag-and-drop isn't available.</span></label>
+                <label><input id="openBtnToggle" type="checkbox"> <span>Show a 📂 button to open files — needed on mobile, where drag-and-drop isn't available.</span></label>
             </div>
             <div id="images"></div>
-            <div id="drop">Drop Squeak images and other files here, or <input id="fileInput" type="file" multiple>
+            <div id="drop">Drop images and other files here, or <input id="fileInput" type="file" multiple>
                 <div id="files" class="filelist"></div>
                 <div id="filestats"></div>
             </div>
-            <p class="muted">Files are stored persistently in your browser's database; inside Squeak you can manage them with a FileList. Clicking a name above exports it to your Downloads.</p>
-        </div>
-
-        <h2>Run Squeak images from the internet</h2>
-        <div class="card">
-        <p>Construct a URL linking to this page and pass the image and options.
-        <em>Beware that the server needs to allow script access via <a href="http://enable-cors.org/server.html" target="_blank">CORS</a>.</em>
-        Here are a few examples (they run in Web Worker mode):</p>
-        <ul>
-        <li>Pharo 1.0 (2010) <a href="#worker&amp;unix&zip=[https://files.pharo.org/image/10/latest.zip,https://files.pharo.org/sources/PharoV10.sources.zip]">link</a></li>
-        <li>Squeak 6.0 64 bit (2022) <a href="#worker&amp;zip=https://files.squeak.org/6.0/Squeak6.0-22104-64bit/Squeak6.0-22104-64bit.zip&wizard=false">link</a></li>
-        <li>Cuis 6.2 (2023) <a href="#worker&amp;highdpi&url=https://cdn.jsdelivr.net/gh/Cuis-Smalltalk/Cuis6-2@6f984e8c/CuisImage&files=[32BitImages/Cuis6.2-32.image,32BitImages/Cuis6.2-32.changes,Cuis6.2.sources]">link</a></li>
-        <li>Squeak Trunk 6.1α (2024) <a href="#worker&amp;zip=https://files.squeak.org/6.1alpha/Squeak6.1alpha-22998-32bit/Squeak6.1alpha-22998-32bit.zip&wizard=false">link</a></li>
-        <li>Squeak Trunk 6.1α (hi-res: save image after first load for faster startup) <a href="#worker&amp;highdpi&zip=https://files.squeak.org/6.1alpha/Squeak6.1alpha-22998-32bit/Squeak6.1alpha-22998-32bit.zip&wizard=false">link</a></li>
-        </ul>
-        <p class="muted">On the first run these are stored locally; subsequent starts are much faster since there's no download. (zip-based images fall back to the main-thread VM for now.)</p>
+            <p class="muted">Files are stored in your browser's database; clicking a name above exports it to your Downloads.</p>
         </div>
 
         <h2>Embed it on your own site</h2>
