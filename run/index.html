@@ -80,35 +80,40 @@
         var base = params.get("url") || "";
         var toUrl = function(u){ return /^https?:\/\//i.test(u) ? u : base.replace(/\/+$/, "") + "/" + u; };
         var zipUrls = params.get("zip").replace(/^\[|\]$/g, "").split(",").map(function(s){ return s.trim(); }).filter(Boolean);
-        var images = [], auxPuts = [];
+        // skip macOS metadata and desktop-bundle binaries the VM never reads (a Dialogo.zip
+        // ships a 22MB .exe etc.) — keep .image/.changes/.sources and the image's data files.
+        var skip = function(fn){ return fn.indexOf("__MACOSX/") === 0 || /(\.DS_Store|\.exe|\.dll|\.dylib|\.so|\.app|\.dmg|\.sh|\.bat|\.command)$/i.test(fn); };
+        var putFile = function(path, data){
+            var dir = path.replace(/\/[^\/]*$/, ""); // filePut needs the parent dir to exist
+            if (dir) Squeak.dirCreate(dir, true);     // create the whole hierarchy
+            return new Promise(function(res){ if (!Squeak.filePut(path, data, res)) res(); });
+        };
         if (sqSpinner) sqSpinner.style.display = "block";
-        (function nextZip(i){
-            if (i >= zipUrls.length) return Promise.all(auxPuts).then(finish);
-            return fetch(toUrl(zipUrls[i]))
-                .then(function(r){ if (!r.ok) throw new Error("HTTP " + r.status); return r.arrayBuffer(); })
-                .then(function(buf){ return JSZip.loadAsync(buf, { createFolders: true }); })
-                .then(function(zip){
-                    var names = [];
-                    zip.forEach(function(fn, meta){ if (!meta.dir && fn.indexOf("__MACOSX/") !== 0 && !/\.DS_Store$/.test(fn)) names.push(fn); });
-                    return Promise.all(names.map(function(fn){
-                        return zip.file(fn).async("arraybuffer").then(function(data){
-                            var path = "/" + fn;
-                            if (/\.image$/i.test(fn)) images.push({ name: path, data: data });
-                            else auxPuts.push(new Promise(function(res){ Squeak.filePut(path, data, res); }));
-                        });
-                    }));
-                })
-                .then(function(){ return nextZip(i + 1); });
-        })(0).catch(function(err){
-            if (sqSpinner) sqSpinner.style.display = "none";
-            alert("Could not download/unzip: " + err.message);
-        });
-        function finish() {
-            if (!images.length) { if (sqSpinner) sqSpinner.style.display = "none"; return alert("The zip has no .image"); }
-            var pick = images.filter(function(c){ return /32/.test(c.name); })[0] || images[0];
-            images.forEach(function(c){ if (c !== pick) Squeak.filePut(c.name, c.data); }); // keep the others too
-            startWorker(pick.name, pick.data);
-        }
+        // process sequentially: unzipping + IndexedDB-writing ~hundreds of files concurrently
+        // overwhelms IndexedDB and never settles.
+        (async function() {
+            try {
+                var entries = [], images = [];
+                for (var i = 0; i < zipUrls.length; i++) {
+                    var r = await fetch(toUrl(zipUrls[i]));
+                    if (!r.ok) throw new Error("HTTP " + r.status);
+                    var zip = await JSZip.loadAsync(await r.arrayBuffer(), { createFolders: true });
+                    zip.forEach(function(fn, meta){ if (!meta.dir && !skip(fn)) entries.push({ fn: fn, zip: zip }); });
+                }
+                for (var j = 0; j < entries.length; j++) {
+                    var fn = entries[j].fn, data = await entries[j].zip.file(fn).async("arraybuffer");
+                    if (/\.image$/i.test(fn)) images.push({ name: "/" + fn, data: data });
+                    else await putFile("/" + fn, data);
+                }
+                if (!images.length) throw new Error("the zip has no .image");
+                var pick = images.filter(function(c){ return /32/.test(c.name); })[0] || images[0];
+                for (var k = 0; k < images.length; k++) if (images[k] !== pick) await putFile(images[k].name, images[k].data);
+                startWorker(pick.name, pick.data);
+            } catch (err) {
+                if (sqSpinner) sqSpinner.style.display = "none";
+                alert("Could not load the zip: " + err.message);
+            }
+        })();
     }
     function startWorker(name, imageSource) {
         var W = window.innerWidth, H = window.innerHeight;
