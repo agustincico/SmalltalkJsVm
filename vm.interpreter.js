@@ -184,6 +184,10 @@ Object.subclass('Squeak.Interpreter',
             //{method: "String>>translatedInAllDomains", primitive: returnSelf, enabled: true},
             // 64 bit Squeak does not flush word size on snapshot
             {method: "SmalltalkImage>>wordSize", literal: {index: 1, old: 8, hack: 4, skip: this.nilObj}, enabled: true},
+            // Pharo caches it in VirtualMachine's WordSize class var instead (SmalltalkImage>>wordSize
+            // just delegates to it). Same stale-8 problem, same fix: we normalize all 64-bit pcs to
+            // 4 bytes/literal at load (see fixPCs), so in-image initialPC math must use 4 as well.
+            {method: "VirtualMachine>>wordSize", literal: {index: 1, old: 8, hack: 4, skip: this.nilObj}, enabled: true},
             // Squeak 5.3 disable wizard by replacing #open send with pop
             {method: "ReleaseBuilder class>>prepareEnvironment", bytecode: {pc: 28, old: 0xD8, hack: 0x87}, enabled: !sista & this.options.wizard===false},
             // Squeak 6.0 disable wizard by replacing #openWelcomeWorkspacesWith: send with pop
@@ -837,6 +841,13 @@ Object.subclass('Squeak.Interpreter',
         }
     },
     getErrorObjectFromPrimFailCode: function() {
+        // a primitive may hand back a specific error object (e.g. FileAttributesPlugin
+        // fails with a PrimitiveError whose errorCode Pharo maps to an exception class)
+        if (this.primFailErrorObject) {
+            var errObj = this.primFailErrorObject;
+            this.primFailErrorObject = null;
+            return errObj;
+        }
         var primErrTable = this.specialObjects[Squeak.splOb_PrimErrTableIndex];
         if (primErrTable && primErrTable.pointers) {
             var errorObject = primErrTable.pointers[this.primFailCode - 1];

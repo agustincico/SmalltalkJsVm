@@ -1217,8 +1217,9 @@ Object.subclass('Squeak.Primitives',
         if (array.isBytes()) // bytes...
             if (info.convertChars) return this.charFromInt(array.bytes[index-1] & 0xFF);
             else return array.bytes[index-1] & 0xFF;
-        // methods must simulate Squeak's method indexing (literals are wordSize-byte slots)
-        var offset = array.pointersSize() * this.vm.image.wordSize;
+        // methods must simulate Squeak's method indexing (4 bytes/literal even in 64-bit
+        // images — pcs are normalized at load, see vm.image.js fixPCs)
+        var offset = array.pointersSize() * 4;
         if (index-1-offset < 0) {this.success = false; return array;} //reading lits as bytes
         return array.bytes[index-1-offset] & 0xFF;
     },
@@ -1281,8 +1282,9 @@ Object.subclass('Squeak.Primitives',
         if (intToPut<0 || intToPut>255) {this.success = false; return objToPut;}
         if (array.isBytes())  // bytes...
             {array.bytes[index-1] = intToPut; return objToPut;}
-        // methods must simulate Squeak's method indexing (literals are wordSize-byte slots)
-        var offset = array.pointersSize() * this.vm.image.wordSize;
+        // methods must simulate Squeak's method indexing (4 bytes/literal even in 64-bit
+        // images — pcs are normalized at load, see vm.image.js fixPCs)
+        var offset = array.pointersSize() * 4;
         if (index-1-offset < 0) {this.success = false; return array;} //writing lits as bytes
         array.bytes[index-1-offset] = intToPut;
         return objToPut;
@@ -2326,9 +2328,12 @@ Object.subclass('Squeak.Primitives',
         return true;
     },
     primitiveInterpreterSourceVersion: function(argCount) {
-        // Pharo reads the VM's interpreter source version at startup; report ours
-        // as a String so the send doesn't fail (empty-module VM primitive).
-        return this.popNandPushIfOK(argCount + 1, this.makeStString(Squeak.vmMakerVersion));
+        // Pharo parses this via (version splitOn: 'Date: ') second asDate, and
+        // DiskStore>>checkVMVersion requires that date >= 2019-01-05 — otherwise the
+        // error aborts DiskStore's startUp before it sets its working directory
+        // (breaking FileSystem workingDirectory and startup scripts). Use the same
+        // "<version> Date: <iso date>" shape the real VM (and our attribute 1009) uses.
+        return this.popNandPushIfOK(argCount + 1, this.makeStString(Squeak.vmVersion + " Date: " + Squeak.vmDate));
     },
     primitiveGetCurrentWorkingDirectory: function(argCount) {
         // Pharo's working-directory primitive (empty-module VM primitive, distinct

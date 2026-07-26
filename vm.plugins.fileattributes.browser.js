@@ -26,6 +26,7 @@ Object.extend(Squeak.Primitives.prototype,
     // [name, ctimeSqueak, mtimeSqueak, isDir, sizeBytes] for a path, or null if absent.
     // "/" is the (always-present) root directory.
     fa_entryFor: function(sqPath) {
+        if (!Squeak.splitFilePath || !Squeak.dirList) return null; // no virtual FS (e.g. Node) → fail gracefully
         var p = Squeak.splitFilePath(this.filenameFromSqueak(sqPath));
         if (p.fullname === "/") return ["", 0, 0, true, 0];
         var dir = Squeak.dirList(p.dirname, true);
@@ -58,9 +59,20 @@ Object.extend(Squeak.Primitives.prototype,
         }
         return null;
     },
-    // Missing file → fail so Pharo's `^self signalError: error for: path` runs and
-    // (ideally) raises FileDoesNotExistException. See note where this is wired.
+    // Missing file → fail handing Pharo a PrimitiveError with errorCode -3 (cantStatPath):
+    // File>>signalError:for: maps exactly that to FileDoesNotExistException, which callers
+    // like File isDirectory:/exists: rely on catching. A plain symbol error code would raise
+    // PrimitiveFailed instead and abort whole startup subsystems (e.g. the startup-script
+    // loader dies scanning a non-existent preferences folder).
     fa_failMissing: function() {
+        var cls = this.fa_primitiveErrorClass;
+        if (cls === undefined)
+            cls = this.fa_primitiveErrorClass = this.vm.globalNamed("PrimitiveError") || null;
+        if (cls) {
+            var err = this.vm.instantiateClass(cls, 0);
+            err.pointers[1] = -3; // errorCode := cantStatPath (slots: errorName, errorCode)
+            this.vm.primFailErrorObject = err;
+        }
         this.vm.primFailCode = Squeak.PrimErrNotFound;
         return false;
     },
@@ -125,7 +137,7 @@ Object.extend(Squeak.Primitives.prototype,
     // Directory streams: opendir snapshots the listing; the "DIR*" is an integer id.
     fileAttributes_primitiveOpendir: function(argCount) {
         var pathObj = this.stackNonInteger(0);
-        if (!this.success) return false;
+        if (!this.success || !Squeak.dirList) return false;
         var entries = Squeak.dirList(this.filenameFromSqueak(pathObj.bytesAsString()), true);
         if (!entries) return this.popNandPushIfOK(argCount + 1, this.vm.nilObj);
         if (!this.fa_openDirs) { this.fa_openDirs = {}; this.fa_nextDir = 0; }
