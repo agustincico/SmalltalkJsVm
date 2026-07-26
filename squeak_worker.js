@@ -29,6 +29,8 @@ import "./vm.instruction.stream.sista.js";
 import "./vm.instruction.printer.js";
 import "./vm.primitives.js";
 import "./jit.js";
+import "./vm.stackzone.js";
+import "./jit2.js";
 import "./vm.display.js";
 import "./vm.display.browser.js"; // display primitives (scanCharacters etc.); DOM/render bits overridden below
 import "./vm.input.js";
@@ -283,39 +285,55 @@ function boot(opts) {
         ? fetch(opts.image).then(function(r) { return r.arrayBuffer(); })
         : Promise.resolve(opts.image);
     getData.then(function(data) {
-        // When using templates, wait a beat so the template XHRs register the directory
-        // structure before the image enumerates its projects at startup (avoids a race).
-        setTimeout(function() {
+        var intervalsStarted = false, triedNoJit = false;
+        function startIntervals() {
+            if (intervalsStarted) return; intervalsStarted = true;
+            // No separate render timer: rendering is driven by the real displayDirty →
+            // showForm path (respects Morphic's deferDisplayUpdates, no mid-draw frames →
+            // no flicker). This interval only posts status.
+            setInterval(function() { if (vm) self.postMessage({ type: "tick", sends: vm.sendCount }); }, 250);
+            // Persist FS changes back to the host: the worker's directory updates live in its
+            // in-memory Squeak.Settings (no real localStorage), so files it creates would be
+            // orphaned in IndexedDB after a reload. Send the settings snapshot on change.
+            var lastSettings = "";
+            setInterval(function() {
+                var snap = {};
+                for (var k in Squeak.Settings) if (typeof Squeak.Settings[k] === "string") snap[k] = Squeak.Settings[k];
+                var ser = JSON.stringify(snap);
+                if (ser !== lastSettings) { lastSettings = ser; self.postMessage({ type: "settings", settings: snap }); }
+            }, 700);
+        }
+        function startVM(noJit) {
             var image = new Squeak.Image(opts.name || "SqueakJS");
             // More headroom than the 100MB default: opening a big project spikes transient
-            // allocation (image decode + morph rebuild); 512MB lets the peak fit and the GC
-            // reclaim it. Headroom is only a threshold (memory grows on demand).
+            // allocation; 512MB lets the peak fit and the GC reclaim it (only a threshold).
             image.headRoom = opts.headRoom || 512000000;
             image.readFromBuffer(data, function() {
                 vm = new Squeak.Interpreter(image, display);
+                if (noJit || opts.nojit) vm.compiler = null;
                 if (opts.nostream) vm.primHandler.streamPrims = false; // A/B: disable stream prims 65/66/67
                 self.postMessage({ type: "ready", build: BUILD });
+                startIntervals();
                 function run() {
                     try { vm.interpret(50, function(ms) { setTimeout(run, ms === "sleep" ? 10 : ms); }); }
-                    catch (err) { self.postMessage({ type: "error", msg: String(err && err.stack || err) }); }
+                    catch (err) {
+                        var msg = String(err && err.stack || err);
+                        // jit1 mishandles some Sista bytecodes (e.g. Cuis 7.x) → "invalid PC".
+                        // The interpreter runs every bytecode set correctly, so restart the
+                        // image once without the JIT (images that work with it keep it).
+                        if (/invalid PC/.test(msg) && !triedNoJit && !(noJit || opts.nojit)) {
+                            triedNoJit = true;
+                            console.warn("squeak_worker: JIT hit '" + msg.split("\n")[0] + "', restarting without JIT");
+                            return startVM(true);
+                        }
+                        self.postMessage({ type: "error", msg: msg });
+                    }
                 }
                 run();
-                // No separate render timer: rendering is driven by the real displayDirty →
-                // showForm path (respects Morphic's deferDisplayUpdates, so no mid-draw
-                // frames → no flicker). This interval only posts status.
-                setInterval(function() { self.postMessage({ type: "tick", sends: vm.sendCount }); }, 250);
-                // Persist FS changes back to the host: the worker's directory updates live
-                // in its in-memory Squeak.Settings (no real localStorage), so files it
-                // creates would be orphaned in IndexedDB after a reload. Send the settings
-                // snapshot whenever it changes; the host writes it to localStorage.
-                var lastSettings = "";
-                setInterval(function() {
-                    var snap = {};
-                    for (var k in Squeak.Settings) if (typeof Squeak.Settings[k] === "string") snap[k] = Squeak.Settings[k];
-                    var ser = JSON.stringify(snap);
-                    if (ser !== lastSettings) { lastSettings = ser; self.postMessage({ type: "settings", settings: snap }); }
-                }, 700);
             });
-        }, useTemplates ? 800 : 0);
+        }
+        // When using templates, wait a beat so the template XHRs register the directory
+        // structure before the image enumerates its projects at startup (avoids a race).
+        setTimeout(function() { startVM(false); }, useTemplates ? 800 : 0);
     }).catch(function(err) { self.postMessage({ type: "error", msg: "load: " + err }); });
 }

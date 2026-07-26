@@ -75,6 +75,8 @@ Object.subclass('Squeak.Object',
         } else {
             if (original.pointers) this.pointers = original.pointers.slice(0);   // copy
             if (original.words) this.words = new Uint32Array(original.words);    // copy
+            if (original.words16) this.words16 = new Uint16Array(original.words16); // copy
+            if (original.words64) this.words64 = new BigUint64Array(original.words64); // copy
             if (original.bytes) this.bytes = new Uint8Array(original.bytes);     // copy
         }
     },
@@ -174,6 +176,14 @@ Object.subclass('Squeak.Object',
             bytes = new Uint8Array(nBytes);
         bytes.set(wordsAsBytes);
         return bytes;
+    },
+    decodeShorts: function(nWords, theBits, fmtLowBits) {
+        // 16-bit indexable words (format 12-15). Adjust length for odd low bits, make a copy.
+        var nShorts = (nWords * 2) - fmtLowBits,
+            wordsAsShorts = new Uint16Array(theBits.buffer, theBits.byteOffset, nShorts),
+            shorts = new Uint16Array(nShorts);
+        shorts.set(wordsAsShorts);
+        return shorts;
     },
     decodeFloat: function(theBits, littleEndian, nativeFloats) {
         var data = new DataView(theBits.buffer, theBits.byteOffset);
@@ -292,6 +302,12 @@ Object.subclass('Squeak.Object',
     wordsSize: function() {
         return this.isFloat ? 2 : this.words ? this.words.length : 0;
     },
+    words16Size: function() {
+        return this.words16 ? this.words16.length : 0;
+    },
+    words64Size: function() {
+        return this.words64 ? this.words64.length : 0;
+    },
     instSize: function() {//same as class.classInstSize, but faster from format
         var fmt = this._format;
         if (fmt > 4 || fmt === 2) return 0;      //indexable fields only
@@ -322,6 +338,7 @@ Object.subclass('Squeak.Object',
     },
     wordsAsFloat64Array: function() {
         return this.float64Array
+            || (this.words64 && (this.float64Array = new Float64Array(this.words64.buffer)))
             || (this.words && (this.float64Array = new Float64Array(this.words.buffer)));
     },
     wordsAsInt32Array: function() {
@@ -330,6 +347,7 @@ Object.subclass('Squeak.Object',
     },
     wordsAsInt16Array: function() {
         return this.int16Array
+            || (this.words16 && (this.int16Array = new Int16Array(this.words16.buffer)))
             || (this.words && (this.int16Array = new Int16Array(this.words.buffer)));
     },
     wordsAsUint16Array: function() {
