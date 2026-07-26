@@ -133,25 +133,52 @@ input[type=file] { font-size: .92rem; }
     image-rendering: pixelated;
     -ms-interpolation-mode: nearest-neighbor;
 }
+/* Loading indicator (worker boot / zip download). Deliberately NOT the old rotating
+   "ruedita" — a slim linear indeterminate bar with a label, so it reads as modern
+   progress and never as the freeze it replaced. */
 div#sqSpinner {
     position: fixed;
-    margin: auto; top: 0; left: 0; bottom: 0; right: 0;
-    width: 100px;
-    height: 100px;
-    border-radius: 50px;
-    background: rgba(0, 0, 0, 0.3);
-    box-shadow: 0 0 5px 5px var(--accent);
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    padding: 16px 22px 18px;
+    border-radius: 12px;
+    background: rgba(18, 18, 22, 0.72);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    color: #fff;
+    font: 500 14px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+    letter-spacing: .01em;
     display: none;
-    transform: rotate(30deg);
+    z-index: 30;
+}
+div#sqSpinner::before {
+    content: "Cargando\2026";
+    display: block;
+    text-align: center;
+    margin-bottom: 12px;
+    opacity: .9;
 }
 div#sqSpinner > div {
+    position: relative;
+    width: 170px;
+    height: 3px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.16);
+    overflow: hidden;
+}
+div#sqSpinner > div::after {
+    content: "";
     position: absolute;
-    top: 45px;
-    left: 5px;
-    width: 90px;
-    height: 10px;
-    border-radius: 5px;
-    box-shadow: 0 0 5px 5px var(--accent);
+    top: 0; left: 0;
+    width: 40%;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--accent);
+    animation: sqLoadSlide 1.15s ease-in-out infinite;
+}
+@keyframes sqLoadSlide {
+    0%   { left: -40%; }
+    100% { left: 100%; }
 }
 /* worker-mode "open file" button (shown only while a worker image is running) */
 #sqOpenBtn {
