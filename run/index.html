@@ -318,10 +318,26 @@
                 return;
             }
             var special = { Enter:13, Backspace:8, Tab:9, Escape:27, ArrowLeft:28, ArrowRight:29, ArrowUp:30, ArrowDown:31, Delete:127, Home:1, End:4, PageUp:11, PageDown:12 };
-            var uni = e.key.length === 1 ? e.key.charCodeAt(0) : special[e.key] || 0;
-            if (!uni) return;
+            // Keyboard event modifiers use the VM's char-event encoding (shift=1, ctrl=2,
+            // alt=4, cmd=8) — NOT the Keyboard_* button bits (8/16/32/64) that mods() returns
+            // for mouse. Set BOTH ctrl+cmd when either is pressed, since we don't know whether
+            // the image keymaps to Ctrl (unix/win, e.g. Pharo) or Cmd (mac, e.g. classic Squeak).
+            var isCmd = e.metaKey || e.ctrlKey;
+            var km = (e.shiftKey ? 1 : 0) | (e.altKey ? 4 : 0) | (isCmd ? (2 | 8) : 0);
+            var uni, code;
+            if (e.key.length === 1) {
+                uni = code = e.key.charCodeAt(0);
+                if (isCmd) { // command shortcut: use the lowercase letter; ctrl-<key> → control char
+                    code = e.key.toLowerCase().charCodeAt(0);
+                    if (e.ctrlKey && code >= 96 && code < 127) code &= 0x1F;
+                    uni = code;
+                }
+            } else {
+                uni = code = special[e.key] || 0;
+            }
+            if (!code) return;
             e.preventDefault();
-            worker.postMessage({ type: "event", ev: [2, Date.now(), uni < 128 ? uni : 0, 0, mods(e), uni] });
+            worker.postMessage({ type: "event", ev: [2, Date.now(), code < 128 ? code : 0, 0, km, uni] });
         });
     }
     function importItems(items) {
