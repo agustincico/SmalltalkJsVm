@@ -316,12 +316,17 @@ function boot(opts) {
                     try { vm.interpret(50, function(ms) { setTimeout(run, ms === "sleep" ? 10 : ms); }); }
                     catch (err) {
                         var msg = String(err && err.stack || err);
-                        // jit1 mishandles some Sista bytecodes (e.g. Cuis 7.x) → "invalid PC".
-                        // The interpreter runs every bytecode set correctly, so restart the
-                        // image once without the JIT (images that work with it keep it).
-                        if (/invalid PC/.test(msg) && !triedNoJit && !(noJit || opts.nojit)) {
+                        // jit1 mishandles some Sista bytecodes (e.g. Cuis 7.x). The failure
+                        // surfaces differently per engine: V8 raises "invalid PC" later in the
+                        // interpreter, while SpiderMonkey (Firefox) throws straight out of the
+                        // generated function (stack points into jit.js). Treat either as a JIT
+                        // fault and re-run the image once without the JIT — the plain
+                        // interpreter handles every bytecode set correctly (images that work
+                        // with the JIT keep it).
+                        var jitFault = /invalid PC/.test(msg) || /jit\.js/.test(msg);
+                        if (jitFault && !triedNoJit && !(noJit || opts.nojit)) {
                             triedNoJit = true;
-                            console.warn("squeak_worker: JIT hit '" + msg.split("\n")[0] + "', restarting without JIT");
+                            console.warn("squeak_worker: JIT fault (" + msg.split("\n")[0] + "), restarting without JIT");
                             return startVM(true);
                         }
                         self.postMessage({ type: "error", msg: msg });
