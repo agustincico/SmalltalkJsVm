@@ -34,6 +34,7 @@ import "./vm.display.browser.js"; // display primitives (scanCharacters etc.); D
 import "./vm.input.js";
 import "./vm.plugins.js";
 import "./vm.plugins.file.browser.js";
+import "./vm.plugins.fileattributes.browser.js"; // Pharo FileSystem stat/exists/dir (maps to the virtual FS)
 import "./vm.plugins.drop.browser.js"; // primitiveDropRequestFileName/Handle (read dropped files)
 import "./vm.files.browser.js";
 import "./plugins/BitBltPlugin.js";
@@ -43,6 +44,7 @@ import "./plugins/FloatArrayPlugin.js";
 import "./plugins/B2DPlugin.js";
 import "./plugins/Matrix2x3Plugin.js";
 import "./plugins/ZipPlugin.js";
+import "./plugins/SocketPlugin.js"; // Pharo checks NetNameResolver status at startup (WebSocket-backed; works in a worker)
 import "./vm.plugins.jpeg2.browser.js"; // defines the jpeg2_* functions (module is builtin but empty without this)
 
 var display = null, ctx = null, vm = null, downloadOnSave = false;

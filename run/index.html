@@ -318,10 +318,26 @@
                 return;
             }
             var special = { Enter:13, Backspace:8, Tab:9, Escape:27, ArrowLeft:28, ArrowRight:29, ArrowUp:30, ArrowDown:31, Delete:127, Home:1, End:4, PageUp:11, PageDown:12 };
-            var uni = e.key.length === 1 ? e.key.charCodeAt(0) : special[e.key] || 0;
-            if (!uni) return;
+            // Keyboard event modifiers use the VM's char-event encoding (shift=1, ctrl=2,
+            // alt=4, cmd=8) — NOT the Keyboard_* button bits (8/16/32/64) that mods() returns
+            // for mouse. Set BOTH ctrl+cmd when either is pressed, since we don't know whether
+            // the image keymaps to Ctrl (unix/win, e.g. Pharo) or Cmd (mac, e.g. classic Squeak).
+            var isCmd = e.metaKey || e.ctrlKey;
+            var km = (e.shiftKey ? 1 : 0) | (e.altKey ? 4 : 0) | (isCmd ? (2 | 8) : 0);
+            var uni, code;
+            if (e.key.length === 1) {
+                uni = code = e.key.charCodeAt(0);
+                if (isCmd) { // command shortcut: use the lowercase letter; ctrl-<key> → control char
+                    code = e.key.toLowerCase().charCodeAt(0);
+                    if (e.ctrlKey && code >= 96 && code < 127) code &= 0x1F;
+                    uni = code;
+                }
+            } else {
+                uni = code = special[e.key] || 0;
+            }
+            if (!code) return;
             e.preventDefault();
-            worker.postMessage({ type: "event", ev: [2, Date.now(), uni < 128 ? uni : 0, 0, mods(e), uni] });
+            worker.postMessage({ type: "event", ev: [2, Date.now(), code < 128 ? code : 0, 0, km, uni] });
         });
     }
     function importItems(items) {
@@ -544,10 +560,11 @@
         <ul>
         <li><b>Squeak</b> — <a href="#zip=https://dialog.ar/Squeak.zip">6.0</a></li>
         <li><b>Cuis</b> — <a href="#zip=https://dialog.ar/Cuis.zip">7.8</a></li>
+        <li><b>Pharo</b> — <a href="#zip=https://dialog.ar/Pharo.zip">10</a> <span class="muted">(experimental)</span></li>
         <li><b>Dialog.ar</b> — <a href="#zip=https://dialog.ar/Dialogo.zip">example drawing app for kids</a></li>
         </ul>
-        <p class="muted">First run downloads and caches the image in your browser; later starts are much faster. 64-bit images open directly — read natively, no 32-bit conversion; if a bundle ships both, the 32-bit build is used. <em>The host must allow cross-origin reads (CORS), so these are mirrored on dialog.ar.</em></p>
-        <p class="muted"><b>Pharo</b> isn't listed: its images are very large and rely on Cog VM primitives SqueakJS doesn't implement, so they don't run here yet.</p>
+        <p class="muted">First run downloads and caches the image in your browser; later starts are much faster. If a bundle ships both a 32- and 64-bit image, the 32-bit build is used. <em>The host must allow cross-origin reads (CORS), so these are mirrored on dialog.ar.</em></p>
+        <p class="muted"><b>Pharo is experimental:</b> it boots to a full working world, but git/Iceberg (which needs native FFI, unavailable in the browser) fails during startup and opens a debugger — close it and Pharo is usable. 32-bit images only for now.</p>
         </div>
 
         <h2>Embed it on your own site</h2>

@@ -237,6 +237,17 @@ Object.extend(Squeak.Primitives.prototype,
         this.popNandPushIfOK(argCount + 1, this.makeStArray(handles));
         return true;
     },
+    primitiveFileDescriptorType: function(argCount) {
+        // Pharo probes stdio at startup: File>>fileDescriptorIsAvailable: is
+        // (self fileDescriptorType: fd) between: 1 and: 3  (1=tty, 2=pipe, 3=file).
+        // stdout(1)/stderr(2) are backed by the console (pipe-like → 2); stdin(0)
+        // and any other descriptor are unavailable → 0. Not implementing this made
+        // the primitive fail and Pharo opened a debugger during boot.
+        var fd = this.stackInteger(0);
+        if (!this.success) return false;
+        var type = (fd === 1 || fd === 2) ? 2 : 0;
+        return this.popNandPushIfOK(argCount + 1, type);
+    },
     primitiveFileTruncate: function(argCount) {
         var pos = this.stackPos32BitInt(0),
             handle = this.stackNonInteger(1);

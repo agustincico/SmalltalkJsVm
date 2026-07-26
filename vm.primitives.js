@@ -1217,8 +1217,8 @@ Object.subclass('Squeak.Primitives',
         if (array.isBytes()) // bytes...
             if (info.convertChars) return this.charFromInt(array.bytes[index-1] & 0xFF);
             else return array.bytes[index-1] & 0xFF;
-        // methods must simulate Squeak's method indexing
-        var offset = array.pointersSize() * 4;
+        // methods must simulate Squeak's method indexing (literals are wordSize-byte slots)
+        var offset = array.pointersSize() * this.vm.image.wordSize;
         if (index-1-offset < 0) {this.success = false; return array;} //reading lits as bytes
         return array.bytes[index-1-offset] & 0xFF;
     },
@@ -1281,8 +1281,8 @@ Object.subclass('Squeak.Primitives',
         if (intToPut<0 || intToPut>255) {this.success = false; return objToPut;}
         if (array.isBytes())  // bytes...
             {array.bytes[index-1] = intToPut; return objToPut;}
-        // methods must simulate Squeak's method indexing
-        var offset = array.pointersSize() * 4;
+        // methods must simulate Squeak's method indexing (literals are wordSize-byte slots)
+        var offset = array.pointersSize() * this.vm.image.wordSize;
         if (index-1-offset < 0) {this.success = false; return array;} //writing lits as bytes
         array.bytes[index-1-offset] = intToPut;
         return objToPut;
@@ -2324,6 +2324,32 @@ Object.subclass('Squeak.Primitives',
         Squeak.Settings['squeakImageName'] = this.vm.image.name;
         this.vm.popN(argCount);
         return true;
+    },
+    primitiveInterpreterSourceVersion: function(argCount) {
+        // Pharo reads the VM's interpreter source version at startup; report ours
+        // as a String so the send doesn't fail (empty-module VM primitive).
+        return this.popNandPushIfOK(argCount + 1, this.makeStString(Squeak.vmMakerVersion));
+    },
+    primitiveGetCurrentWorkingDirectory: function(argCount) {
+        // Pharo's working-directory primitive (empty-module VM primitive, distinct
+        // from Cuis's FilePlugin.primitiveGetWorkingDirectory). Report our virtual
+        // FS root as a UTF-8 String.
+        var cwd = Squeak.workingDirectory || Squeak.vmPath || "/";
+        return this.popNandPushIfOK(argCount + 1, this.makeStString(this.filenameToSqueak(cwd)));
+    },
+    primitiveGetenv: function(argCount) {
+        // Pharo's UnixResolver reads HOME / TEMP / USER at startup to locate its
+        // work directories ("origin"). We expose a Unix-like FS rooted at "/", so
+        // hand back "/" for the home/temp vars (nil for the rest → Pharo derives
+        // XDG_* etc. from HOME). Without this it errors: "Can't find the requested origin".
+        var nameObj = this.stackNonInteger(0);
+        if (!this.success) return false;
+        var name = nameObj.bytesAsString();
+        var env = { HOME: "/", PWD: "/", TEMP: "/", TMP: "/", TMPDIR: "/",
+                    USER: "squeak", LOGNAME: "squeak" };
+        var val = env.hasOwnProperty(name) ? env[name] : null;
+        var result = val == null ? this.vm.nilObj : this.makeStString(val);
+        return this.popNandPushIfOK(argCount + 1, result);
     },
     primitiveSnapshot: function(argCount) {
         this.vm.popNandPush(1, this.vm.trueObj);        // put true on stack for saved snapshot

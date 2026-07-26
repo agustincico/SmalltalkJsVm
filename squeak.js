@@ -50,6 +50,7 @@ import "./vm.plugins.javascript.js";
 import "./vm.plugins.obsolete.js";
 import "./vm.plugins.drop.browser.js";
 import "./vm.plugins.file.browser.js";
+import "./vm.plugins.fileattributes.browser.js";
 import "./vm.plugins.jpeg2.browser.js";
 import "./vm.plugins.scratch.browser.js";
 import "./vm.plugins.sound.browser.js";
