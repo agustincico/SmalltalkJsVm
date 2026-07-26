@@ -97,6 +97,22 @@ Object.extend(Squeak.Primitives.prototype,
     primitiveDirectorySetMacTypeAndCreator: function(argCount) {
         return this.popNIfOK(argCount);
     },
+    primitiveGetWorkingDirectory: function(argCount) {
+        // Cuis 7.x reads the VM's working directory at startup (DirectoryEntry
+        // workingDirectory → userBaseDirectory → readAndApplyUserPrefs). Our FilePlugin
+        // has a single virtual root, so report it as a UTF-8 String; without this the
+        // primitive fails and Cuis opens a debugger before the world is even up.
+        var cwd = Squeak.workingDirectory || Squeak.vmPath || "/";
+        return this.popNandPushIfOK(argCount + 1, this.makeStString(this.filenameToSqueak(cwd)));
+    },
+    primitiveSetWorkingDirectory: function(argCount) {
+        // accept a new working directory (UTF-8 path). We keep the image/sources/changes
+        // lookup anchored at vmPath, so remember the cwd separately for the getter only.
+        var dirNameObj = this.stackNonInteger(0);
+        if (!this.success) return false;
+        Squeak.workingDirectory = this.filenameFromSqueak(dirNameObj.bytesAsString());
+        return this.popNIfOK(argCount);
+    },
     primitiveFileAtEnd: function(argCount) {
         var handle = this.stackNonInteger(0);
         if (!this.success || !handle.file) return false;
