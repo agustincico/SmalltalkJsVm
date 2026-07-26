@@ -34,6 +34,7 @@ import "./vm.display.browser.js"; // display primitives (scanCharacters etc.); D
 import "./vm.input.js";
 import "./vm.plugins.js";
 import "./vm.plugins.file.browser.js";
+import "./vm.plugins.fileattributes.browser.js"; // Pharo FileSystem stat/exists/dir (maps to the virtual FS)
 import "./vm.plugins.drop.browser.js"; // primitiveDropRequestFileName/Handle (read dropped files)
 import "./vm.files.browser.js";
 import "./plugins/BitBltPlugin.js";
