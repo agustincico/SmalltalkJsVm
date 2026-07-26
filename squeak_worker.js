@@ -43,6 +43,7 @@ import "./plugins/FloatArrayPlugin.js";
 import "./plugins/B2DPlugin.js";
 import "./plugins/Matrix2x3Plugin.js";
 import "./plugins/ZipPlugin.js";
+import "./plugins/SocketPlugin.js"; // Pharo checks NetNameResolver status at startup (WebSocket-backed; works in a worker)
 import "./vm.plugins.jpeg2.browser.js"; // defines the jpeg2_* functions (module is builtin but empty without this)
 
 var display = null, ctx = null, vm = null, downloadOnSave = false;
