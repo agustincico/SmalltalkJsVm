@@ -1217,8 +1217,8 @@ Object.subclass('Squeak.Primitives',
         if (array.isBytes()) // bytes...
             if (info.convertChars) return this.charFromInt(array.bytes[index-1] & 0xFF);
             else return array.bytes[index-1] & 0xFF;
-        // methods must simulate Squeak's method indexing
-        var offset = array.pointersSize() * 4;
+        // methods must simulate Squeak's method indexing (literals are wordSize-byte slots)
+        var offset = array.pointersSize() * this.vm.image.wordSize;
         if (index-1-offset < 0) {this.success = false; return array;} //reading lits as bytes
         return array.bytes[index-1-offset] & 0xFF;
     },
@@ -1281,8 +1281,8 @@ Object.subclass('Squeak.Primitives',
         if (intToPut<0 || intToPut>255) {this.success = false; return objToPut;}
         if (array.isBytes())  // bytes...
             {array.bytes[index-1] = intToPut; return objToPut;}
-        // methods must simulate Squeak's method indexing
-        var offset = array.pointersSize() * 4;
+        // methods must simulate Squeak's method indexing (literals are wordSize-byte slots)
+        var offset = array.pointersSize() * this.vm.image.wordSize;
         if (index-1-offset < 0) {this.success = false; return array;} //writing lits as bytes
         array.bytes[index-1-offset] = intToPut;
         return objToPut;

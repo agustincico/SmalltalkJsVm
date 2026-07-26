@@ -328,7 +328,9 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
         if (fmt < 12) return this.wordsSize(); // words
         if (fmt < 16) return this.words16Size(); // shorts
         if (fmt < 24) return this.bytesSize(); // bytes
-        return 4 * this.pointersSize() + this.bytesSize(); // methods
+        // methods: at: addresses the literals (incl. header) as wordSize-byte slots, then
+        // the bytecode — so 8 bytes/slot in a 64-bit image, not a hardcoded 4.
+        return primHandler.vm.image.wordSize * this.pointersSize() + this.bytesSize();
     },
     snapshotSize: function() {
         // words of extra object header and body this object would take up in image snapshot
