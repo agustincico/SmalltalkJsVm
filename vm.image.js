@@ -139,8 +139,9 @@ Object.subclass('Squeak.Image',
         var is64Bit = version >= 68000;
         if (is64Bit && !this.isSpur) throw Error("64 bit non-spur images not supported yet");
         if (is64Bit)  { readWord = readWord64; wordSize = 8; }
-        // remember the image word size (4 or 8): CompiledMethod byte-indexing (at:) spans the
-        // literals as wordSize-byte slots, so 64-bit images need 8, not a hardcoded 4.
+        // remember the image word size (4 or 8). NB: pcs and CompiledMethod at:-indexing use
+        // 4 bytes/literal regardless — 64-bit pcs are normalized at load (fixPCs) and
+        // Smalltalk wordSize is hacked to answer 4 (see hackImage) so in-image math matches.
         this.is64Bit = is64Bit;
         this.wordSize = wordSize;
         // parse image header
@@ -444,9 +445,13 @@ Object.subclass('Squeak.Image',
             obj = this.firstOldObject;
         while (obj) {
             if (obj.sqClass === clsMethodContext) {
-                obj.pointers[pc] -= obj.pointers[method].pointers.length * 4;
+                // terminated contexts store nil as their ip — leave those alone
+                // (nil - n would turn them into NaN)
+                if (typeof obj.pointers[pc] === "number")
+                    obj.pointers[pc] -= obj.pointers[method].pointers.length * 4;
             } else if (obj.sqClass === clsBlockClosure) {
-                obj.pointers[startpc] -= obj.pointers[outerContext].pointers[method].pointers.length * 4;
+                if (typeof obj.pointers[startpc] === "number")
+                    obj.pointers[startpc] -= obj.pointers[outerContext].pointers[method].pointers.length * 4;
             }
             obj = obj.nextObject;
         }

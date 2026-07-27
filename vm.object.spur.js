@@ -328,9 +328,10 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
         if (fmt < 12) return this.wordsSize(); // words
         if (fmt < 16) return this.words16Size(); // shorts
         if (fmt < 24) return this.bytesSize(); // bytes
-        // methods: at: addresses the literals (incl. header) as wordSize-byte slots, then
-        // the bytecode — so 8 bytes/slot in a 64-bit image, not a hardcoded 4.
-        return primHandler.vm.image.wordSize * this.pointersSize() + this.bytesSize();
+        // methods: 4 bytes per literal slot even in 64-bit images — SqueakJS normalizes all
+        // pcs to 4 bytes/literal at load (vm.image.js fixPCs) and hacks Smalltalk wordSize
+        // to answer 4, so in-image initialPC math matches this indexing.
+        return 4 * this.pointersSize() + this.bytesSize(); // methods
     },
     snapshotSize: function() {
         // words of extra object header and body this object would take up in image snapshot

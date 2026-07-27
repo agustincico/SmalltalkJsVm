@@ -560,11 +560,11 @@
         <ul>
         <li><b>Squeak</b> — <a href="#zip=https://dialog.ar/Squeak.zip">6.0</a></li>
         <li><b>Cuis</b> — <a href="#zip=https://dialog.ar/Cuis.zip">7.8</a></li>
-        <li><b>Pharo</b> — <a href="#zip=https://dialog.ar/Pharo.zip">10</a> <span class="muted">(experimental)</span></li>
+        <li><b>Pharo</b> — <a href="#zip=https://dialog.ar/Pharo.zip">10 (32-bit)</a> · <a href="#zip=https://dialog.ar/Pharo64.zip">10 (64-bit)</a> <span class="muted">(experimental)</span></li>
         <li><b>Dialog.ar</b> — <a href="#zip=https://dialog.ar/Dialogo.zip">example drawing app for kids</a></li>
         </ul>
         <p class="muted">First run downloads and caches the image in your browser; later starts are much faster. If a bundle ships both a 32- and 64-bit image, the 32-bit build is used. <em>The host must allow cross-origin reads (CORS), so these are mirrored on dialog.ar.</em></p>
-        <p class="muted"><b>Pharo is experimental:</b> it boots to a full working world, but git/Iceberg (which needs native FFI, unavailable in the browser) fails during startup and opens a debugger — close it and Pharo is usable. 32-bit images only for now.</p>
+        <p class="muted"><b>Pharo is experimental:</b> it boots to a full working world, but git/Iceberg (which needs native FFI, unavailable in the browser) fails during startup and opens a debugger — close it and Pharo is usable. The 64-bit bundle includes a compatibility <code>startup.st</code> that restores the classic display/input classes Pharo's 64-bit builds dropped (they ship SDL2-only) — to run your own 64-bit image, keep that <code>startup.st</code> next to it.</p>
         </div>
 
         <h2>Embed it on your own site</h2>
