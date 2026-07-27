@@ -200,6 +200,15 @@ Object.subclass('Squeak.Interpreter',
             {method: "Latin1Environment class>>systemConverterClass", bytecode: {pc: 50, old: 0x44, hack: 0x48}, enabled: this.image.isSpur && !sista},
             // New FFI can't detect platform – pretend to be 32 bit intel
             {method: "FFIPlatformDescription>>abi", literal: { index: 21, old_str: 'UNKNOWN_ABI', new_str: 'IA32'}, enabled: sista},
+            // Pharo: at startup Iceberg initializes libgit2 through the FFI, which SqueakJS
+            // has no backend for. The failure is re-raised (LGitLibrary>>initializeLibGit2
+            // does `ex pass`) and Pharo shows a post-mortem debugger ("Cannot locate libgit2"
+            // in 32-bit / FFICallout subclassResponsibility in 64-bit) over an otherwise fresh
+            // world — the "FFI errors on open" users hit. There is no git in the browser, so
+            // make the startup a no-op: Iceberg then simply runs git-less, exactly as on a
+            // machine without libgit2. LGitLibrary only exists in Pharo, so this is a no-op
+            // elsewhere. Same landmine in 32- and 64-bit images.
+            {method: "LGitLibrary class>>startUp:", neuter: true, enabled: true},
         ].forEach(function(each) {
             try {
                 var m = each.enabled && this.findMethod(each.method);
@@ -209,7 +218,14 @@ Object.subclass('Squeak.Interpreter',
                         lit = each.literal,
                         hacked = true;
                     if (byte && byte.closure) m = m.pointers[byte.closure];
-                    if (prim) m.pointers[0] |= prim;
+                    if (each.neuter) {
+                        // Make the method a no-op (^self) by overwriting its first bytecode
+                        // with return-receiver (Sista 0x58 / V3 0x78). Only safe when the
+                        // method has no primitive (else bytes[0..] is the callPrimitive).
+                        if (m.methodPrimitiveIndex() !== 0) hacked = false;
+                        else { m.bytes[0] = m.methodSignFlag() ? 0x58 : 0x78; m.compiled = null; }
+                    }
+                    else if (prim) m.pointers[0] |= prim;
                     else if (byte && m.bytes[byte.pc] === byte.old) m.bytes[byte.pc] = byte.hack;
                     else if (byte && m.bytes[byte.pc] === byte.hack) hacked = false; // already there
                     else if (lit && lit.old_str && m.pointers[lit.index].bytesAsString() === lit.old_str) m.pointers[lit.index] = this.primHandler.makeStString(lit.new_str);
