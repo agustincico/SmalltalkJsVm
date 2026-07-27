@@ -152,11 +152,19 @@ div#sqSpinner {
     z-index: 30;
 }
 div#sqSpinner::before {
-    content: "Cargando\2026";
+    /* the label is set from JS (localized to the browser language, staged:
+       downloading → starting + heartbeat); empty by default */
+    content: attr(data-label);
     display: block;
     text-align: center;
     margin-bottom: 12px;
     opacity: .9;
+    max-width: 70vw;
+}
+/* while an image loads, the page goes dark (no white flash, no stray black rect —
+   the canvas itself stays hidden until the image paints its first frame) */
+body.sq-loading {
+    background: #16161a;
 }
 div#sqSpinner > div {
     position: relative;
