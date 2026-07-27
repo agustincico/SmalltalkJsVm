@@ -134,23 +134,41 @@ Object.extend(Squeak.Primitives.prototype,
         return this.popNandPushIfOK(argCount + 1, 0);   // Windows-only drive mask; none here
     },
 
-    // Directory streams: opendir snapshots the listing; the "DIR*" is an integer id.
+    // Directory streams. Protocol (see Pharo's DiskStore>>directoryAt:nodesDo:):
+    // opendir answers {encodedFirstEntryName. statAttributes. dirPointer} — the "new VM
+    // (FileAttributesPlugin > 1.4)" shape — or nil if the directory can't be opened (we
+    // also answer nil for an empty one). readdir answers {encodedName. statAttributes} or
+    // nil at the end. statAttributes[1] is the symlink target (nil here → skipped).
+    // The dirPointer is an integer id into fa_openDirs.
+    fa_nextDirEntry: function(d) {
+        if (d.pos >= d.names.length) return null;
+        var name = d.names[d.pos++],
+            e = d.entries[name],
+            toUnix = this.fa_SQUEAK_TO_UNIX,
+            mtime = (e[2] || 0) - toUnix,
+            attrs = [null, this.fa_mode(e), 0, 0, 1, 0, 0, e[4] || 0,
+                     mtime, mtime, mtime, (e[1] || 0) - toUnix];
+        return [this.makeStString(name), this.makeStObject(attrs)];
+    },
     fileAttributes_primitiveOpendir: function(argCount) {
         var pathObj = this.stackNonInteger(0);
         if (!this.success || !Squeak.dirList) return false;
         var entries = Squeak.dirList(this.filenameFromSqueak(pathObj.bytesAsString()), true);
         if (!entries) return this.popNandPushIfOK(argCount + 1, this.vm.nilObj);
         if (!this.fa_openDirs) { this.fa_openDirs = {}; this.fa_nextDir = 0; }
+        var d = { entries: entries, names: Object.keys(entries).sort(), pos: 0 };
+        var first = this.fa_nextDirEntry(d);
+        if (!first) return this.popNandPushIfOK(argCount + 1, this.vm.nilObj); // empty
         var id = ++this.fa_nextDir;
-        this.fa_openDirs[id] = { names: Object.keys(entries).sort(), pos: 0 };
-        return this.popNandPushIfOK(argCount + 1, id);
+        this.fa_openDirs[id] = d;
+        return this.popNandPushIfOK(argCount + 1, this.makeStArray([first[0], first[1], id]));
     },
     fileAttributes_primitiveReaddir: function(argCount) {
         var id = this.stackInteger(0);
         if (!this.success) return false;
         var d = this.fa_openDirs && this.fa_openDirs[id];
-        if (!d || d.pos >= d.names.length) return this.popNandPushIfOK(argCount + 1, this.vm.nilObj);
-        return this.popNandPushIfOK(argCount + 1, this.makeStString(d.names[d.pos++]));
+        var e = d && this.fa_nextDirEntry(d);
+        return this.popNandPushIfOK(argCount + 1, e ? this.makeStArray(e) : this.vm.nilObj);
     },
     fileAttributes_primitiveRewinddir: function(argCount) {
         var id = this.stackInteger(0);
