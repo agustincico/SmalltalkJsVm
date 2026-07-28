@@ -1102,6 +1102,27 @@ primitiveWindowSize: id width: width heigth: height
 	<primitive: 'primitiveHostWindowSizeSet' module: 'HostWindowPlugin'>
 	"ignore failure"! !
 
+"deferUpdates: is what actually switches the VM into batched (deferred) drawing. The 64-bit
+build's version never reaches primitive 126, so every single BitBlt was pushed straight to
+the screen: a fading growl notification redrew ~300 times per second and looked like it was
+flickering / reopening, instead of fading in one frame per Morphic cycle (32-bit does 1 draw
+per cycle). Restore the 32-bit implementation. DeferringUpdates is a class variable there;
+add it first, since compiling against a name that does not exist would silently bind it to
+an undeclared nil global."
+[ DisplayScreen addClassVarNamed: #DeferringUpdates ] on: Error do: [ :e | ]!
+
+!DisplayScreen methodsFor: 'deferring' stamp: ''!
+deferUpdates: aBoolean
+	^ self class deferUpdates: aBoolean! !
+
+!DisplayScreen class methodsFor: 'deferring' stamp: ''!
+deferUpdates: aBoolean
+	"Set the deferUpdates flag in the virtual machine. When this flag is true, BitBlt operations on the Display are not automatically propagated to the screen. If this underlying platform does not support deferred updates, this primitive will fail. Answer whether updates were deferred before if the primitive succeeds, nil if it fails."
+	| wasDeferred |
+	wasDeferred := DeferringUpdates == true.
+	DeferringUpdates := aBoolean.
+	^ (self primitiveDeferUpdates: aBoolean) ifNotNil: [ wasDeferred ]! !
+
 !DisplayScreen class methodsFor: 'deferring' stamp: ''!
 primitiveDeferUpdates: aBoolean
 	"Set the deferUpdates flag in the virtual machine. When this flag is true, BitBlt operations on the Display are not automatically propagated to the screen. If this underlying platform does not support deferred updates, this primitive will fail. Answer the receiver if the primitive succeeds, nil if it fails."
