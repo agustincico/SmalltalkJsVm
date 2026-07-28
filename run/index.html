@@ -8,10 +8,36 @@
 <link rel="stylesheet" href="squeakjs.css">
 <script type="module" src="../squeak.js"></script>
 <script>
+    // Loading overlay: localized staged label (adapts to the browser language) with a
+    // heartbeat while big images (Pharo!) boot — the canvas stays hidden until the image
+    // paints its first real frame, so there's no stray black rectangle or long black screen.
+    var L10N = (navigator.language || "").toLowerCase().indexOf("es") === 0 ? {
+        downloading: "Descargando la imagen…",
+        starting: "Arrancando la imagen…",
+        firstRun: "la primera vez puede tardar uno o dos minutos",
+        working: "trabajando: ",
+    } : {
+        downloading: "Downloading the image…",
+        starting: "Starting the image…",
+        firstRun: "the first run can take a minute or two",
+        working: "working: ",
+    };
+    function setLoadingStage(stage, extra) {
+        if (!sqSpinner) return;
+        if (stage === null) {
+            sqSpinner.style.display = "none";
+            return;
+        }
+        sqSpinner.style.display = "block";
+        document.body.classList.add("sq-loading");
+        var label = stage === "downloading" ? L10N.downloading
+                  : stage === "starting" ? L10N.starting + " — " + L10N.firstRun : stage;
+        if (extra) label += "  ·  " + extra;
+        sqSpinner.setAttribute("data-label", label);
+    }
     function runSqueak(imageName) {
         // Squeak.debugFiles = true;
         sqText.style.display = "none";
-        sqCanvas.style.display = "block";
         // Run the VM in a Web Worker (off the main thread) by default, so the page stays
         // responsive (no freeze / ruedita). Handles local images (IndexedDB), images from
         // the internet (image=<url> or url=BASE&files=[...]) and zip bundles (zip=<url>).
@@ -21,8 +47,12 @@
         imageName = imageName || params.get("image");
         var canWorker = ("transferControlToOffscreen" in HTMLCanvasElement.prototype) && typeof Worker !== "undefined";
         if (canWorker && !params.has("nomain") && (imageName || params.has("url") || params.has("zip"))) {
+            // the canvas stays hidden until the image paints its first frame (see
+            // "first-frame" below); until then the loading overlay explains the wait
+            setLoadingStage(params.has("zip") ? "downloading" : "starting");
             return runSqueakInWorker(imageName, params);
         }
+        sqCanvas.style.display = "block";
         SqueakJS.runSqueak(imageName, sqCanvas,{
             spinner: sqSpinner,
             appName: imageName && imageName.replace(/.*\//, "").replace(/\.image$/, ""),
@@ -91,7 +121,7 @@
             if (dir) Squeak.dirCreate(dir, true);     // create the whole hierarchy
             return new Promise(function(res){ if (!Squeak.filePut(path, data, res)) res(); });
         };
-        if (sqSpinner) sqSpinner.style.display = "block";
+        setLoadingStage("downloading");
         // process sequentially: unzipping + IndexedDB-writing ~hundreds of files concurrently
         // overwhelms IndexedDB and never settles.
         (async function() {
@@ -113,7 +143,7 @@
                 for (var k = 0; k < images.length; k++) if (images[k] !== pick) await putFile(images[k].name, images[k].data);
                 startWorker(pick.name, pick.data);
             } catch (err) {
-                if (sqSpinner) sqSpinner.style.display = "none";
+                setLoadingStage(null);
                 alert("Could not load the zip: " + err.message);
             }
         })();
@@ -144,9 +174,21 @@
         var imgName = name && name[0] === "/" ? name : "/" + (name || "image");
         worker.postMessage({ type: "init", canvas: offscreen, width: W, height: H,
             image: image, name: imgName, settings: settings, downloadOnSave: true }, transfer);
+        var stillLoading = true;
         worker.onmessage = function(e) {
             var m = e.data;
-            if (m.type === "ready") { if (sqSpinner) sqSpinner.style.display = "none"; }
+            if (m.type === "ready") { if (stillLoading) setLoadingStage("starting"); }
+            else if (m.type === "tick") {
+                // heartbeat while a big image (Pharo) boots: show the VM is alive
+                if (stillLoading && m.sends) setLoadingStage("starting", L10N.working + Math.round(m.sends / 1e6) + "M");
+            }
+            else if (m.type === "first-frame") {
+                // the image painted — reveal it and drop the overlay
+                stillLoading = false;
+                setLoadingStage(null);
+                document.body.classList.remove("sq-loading");
+                sqCanvas.style.display = "block";
+            }
             else if (m.type === "cursor") {
                 var tc = document.createElement("canvas"); tc.width = m.bitmap.width; tc.height = m.bitmap.height;
                 tc.getContext("2d").drawImage(m.bitmap, 0, 0);
@@ -559,12 +601,12 @@
         <div class="card">
         <ul>
         <li><b>Squeak</b> — <a href="#zip=https://dialog.ar/Squeak.zip">6.0</a></li>
-        <li><b>Cuis</b> — <a href="#zip=https://dialog.ar/Cuis.zip">7.8</a></li>
-        <li><b>Pharo</b> — <a href="#zip=https://dialog.ar/Pharo.zip">10 (32-bit)</a> · <a href="#zip=https://dialog.ar/Pharo64.zip">10 (64-bit)</a> <span class="muted">(experimental)</span></li>
+        <li><b>Cuis</b> — <a href="#url=https://raw.githubusercontent.com/Cuis-Smalltalk/Cuis7-8/master/CuisImage/32BitsImage&files=[Cuis7.8-32.image,Cuis7.8-32.changes,Cuis7.8.sources]">7.8</a> <span class="muted">(from the official repo)</span></li>
+        <li><b>Pharo</b> — <a href="#zip=https://dialog.ar/Pharo.zip">10 (32-bit)</a> · <a href="#zip=https://dialog.ar/Pharo64.zip">10 (64-bit)</a> · <a href="#zip=https://dialog.ar/Pharo-demo.zip">live Morphic demo</a></li>
         <li><b>Dialog.ar</b> — <a href="#zip=https://dialog.ar/Dialogo.zip">example drawing app for kids</a></li>
         </ul>
-        <p class="muted">First run downloads and caches the image in your browser; later starts are much faster. If a bundle ships both a 32- and 64-bit image, the 32-bit build is used. <em>The host must allow cross-origin reads (CORS), so these are mirrored on dialog.ar.</em></p>
-        <p class="muted"><b>Pharo is experimental:</b> it boots to a full working world, but git/Iceberg (which needs native FFI, unavailable in the browser) fails during startup and opens a debugger — close it and Pharo is usable. The 64-bit bundle includes a compatibility <code>startup.st</code> that restores the classic display/input classes Pharo's 64-bit builds dropped (they ship SDL2-only) — to run your own 64-bit image, keep that <code>startup.st</code> next to it.</p>
+        <p class="muted">First run downloads and caches the image in your browser; later starts are much faster. If a bundle ships both a 32- and 64-bit image, the 32-bit build is used. <em>Cuis loads straight from its official GitHub repository. Squeak and Pharo are mirrored on dialog.ar because files.squeak.org and files.pharo.org don't send CORS headers, so browsers refuse to download from them directly.</em></p>
+        <p class="muted"><b>About Pharo:</b> both builds boot to a clean, fully interactive world. Pharo's git/Iceberg integration needs native FFI (unavailable in the browser), so SqueakJS skips that startup step instead of letting it open a debugger — Pharo simply runs without git, exactly as on a machine without libgit2. Pharo's <b>64-bit</b> builds ship SDL2-only and dropped the classic display/input classes, so their bundle carries a compatibility <code>startup.st</code> that restores them; to run your own 64-bit image, keep that file next to it. The <b>live Morphic demo</b> is the 32-bit image opening a small self-contained app at startup — the full IDE stays one menu-bar click away.</p>
         </div>
 
         <h2>Embed it on your own site</h2>

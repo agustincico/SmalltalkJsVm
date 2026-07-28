@@ -226,6 +226,16 @@ self.onmessage = function(e) {
     var msg = e.data;
     if (msg.type === "init") {
         ctx = msg.canvas.getContext("2d");
+        // tell the host when the image actually paints its first frame — it keeps a
+        // loading overlay up until then (big images render a long time after "ready")
+        var firstFramePosted = false;
+        ["putImageData", "drawImage"].forEach(function(m) {
+            var orig = ctx[m].bind(ctx);
+            ctx[m] = function() {
+                if (!firstFramePosted) { firstFramePosted = true; self.postMessage({ type: "first-frame" }); }
+                return orig.apply(null, arguments);
+            };
+        });
         // context: used by vm.display.browser.js's render path (showForm/showDisplayBits)
         display = { width: msg.width, height: msg.height, context: ctx, mouseX: msg.width >> 1, mouseY: msg.height >> 1,
                     buttons: 0, keys: [], eventQueue: [], signalInputEvent: null, clipboardString: "" };
