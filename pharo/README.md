@@ -32,6 +32,12 @@ reinstalls the UI (`UIManager default:` after clearing `MainWorldRenderer`).
 
 **Usage:** ships inside `Pharo64.zip`. 32-bit images don't need it.
 
+**Also restores `DisplayScreen>>deferUpdates:`** (instance and class side, plus its
+`DeferringUpdates` class variable). The 64-bit build's own version never reaches primitive 126,
+so nothing was ever batched: each BitBlt hit the screen on its own and Pharo's fading notifications
+redrew ~300 times a second, reading as a flicker. With it, drawing matches 32-bit exactly — one
+frame per Morphic cycle.
+
 **Gotcha worth keeping:** the script also has to `addSharedPool: EventSensorConstants` to
 `HandMorph` *before* compiling the methods it injects there. Those methods reference pool
 variables (`EventTypeMouse`, `EventKeyDown`, …); without the pool they compile as undeclared
@@ -48,6 +54,12 @@ only — no FFI, no network. The full IDE stays one menu-bar click away.
 
 **Usage:** publish `Pharo-demo.zip` = the contents of `Pharo.zip` plus this file renamed to
 `startup.st` at the root of the zip.
+
+**Also restores `DisplayScreen>>deferUpdates:`** (instance and class side, plus its
+`DeferringUpdates` class variable). The 64-bit build's own version never reaches primitive 126,
+so nothing was ever batched: each BitBlt hit the screen on its own and Pharo's fading notifications
+redrew ~300 times a second, reading as a flicker. With it, drawing matches 32-bit exactly — one
+frame per Morphic cycle.
 
 **Gotcha worth keeping:** the animation process must run at `userSchedulingPriority - 1` and
 invalidate explicitly (`m changed` per ball, then `world changed` per frame). Forking it at

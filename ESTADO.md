@@ -150,7 +150,30 @@ viva salvo el último eslabón.
 > la variable indefinida en `nil`. El síntoma aparece lejísimos del origen. Ante "compila pero se
 > comporta como si todo fuera nil", sospechar del scope antes que de la lógica.
 
-### 4.3 Archivos fantasma en el cache del browser ✅ resuelto (sin deployar)
+### 4.3 Carteles de Pharo 64 que "titilaban" ✅ resuelto
+
+Los avisos semitransparentes (el de FFI al arrancar, el del atajo al abrir el browser) se
+desvanecen por pasos y en 64-bit parecían reabrirse una y otra vez, mientras que en 32-bit funden
+suave. **Causa:** `VMWorldRenderer` sí entra a `deferUpdatesDuring:`, pero la **primitiva 126 nunca
+se ejecutaba**, porque el script no definía `DisplayScreen>>deferUpdates:` y la versión nativa del
+build 64-bit (SDL2-only) no llega a la primitiva. Sin diferido, **cada BitBlt se propaga solo a la
+pantalla**: el fundido redibujaba ~300 veces por segundo en vez de una vez por ciclo de Morphic.
+**Fix:** portar `deferUpdates:` (instancia y class-side) del build 32-bit, agregando antes su class
+var `DeferringUpdates` — misma trampa de scope que §4.2.
+
+| mismo arranque | `deferUpdates: true` | draws | pico draws/seg |
+|---|---|---|---|
+| 32-bit | 21 | 21 | 3 |
+| 64-bit antes | **0** | **1268** | **323** |
+| 64-bit ahora | 21 | 21 | 4 |
+
+> 🔍 **Trampa de medición que costó dos vueltas:** instrumentar contadores *después* del arranque
+> (a los 40 s) mostró "0 llamadas" para métodos que **sí** se ejecutaban — los carteles ya habían
+> terminado. Lo mismo con `vm.inputEventSemaIndex`, que en realidad vive en `primHandler`. Ante un
+> contador en 0, verificar primero la ventana temporal y el objeto medido. Lo que destrabó el
+> diagnóstico fue capturar `vm.printStack()` **dentro** del `putImageData`, que mostró la pila real.
+
+### 4.4 Archivos fantasma en el cache del browser ✅ resuelto
 
 `filePut` escribía la entrada de directorio (localStorage, sincrónica, nunca falla) **antes** que
 el contenido (IndexedDB, asincrónico, sí falla al agotarse la cuota). Si la segunda fallaba, el
@@ -162,7 +185,7 @@ que el archivo simplemente falta y se vuelve a bajar. Además el callback de éx
 igual en el camino de error: antes, `trans.onerror` no lo llamaba nunca y el `await` del flujo de
 zip quedaba colgado para siempre (posible causa de cargas que "se congelaban").
 
-### 4.4 Demo Morphic
+### 4.5 Demo Morphic
 
 `pharo/demo-startup.st` — ver `pharo/README.md`.
 
@@ -195,10 +218,6 @@ await puppeteer.launch({
 ## 6. TODO
 
 ### Alta prioridad
-- [ ] **Deployar los dos fixes pendientes** (están en `perf/stack-zone`, no en vivo):
-      `vm.files.browser.js` (archivos fantasma, §4.4) y **rearmar `Pharo64.zip`** con el
-      `startup.st` corregido (§4.2). Los zips viven en la raíz del repo del sitio, así que
-      republicar `Pharo64.zip` implica commitear ~95 MB de binario ahí.
 - [ ] **Reconciliar `run/index.html`** entre `main` y `perf/stack-zone` (10 hunks / 58 líneas) y
       deployar: link de **Cuis al repo oficial**, **overlay de carga i18n** y link a la **demo**.
 - [ ] **Publicar `Pharo-demo.zip`** en `dialog.ar` = contenido de `Pharo.zip` + `pharo/demo-startup.st`
