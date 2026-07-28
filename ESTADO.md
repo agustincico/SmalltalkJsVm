@@ -12,10 +12,11 @@ Sitio en vivo: **https://dialog.ar/SmalltalkJsVm/run/**
 | Imagen | Estado | Notas |
 |---|---|---|
 | **Squeak 6.0** | ✅ anda | `#zip=https://dialog.ar/Squeak.zip` |
-| **Cuis 7.8** | ✅ anda | En vivo carga de `dialog.ar/Cuis.zip`. En `perf/stack-zone` ya está el link al **repo oficial** (sin deployar) |
+| **Cuis 7.8** | ✅ anda | Se baja de su **repo oficial de GitHub** (manda CORS). Nota: esa imagen dispara un "JIT fault" que SqueakJS resuelve solo reiniciando sin JIT — preexistente, no afecta el uso |
 | **Pharo 10 (32-bit)** | ✅ **anda bien** | Arranca **limpio** (sin debugger de FFI/git) y es **plenamente interactivo**. Es el que hay que mostrar |
 | **Pharo 10 (64-bit)** | ✅ **anda** | Arranca limpio y responde (menús, listas, arrastre de ventanas). Requiere el `startup.st` de compatibilidad dentro del zip |
 | **Dialogo** | ✅ anda | App de dibujo para chicos, `dialog.ar/Dialogo.zip` |
+| **Demo Morphic** | ✅ anda | `dialog.ar/Pharo-demo.zip` — Pharo 32 abriendo una app propia al arrancar |
 
 **Performance de Pharo** (medida con `sendCount` por tick, Chrome real):
 - Arranque: **32-bit ≈ 5 s**, **64-bit ≈ 11 s** (el 64 pesa más por 8 bytes/oop).
@@ -82,16 +83,13 @@ Y después probar la imagen de verdad en Chrome (ver §5).
 | `main` | `upstream` (codefrau) — pushear a `origin` explícito | Lo curado y deployable. Sincronizada con `origin/main` |
 | `perf/stack-zone` | `origin` | **La rama de trabajo. 55 commits sin pushear a `origin`** |
 
-`run/index.html` **difiere entre las dos ramas**: 10 hunks / 58 líneas. Lo que está solo en
-`perf/stack-zone`:
+**Los archivos del launcher (`run/index.html`, `run/squeakjs.css`, `squeak_worker.js`) ya están
+sincronizados entre las dos ramas** — la UX de carga, el `first-frame` y los links nuevos se
+portaron a `main` y se deployaron. `perf/stack-zone` conserva además el trabajo de perf
+(stackzone/jit2) que no va a `main`.
 
-- overlay de carga i18n (`L10N`, `setLoadingStage`, `sq-loading`) y señal `first-frame`
-  (el canvas queda oculto hasta el primer frame real),
-- link de **Cuis al repo oficial** (`raw.githubusercontent.com`),
-- link a la **demo Morphic**.
-
-> ⚠️ El `first-frame` existe **solo en `perf/stack-zone`**. Cualquier script de prueba que espere
-> ese mensaje **se cuelga** contra el árbol de `main` → ahí usar screenshot temporizado.
+> ⚠️ Al portar el worker a `main`, verificar siempre que sus `import` existan ahí: en su momento
+> `vm.stackzone.js` / `jit2.js` (perf-only) rompieron el deploy con 404.
 
 ---
 
@@ -217,19 +215,13 @@ await puppeteer.launch({
 
 ## 6. TODO
 
-### Alta prioridad
-- [ ] **Reconciliar `run/index.html`** entre `main` y `perf/stack-zone` (10 hunks / 58 líneas) y
-      deployar: link de **Cuis al repo oficial**, **overlay de carga i18n** y link a la **demo**.
-- [ ] **Publicar `Pharo-demo.zip`** en `dialog.ar` = contenido de `Pharo.zip` + `pharo/demo-startup.st`
-      renombrado a `startup.st` en la raíz del zip. (La página en `perf/stack-zone` ya lo enlaza,
-      así que hasta que se suba ese link quedaría roto.)
-- [ ] **Pushear `perf/stack-zone` a `origin`** (55 commits solo locales, sin respaldo remoto).
-
 ### Media
 - [ ] **Diagnosticar Pharo 11 / 12 / 13** — nunca se hizo. Son 64-bit only, así que probablemente
       arrastren el mismo problema de input.
 
 ### Baja
+- [ ] Rearmar `Pharo-demo.zip` si se cambia `pharo/demo-startup.st` (el zip publicado lleva una
+      copia como `startup.st`; no se actualiza solo).
 - [ ] Bajar el tiempo de arranque del 64-bit (~11 s).
 - [ ] `Character>>asByteArray` (FontSubstitutionDuringLoading) — sin diagnosticar, secundario.
 
