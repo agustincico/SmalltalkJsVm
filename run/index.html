@@ -529,7 +529,14 @@
             var link = links[i],
                 href = link.getAttribute("href");
             if (href[0] === "#") {
-                link.innerHTML = href;
+                // Show the URL itself: these are meant to be read, copied and edited —
+                // that is the whole point of driving the launcher from the hash. Keep the
+                // version label in front of it though, otherwise "6.0" or "10 (64-bit)"
+                // is lost and every entry reads as an anonymous blob of URL.
+                var label = (link.textContent || "").trim();
+                link.innerHTML = label && label !== href
+                    ? label + ' <span class="muted">' + href + '</span>'
+                    : href;
                 link.onclick = (function(href) {
                     return function onclick() { window.location = href; }
                 })(href);

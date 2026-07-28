@@ -31,10 +31,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
 
+ENTRY_POINTS = ("squeak.js", "squeak_worker.js")
+
+
 def imported_modules():
-    """The JS the site actually needs: whatever the two entry points import."""
-    mods = set()
-    for entry in ("squeak.js", "squeak_worker.js"):
+    """The JS the site actually needs: the two entry points plus everything they import."""
+    mods = set(ENTRY_POINTS)
+    for entry in ENTRY_POINTS:
         with open(os.path.join(ROOT, entry), encoding="utf-8") as f:
             mods |= set(re.findall(r'import "\./([^"]+)"', f.read()))
     return sorted(mods)
@@ -55,6 +58,20 @@ def examples(proxy):
         ], "straight from files.pharo.org"),
         ("Dialog.ar", [("example drawing app for kids", "#zip=https://dialog.ar/Dialogo.zip")], ""),
     ]
+
+
+def rewrite_notes(html):
+    """The CORS note in run/index.html describes the dialog.ar setup (everything mirrored).
+    This site fetches the images from upstream instead, so say what actually happens."""
+    return html.replace(
+        "<em>Cuis loads straight from its official GitHub repository. Squeak and Pharo are"
+        " mirrored on dialog.ar because files.squeak.org and files.pharo.org don't send CORS"
+        " headers, so browsers refuse to download from them directly.</em>",
+        "<em>Pharo and Cuis are fetched from their own official repositories, so you always get"
+        " the current build. GitHub sends the CORS headers a browser requires; files.pharo.org"
+        " does not, so those downloads go through a small proxy of ours — the bytes still come"
+        " from Pharo's servers. Only the compatibility startup scripts (a few KB) are hosted"
+        " here.</em>")
 
 
 def rewrite_examples(html, proxy):
@@ -93,7 +110,7 @@ def main():
     html = subprocess.run([sys.executable, os.path.join(HERE, "mk-site-index.py"),
                            os.path.join(ROOT, "run", "index.html")],
                           capture_output=True, text=True, check=True).stdout
-    html = rewrite_examples(html, args.proxy)
+    html = rewrite_notes(rewrite_examples(html, args.proxy))
     with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as f:
         f.write(html)
 
