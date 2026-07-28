@@ -745,6 +745,16 @@ deinstall
 			Default := nil].
 ! !
 
+"The HandMorph methods below use EventSensorConstants pool variables (EventTypeMouse,
+EventTypeKeyboard, EventKeyDown, ...). The 32-bit build declares that pool in HandMorph;
+the 64-bit build dropped it along with the classic event classes. Without it those names
+compile as undeclared globals -- silently nil -- so every `type = EventTypeMouse` test is
+false, nextEventFrom: falls through to ^ #invalid, and processEventsFromQueue: returns
+before ever calling handleEvent:. The world then renders but ignores every click, which
+is exactly the 'opens but does not respond' symptom. Add the pool BEFORE compiling them."
+(HandMorph sharedPools includes: EventSensorConstants)
+	ifFalse: [ HandMorph addSharedPool: EventSensorConstants ]!
+
 !HandMorph methodsFor: 'squeakjs-compat'!
 eventQueue
 	^ Sensor! !
