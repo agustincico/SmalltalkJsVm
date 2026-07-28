@@ -108,13 +108,18 @@ def main():
     for asset in ("squeakjs.css", "squeakjs.png"):
         shutil.copy2(os.path.join(ROOT, "run", asset), os.path.join(out, "run", asset))
 
-    # 3. index.html at the root, with rewritten paths and example links
-    html = subprocess.run([sys.executable, os.path.join(HERE, "mk-site-index.py"),
-                           os.path.join(ROOT, "run", "index.html")],
-                          capture_output=True, text=True, check=True).stdout
-    html = rewrite_notes(rewrite_examples(html, args.proxy))
+    # 3. the launcher pages at the root, with their paths rewritten for this layout
+    def generate(page):
+        return subprocess.run([sys.executable, os.path.join(HERE, "mk-site-index.py"),
+                               os.path.join(ROOT, "run", page)],
+                              capture_output=True, text=True, check=True).stdout
+
+    html = rewrite_notes(rewrite_examples(generate("index.html"), args.proxy))
     with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as f:
         f.write(html)
+    # the embedding example; its iframe points at index.html, which sits beside it either way
+    with open(os.path.join(out, "embed.html"), "w", encoding="utf-8") as f:
+        f.write(generate("embed.html"))
 
     # 4. the startup-script zips (the images themselves come from upstream)
     for zipname, src in (("compat64.zip", "pharo/startup-compat64.st"),

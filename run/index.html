@@ -580,7 +580,7 @@
                 <a href="https://github.com/agustincico/SqueakJS" target="_blank">Fork me on GitHub</a>
             </div>
         </div>
-        <p class="tagline">Run <b>Squeak</b>, <b>Pharo</b> and <b>Cuis</b> images right in the browser — pure JavaScript, no plugins, no server. Powered by <a href="https://github.com/codefrau/SqueakJS" target="_blank">SqueakJS</a>, the VM by Vanessa Freudenberg, extended by Agustín Martínez with support for more Smalltalks and a Web-Worker runtime.</p>
+        <p class="tagline">Run <b>Squeak</b>, <b>Pharo</b> and <b>Cuis</b> images right in the browser — pure JavaScript, no plugins, no server. Built on <a href="https://github.com/codefrau/SqueakJS" target="_blank">SqueakJS</a>, the original project, extended by Agustín Martínez with support for more Smalltalks and a Web-Worker runtime.</p>
         <div class="added">
             <strong>What you get</strong>
             <ul>
@@ -637,14 +637,15 @@
   // see run/index.html for the complete wiring.
 &lt;/script&gt;</pre>
             <p class="muted">For a classic single-thread embed you can still use <code>SqueakJS.runSqueak("my.image", canvas, {…})</code> from <code>squeak.js</code>.</p>
+            <p>Simpler still, drop the launcher into an <code>&lt;iframe&gt;</code> and everything comes wired — <a href="embed.html"><b>see it running here</b></a>, with Dialogo embedded in an ordinary page.</p>
         </div>
 
         <h2>Credits &amp; source</h2>
         <div class="card">
-            <p>SqueakJS is free software (MIT). The engine is by <a href="https://github.com/codefrau/SqueakJS" target="_blank">Vanessa Freudenberg</a>; the Pharo and Cuis 7.x compatibility work, the Web Worker runtime and the usability additions live in <a href="https://github.com/agustincico/SqueakJS" target="_blank">this fork</a> by Agustín Martínez. Bug reports and pull requests welcome.</p>
+            <p><b>SmalltalkJsVm is free software (MIT).</b> It builds on <a href="https://github.com/codefrau/SqueakJS" target="_blank">SqueakJS</a>, the original project; the Pharo and Cuis 7.x compatibility work, the Web Worker runtime and the usability additions live in <a href="https://github.com/agustincico/SqueakJS" target="_blank">this fork</a> by Agustín Martínez. Bug reports and pull requests welcome.</p>
         </div>
 
-        <p class="muted" style="margin-top:22px">Have fun! — engine by Vanessa Freudenberg · Pharo &amp; Cuis support, Web Worker runtime and usability additions by Agustín Martínez</p>
+        <p class="muted" style="margin-top:22px">Have fun! — SmalltalkJsVm is free software (MIT).</p>
     </div>
     <canvas id="sqCanvas"></canvas>
     <div id="sqSpinner"><div></div></div>

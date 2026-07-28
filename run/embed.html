@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Embedding SmalltalkJsVm — live example</title>
+<link rel="icon" type="image/png" href="squeakjs.png">
+<link rel="stylesheet" href="squeakjs.css">
+<style>
+    /* The frame is deliberately a plain box in the middle of an ordinary page: the point
+       of this example is that the VM does not need the whole window. */
+    .stage {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 4 / 3;
+        max-height: 70vh;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        background: #1f2430;
+    }
+    .stage iframe { width: 100%; height: 100%; border: 0; display: block; }
+    .stage .start {
+        position: absolute; inset: 0;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 10px; cursor: pointer; color: #e7ebf0; text-align: center; padding: 20px;
+    }
+    .stage .start b { font-size: 1.15rem; }
+    .stage .start span { color: #aab4c0; font-size: .92rem; max-width: 34ch; }
+    .stage .start:hover b { color: var(--accent); }
+</style>
+</head>
+<body>
+<div id="sqText">
+    <h1><img id="logo" src="squeakjs.png">Embedded, on an ordinary page</h1>
+    <p class="tagline">Everything you are reading is plain HTML. The box below is a full
+    Smalltalk VM running <b>Dialogo</b>, a drawing app for kids — inside this page, sharing it
+    with the text, no plugin and no server doing the work.</p>
+
+    <div class="stage" id="stage">
+        <div class="start" id="start">
+            <b>▶ Start Dialogo</b>
+            <span>About 32 MB the first time — your browser caches it afterwards.</span>
+        </div>
+    </div>
+
+    <h2>How it is done</h2>
+    <div class="card">
+        <p>This page embeds the launcher in an <code>&lt;iframe&gt;</code> and points it at an
+        image with the hash. That is the whole trick, and it is the route to take if you just
+        want a working Smalltalk on your page — input, cursor, clipboard, sound and the file
+        picker come wired:</p>
+        <pre>&lt;iframe src="https://smalltalkjsvm.com.ar/#zip=https://dialog.ar/Dialogo.zip"
+        style="width:900px; height:675px; border:0"&gt;&lt;/iframe&gt;</pre>
+        <p class="muted">Swap the URL after <code>#zip=</code> (or <code>#url=</code>) for your
+        own image. Anything the launcher accepts works here too.</p>
+    </div>
+
+    <h2>If you need more control</h2>
+    <div class="card">
+        <p>To drive the VM from your own code instead — your own canvas, your own event
+        handling — talk to the worker directly. That is what the launcher itself does, and
+        the <a href="./">main page</a> shows the core of it. You take on wiring input and
+        cursor yourself, which is the price of the extra control.</p>
+    </div>
+
+    <p style="margin-top:26px"><a href="./">← Back to SmalltalkJsVm</a></p>
+    <p class="muted">SmalltalkJsVm is free software (MIT).</p>
+</div>
+
+<script>
+    // Load on click, not on visit: the image is tens of megabytes and nobody should pay for
+    // it just by scrolling past.
+    document.getElementById("start").addEventListener("click", function() {
+        var frame = document.createElement("iframe");
+        frame.src = "index.html#zip=https://dialog.ar/Dialogo.zip";
+        frame.setAttribute("title", "Dialogo running in SmalltalkJsVm");
+        document.getElementById("stage").replaceChildren(frame);
+    });
+</script>
+</body>
+</html>
