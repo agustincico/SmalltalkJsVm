@@ -14,7 +14,7 @@ Sitio en vivo: **https://dialog.ar/SmalltalkJsVm/run/**
 | **Squeak 6.0** | ✅ anda | `#zip=https://dialog.ar/Squeak.zip` |
 | **Cuis 7.8** | ✅ anda | En vivo carga de `dialog.ar/Cuis.zip`. En `perf/stack-zone` ya está el link al **repo oficial** (sin deployar) |
 | **Pharo 10 (32-bit)** | ✅ **anda bien** | Arranca **limpio** (sin debugger de FFI/git) y es **plenamente interactivo**. Es el que hay que mostrar |
-| **Pharo 10 (64-bit)** | ⚠️ experimental | Arranca limpio y **renderiza**, pero el **mouse no llega a Morphic** (teclado sí) |
+| **Pharo 10 (64-bit)** | ✅ **anda** | Arranca limpio y responde (menús, listas, arrastre de ventanas). Requiere el `startup.st` de compatibilidad dentro del zip |
 | **Dialogo** | ✅ anda | App de dibujo para chicos, `dialog.ar/Dialogo.zip` |
 
 **Performance de Pharo** (medida con `sendCount` por tick, Chrome real):
@@ -122,20 +122,47 @@ en Pharo → es no-op en Cuis y Squeak.
 
 Quedó solo un aviso "VM does not support TFFI Callbacks" que se auto-cierra.
 
-### 4.2 Pharo 64-bit: el mouse no llega a Morphic ⚠️ sin resolver
+### 4.2 Pharo 64-bit ignoraba todo click ✅ resuelto
 
-- **No está colgado**: los sends siguen creciendo y el teclado sí llega (antes daba DNUs
-  `SpToolCurrentApplicationCommand>>shortcutKey:`).
-- **No es del lado del worker**: instrumentado, 32 y 64 muestran **exactamente el mismo patrón**
-  (`pushed=3 gotNext=6 queue=0 semaIdx=0`) — ambos *pollean* la prim 94, sin semáforo. Los eventos
-  entran igual en los dos.
-- **Es del lado de la imagen**: `startup-compat64.st` restaura el `Sensor` clásico (por polling),
-  pero los builds 64-bit son SDL2-only y enrutan el mouse por el modelo *event-driven* de
-  OSWindow. El puente no cablea el mouse.
-- Verificado por contraste: en **32-bit** el mismo test de clicks funciona perfecto (click en
-  lista cambia el panel, se despliega el menú System).
+**Causa:** los métodos que `startup-compat64.st` inyecta en `HandMorph` usan variables del pool
+`EventSensorConstants` (`EventTypeMouse`, `EventTypeKeyboard`, `EventKeyDown`…). El build 32-bit
+declara ese pool en `HandMorph`; el 64-bit lo quitó junto con las clases clásicas de eventos, y el
+script lo declaraba **sólo en las clases que crea**, nunca en `HandMorph`. Sin el pool esos nombres
+compilan como **globales indefinidas — `nil` en silencio** (el compilador no falla), así que
+`type = EventTypeMouse` era siempre falso, `nextEventFrom:` caía en `^ #invalid` y
+`processEventsFromQueue:` retornaba **antes** de llamar a `handleEvent:`.
 
-### 4.3 Demo Morphic
+**Fix:** agregar el pool a `HandMorph` *antes* de compilar sus métodos.
+
+**Cómo se localizó** (instrumentando el worker y clickeando el menú System): toda la cadena estaba
+viva salvo el último eslabón.
+
+| | antes | después |
+|---|---|---|
+| `doOneCycleFor:` / `processEvents` / `nextEvent` | +398 | +293 |
+| `InputEventSensor>>processEvent:` | +5 | +5 |
+| **`HandMorph>>handleEvent:`** | **0** ✗ | **+8** ✔ |
+| redibujos | 0 | +53 |
+| sends | +94k (tasa de reposo) | +897k |
+
+> 💡 **Lección para futuros parches por script:** inyectar métodos en una clase **existente** no le
+> agrega los pools/globals que esos métodos necesitan, y el compilador de Pharo **no falla** — crea
+> la variable indefinida en `nil`. El síntoma aparece lejísimos del origen. Ante "compila pero se
+> comporta como si todo fuera nil", sospechar del scope antes que de la lógica.
+
+### 4.3 Archivos fantasma en el cache del browser ✅ resuelto (sin deployar)
+
+`filePut` escribía la entrada de directorio (localStorage, sincrónica, nunca falla) **antes** que
+el contenido (IndexedDB, asincrónico, sí falla al agotarse la cuota). Si la segunda fallaba, el
+error sólo se logueaba y quedaba un **archivo fantasma**: listado con su tamaño pero ilegible para
+siempre, que la imagen reportaba mucho después como `File read failed` (visto en Cuis, vía
+`UniFileStream>>error:`) y que no se arreglaba solo — había que borrar los datos del sitio a mano.
+Ahora `dbTransaction` acepta un callback de error opcional y `filePut` revierte la entrada, de modo
+que el archivo simplemente falta y se vuelve a bajar. Además el callback de éxito ahora se dispara
+igual en el camino de error: antes, `trans.onerror` no lo llamaba nunca y el `await` del flujo de
+zip quedaba colgado para siempre (posible causa de cargas que "se congelaban").
+
+### 4.4 Demo Morphic
 
 `pharo/demo-startup.st` — ver `pharo/README.md`.
 
@@ -168,6 +195,10 @@ await puppeteer.launch({
 ## 6. TODO
 
 ### Alta prioridad
+- [ ] **Deployar los dos fixes pendientes** (están en `perf/stack-zone`, no en vivo):
+      `vm.files.browser.js` (archivos fantasma, §4.4) y **rearmar `Pharo64.zip`** con el
+      `startup.st` corregido (§4.2). Los zips viven en la raíz del repo del sitio, así que
+      republicar `Pharo64.zip` implica commitear ~95 MB de binario ahí.
 - [ ] **Reconciliar `run/index.html`** entre `main` y `perf/stack-zone` (10 hunks / 58 líneas) y
       deployar: link de **Cuis al repo oficial**, **overlay de carga i18n** y link a la **demo**.
 - [ ] **Publicar `Pharo-demo.zip`** en `dialog.ar` = contenido de `Pharo.zip` + `pharo/demo-startup.st`
@@ -176,7 +207,6 @@ await puppeteer.launch({
 - [ ] **Pushear `perf/stack-zone` a `origin`** (55 commits solo locales, sin respaldo remoto).
 
 ### Media
-- [ ] **Pharo 64-bit: arreglar el mouse** (§4.2). Es un bug hondo del puente de eventos, no trivial.
 - [ ] **Diagnosticar Pharo 11 / 12 / 13** — nunca se hizo. Son 64-bit only, así que probablemente
       arrastren el mismo problema de input.
 

@@ -6,9 +6,9 @@ zip bundles ship them that way.
 
 State of Pharo support (see `../ESTADO.md` for the full picture):
 
-- **32-bit** — boots clean and is fully interactive. This is the build to show.
-- **64-bit** — boots clean and renders, but mouse events don't reach Morphic yet
-  (keyboard does). Experimental.
+- **32-bit** — boots clean and is fully interactive.
+- **64-bit** — boots clean and is interactive too (menus, list selection, dragging
+  windows), provided `startup-compat64.st` ships next to the image as `startup.st`.
 
 Pharo's git integration (Iceberg → libgit2 through native FFI) used to open a post-mortem
 debugger over an otherwise healthy world on *both* builds. The VM now neuters
@@ -32,9 +32,12 @@ reinstalls the UI (`UIManager default:` after clearing `MainWorldRenderer`).
 
 **Usage:** ships inside `Pharo64.zip`. 32-bit images don't need it.
 
-**Known gap:** this restores the *polling* `Sensor`, but the 64-bit builds route the mouse
-through OSWindow's event-driven model, so clicks don't reach Morphic. The worker delivers
-events identically for 32- and 64-bit (verified), so the remaining gap is image-side.
+**Gotcha worth keeping:** the script also has to `addSharedPool: EventSensorConstants` to
+`HandMorph` *before* compiling the methods it injects there. Those methods reference pool
+variables (`EventTypeMouse`, `EventKeyDown`, …); without the pool they compile as undeclared
+globals — silently `nil`, since the compiler does not fail — so every event was classified
+`#invalid` and the world rendered but ignored all input. Injecting methods into an existing
+class does not bring along the scope they need. See `../ESTADO.md` §4.2.
 
 ## `demo-startup.st`
 
