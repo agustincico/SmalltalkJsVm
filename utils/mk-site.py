@@ -92,6 +92,8 @@ def main():
                     help="CORS proxy prefix for hosts that send no CORS headers")
     args = ap.parse_args()
     out = os.path.abspath(args.out)
+    # Write into the directory, never recreate it: the target is a git repo (and holds
+    # .wrangler deploy state), so wiping it first would take .git with it.
     os.makedirs(out, exist_ok=True)
 
     # 1. the VM modules, keeping their relative paths
