@@ -61,6 +61,14 @@ cd site && git sparse-checkout set SmalltalkJsVm     # aun así ocupa ~350 MB
 cmp <(git -C /ruta/SqueakJS show <commit-previo>:vm.interpreter.js) SmalltalkJsVm/vm.interpreter.js
 
 cp /ruta/SqueakJS/<archivos-cambiados> SmalltalkJsVm/
+
+# ⚠️ SI CAMBIÓ run/index.html: el sitio sirve el launcher en la RAÍZ del path
+# (dialog.ar/SmalltalkJsVm/, sin /run/) desde una copia aparte con las rutas
+# reescritas. Es la página que ve la gente. Regenerarla SIEMPRE, o queda una
+# release atrás (ya pasó: la demo no aparecía porque sólo se actualizó run/):
+python3 /ruta/SqueakJS/utils/mk-site-index.py /ruta/SqueakJS/run/index.html \
+    > SmalltalkJsVm/index.html
+
 git add SmalltalkJsVm/ && git commit && git push origin HEAD
 cd .. && rm -rf site                                  # ¡borrar el clone al terminar!
 ```
