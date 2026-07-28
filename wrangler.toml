@@ -13,3 +13,10 @@
 name = "smalltalk-cors"
 main = "utils/cors-worker.js"
 compatibility_date = "2026-07-28"
+
+# Serve the worker from our own hostname rather than a workers.dev subdomain.
+# custom_domain = true makes Cloudflare create the DNS record for it as well, which is why
+# no A/CNAME has to be added by hand in the dashboard.
+routes = [
+  { pattern = "cors.smalltalkjsvm.com.ar", custom_domain = true }
+]

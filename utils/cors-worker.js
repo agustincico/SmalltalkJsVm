@@ -24,6 +24,7 @@
 const ORIGINS = [
   "https://smalltalkjsvm.com.ar",
   "https://www.smalltalkjsvm.com.ar",
+  "https://smalltalkjsvm.pages.dev", // Pages keeps this one working as a staging URL
   "http://localhost:8091",
 ];
 
