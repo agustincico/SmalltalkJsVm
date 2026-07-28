@@ -1,0 +1,15 @@
+# Cloudflare Worker config for the CORS proxy that lets the launcher fetch Smalltalk
+# images from files.pharo.org (which sends no CORS headers). See utils/cors-worker.js.
+#
+# Deploy:  npx wrangler@3 deploy
+# (wrangler 4 requires Node >= 22; v3 works on Node 20. Log in first with
+#  `npx wrangler@3 login`, which opens a browser — no API token needs to be pasted around.)
+#
+# After the first deploy the Worker answers at smalltalk-cors.<subdomain>.workers.dev.
+# To serve it from cors.smalltalkjsvm.com.ar instead, add that route in the dashboard
+# (Workers & Pages > the worker > Settings > Domains & Routes > Custom Domain); Cloudflare
+# creates the DNS record itself.
+
+name = "smalltalk-cors"
+main = "utils/cors-worker.js"
+compatibility_date = "2026-07-28"
