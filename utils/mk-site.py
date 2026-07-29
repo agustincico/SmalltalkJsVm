@@ -54,8 +54,9 @@ def examples(proxy):
         ("Pharo", [
             ("10 (32-bit)", "#zip=" + pharo + "latest-32.zip"),
             ("10 (64-bit)", "#zip=[" + pharo + "latest-64.zip,compat64.zip]"),
-            ("live Morphic demo", "#zip=[" + pharo + "latest-32.zip,pharo-demo.zip]"),
         ], "straight from files.pharo.org"),
+        ("Pharo app", [("live Morphic demo", "#zip=pharo-app.zip")],
+         "a deployment image — no IDE, built with pharo/app-build.st"),
         ("Dialog.ar", [("example drawing app for kids", "#zip=https://dialog.ar/Dialogo.zip")], ""),
     ]
 
