@@ -1,14 +1,12 @@
-"Build a deployment image out of the bubbles demo: an application, not the IDE with an app
-on top of it. Run this as startup.st once (in the browser worker, where Pharo's file layer
-works -- under Node our FileAttributesPlugin has no virtual FS and every stat fails), then
-ship the resulting .image *without* any startup.st: the application state is baked in.
+"The application itself: bubbles you can drag and a shockwave on click, with none of the
+IDE showing. Ship this as startup.st next to the image (Pharo runs it at boot) -- no .sources
+needed, an application does not browse its own code.
 
-Snapshotting goes through Smalltalk snapshotPrimitive rather than Smalltalk snapshot:,
-because Pharo's session machinery around it (ChangesLog logSnapshot:, session stop/restart)
-does file work that fails here. The primitive itself writes the image fine.
-
-Note the image keeps its full size: this hides and closes things, it does not unload the
-development packages, which in Pharo is a far riskier operation."!
+Why at startup instead of a saved image: a snapshot taken with the bare snapshotPrimitive
+resumes WITHOUT Pharo's session restart, so the UI process never comes back and the world
+is frozen -- it renders its last frame and ignores input. Booting normally keeps Morphic,
+its stepping and its event dispatch fully alive, and hiding the chrome is enough to make it
+an application."!
 
 Morph subclass: #BubbleField
 	instanceVariableNames: 'bubbles'
@@ -49,6 +47,12 @@ isDragging
 
 !BubbleMorph methodsFor: 'events' stamp: ''!
 handlesMouseDown: anEvent
+	^ true! !
+
+!BubbleMorph methodsFor: 'events' stamp: ''!
+handlesMouseMove: anEvent
+	"Morphic asks before dispatching moves. Without this the bubble gets the press but
+	never the drag, and it just sits there while the pointer walks away."
 	^ true! !
 
 !BubbleMorph methodsFor: 'events' stamp: ''!
@@ -174,7 +178,6 @@ mouseDown: anEvent
 !BubbleField methodsFor: 'effects' stamp: ''!
 shockwaveAt: aPoint
 	"Shove every bubble away from the point, harder the closer it is, and draw the ring."
-	self showDiagnostic: aPoint.
 	self bubbles do: [ :b |
 		| d dist strength |
 		d := b center - aPoint.
@@ -182,16 +185,6 @@ shockwaveAt: aPoint
 		strength := 1800 / (dist + 40).
 		b push: (d / dist) * strength ].
 	self ringAt: aPoint! !
-
-!BubbleField methodsFor: 'effects' stamp: ''!
-showDiagnostic: aPoint
-	"TEMP: cuántas burbujas conoce el campo, y dónde cayó el click"
-	| t |
-	t := StringMorph contents: 'bubbles=', self bubbles size printString, ' at ', aPoint printString.
-	t font: (LogicalFont familyName: 'Source Sans Pro' pointSize: 18).
-	t color: Color red.
-	t position: 40 @ 700.
-	t openInWorld! !
 
 !BubbleField methodsFor: 'effects' stamp: ''!
 ringAt: aPoint
@@ -224,7 +217,9 @@ world := World.
 field := BubbleField new.
 field color: (Color white alpha: 0.004).  "invisible, pero hit-testable"
 field bounds: world bounds.
-field openInWorld.
+"Explicitly at the back: openInWorld puts a morph in FRONT, and a full-screen sheet in
+front swallows the clicks meant for the bubbles."
+world addMorphBack: field.
 
 [ | title subtitle |
   title := StringMorph contents: 'running in your browser'.
@@ -252,15 +247,8 @@ field openInWorld.
 
 field startRunning.
 
-"3. let it settle and paint before freezing"
-(Delay forMilliseconds: 1500) wait.
+"4. ready -- the application is up. No snapshot: resuming an image saved with the bare
+snapshotPrimitive comes back without Pharo's session restart, and its UI process never
+gets going again, so the world renders its last frame and then ignores every event."
 world changed.
-(Delay forMilliseconds: 500) wait.
-
-"4. write the image, then leave a marker the build script looks for"
-result := [ Smalltalk snapshotPrimitive printString ]
-	on: Error do: [ :e | 'ERROR: ', e messageText asString ].
-[ | out |
-  out := (FileLocator workingDirectory / 'appbuild.done') writeStream.
-  out nextPutAll: 'snapshot=', result; flush; close ] on: Error do: [ :e | ].
 !
