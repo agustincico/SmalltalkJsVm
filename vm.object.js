@@ -208,6 +208,11 @@ Object.subclass('Squeak.Object',
     isWords: function() {
         return this._format === 6;
     },
+    isWords64: function() {
+        // Spur format 9: 64-bit indexable (DoubleWordArray). Only in 64-bit images, and
+        // stored in words64, not words — so it must never be treated as a 32-bit array.
+        return this._format === 9;
+    },
     isBytes: function() {
         var fmt = this._format;
         return fmt >= 8 && fmt <= 11;

@@ -32,7 +32,15 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
             format = (instSpec>>16) & 0x1F
         this._format = format;
         if (format < 12) {
-            if (format < 10) {
+            if (format === 9) { // 64-bit indexable (DoubleWordArray)
+                // Must come before the pointer case: format 9 sits below 10 numerically but
+                // is a bits object, and allocating it as pointers left it with no storage at
+                // all — `DoubleWordArray new: n` answered an empty array, so the first
+                // at:put: failed with a subscript-out-of-bounds. Pharo 12 hits this while
+                // seeding Random during startup, which stops the image from booting.
+                if (indexableSize > 0)
+                    this.words64 = new BigUint64Array(indexableSize);
+            } else if (format < 10) {
                 if (instSize + indexableSize > 0)
                     this.pointers = this.fillArray(instSize + indexableSize, nilObj);
             } else // Words
@@ -325,6 +333,9 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
         if (fmt === 3 && primHandler.vm.isContext(this))
             return this.pointers[Squeak.Context_stackPointer]; // no access beyond top of stacks
         if (fmt < 6) return this.pointersSize() - this.instSize(); // pointers
+        // 64-bit indexable (DoubleWordArray) lives in words64; asking wordsSize() answers 0,
+        // which made every at: fail with a subscript-out-of-bounds (hit by Pharo 12+).
+        if (fmt === 9) return this.words64Size();
         if (fmt < 12) return this.wordsSize(); // words
         if (fmt < 16) return this.words16Size(); // shorts
         if (fmt < 24) return this.bytesSize(); // bytes

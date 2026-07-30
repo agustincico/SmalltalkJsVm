@@ -631,6 +631,36 @@ Object.subclass('Squeak.Primitives',
             bytes[i] = (signed32>>>(8*i)) & 255;
         return lgIntObj;
     },
+    stackPos64BitInt: function(nDeep) {
+        // The inverse of pos64BitIntFor: a SmallInteger or LargePositiveInteger off the
+        // stack, as a BigInt suitable for a DoubleWordArray slot.
+        var stackVal = this.vm.stackValue(nDeep);
+        if (typeof stackVal === "number") {
+            if (stackVal >= 0) return BigInt(stackVal);
+            this.success = false;
+            return 0n;
+        }
+        if (!this.isA(stackVal, Squeak.splOb_ClassLargePositiveInteger) || !stackVal.bytes) {
+            this.success = false;
+            return 0n;
+        }
+        var big = 0n;
+        for (var i = stackVal.bytes.length - 1; i >= 0; i--) big = (big << 8n) | BigInt(stackVal.bytes[i]);
+        return big;
+    },
+    pos64BitIntFor: function(bigint) {
+        // A whole 64-bit unsigned value, as read from a DoubleWordArray. Small enough
+        // values come back as SmallIntegers; the rest as a LargePositiveInteger, which is
+        // why this takes a BigInt — beyond 2^53 a JS number can no longer name them exactly.
+        if (typeof bigint !== "bigint") bigint = BigInt(bigint);
+        if (bigint <= 0x1FFFFFFFFFFFFFn) return this.pos53BitIntFor(Number(bigint));
+        var bytes = [];
+        for (var v = bigint; v > 0n; v >>= 8n) bytes.push(Number(v & 255n));
+        var lgIntClass = this.vm.specialObjects[Squeak.splOb_ClassLargePositiveInteger],
+            lgIntObj = this.vm.instantiateClass(lgIntClass, bytes.length);
+        for (var i = 0; i < bytes.length; i++) lgIntObj.bytes[i] = bytes[i];
+        return lgIntObj;
+    },
     pos53BitIntFor: function(longlong) {
         // Return the quantity as an unsigned 64-bit integer
         if (longlong <= 0xFFFFFFFF) return this.pos32BitIntFor(longlong);
@@ -1211,6 +1241,8 @@ Object.subclass('Squeak.Primitives',
             return array.pointers[index-1];
         if (array.isPointers())   //pointers...   normal at:
             return array.pointers[index-1+info.ivarOffset];
+        if (array.isWords64()) // 64-bit words (DoubleWordArray)
+            return this.pos64BitIntFor(array.words64[index-1]);
         if (array.isWords()) // words...
             if (info.convertChars) return this.charFromInt(array.words[index-1] & 0x3FFFFFFF);
             else return this.pos32BitIntFor(array.words[index-1]);
@@ -1255,6 +1287,12 @@ Object.subclass('Squeak.Primitives',
             return array.pointers[index-1+info.ivarOffset] = objToPut;
         }
         var intToPut;
+        if (array.isWords64()) { // 64-bit words (DoubleWordArray)
+            var big = this.stackPos64BitInt(0);
+            if (!this.success) return array;
+            array.words64[index-1] = big;
+            return objToPut;
+        }
         if (array.isWords()) {  // words...
             if (convertChars) {
                 // put a character...
