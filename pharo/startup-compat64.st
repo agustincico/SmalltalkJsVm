@@ -73,6 +73,13 @@ initializeEventIndexesConstants
 
 EventSensorConstants initialize!
 
+"Declare the Sensor global BEFORE compiling anything that mentions it. Several methods
+below answer it (HandMorph>>eventQueue, InputEventSensor class>>default); if it does not
+exist yet they compile against an undeclared variable, and Pharo 12 raises on reading one
+instead of quietly answering nil like Pharo 10 did -- which stops the render loop dead on
+the first event cycle. The real sensor is installed at the end."
+Smalltalk globals at: #Sensor put: nil!
+
 Object subclass: #InputEventHandler
 	instanceVariableNames: 'eventFetcher'
 	classVariableNames: ''
