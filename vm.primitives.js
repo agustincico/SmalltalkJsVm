@@ -2079,15 +2079,18 @@ Object.subclass('Squeak.Primitives',
     },
     registerSemaphore: function(specialObjIndex) {
         var sema = this.vm.top();
-        if (this.isA(sema, Squeak.splOb_ClassSemaphore))
+        if (this.isKindOf(sema, Squeak.splOb_ClassSemaphore))
             this.vm.specialObjects[specialObjIndex] = sema;
         else
             this.vm.specialObjects[specialObjIndex] = this.vm.nilObj;
         return this.vm.stackValue(1);
     },
     primitiveWait: function() {
+        // Subclasses count: Pharo 13 waits on a SymbolTableSemaphore, and an exact-class
+        // check failed the primitive, so Symbol class>>intern: could never take its lock —
+        // no symbol could be created and the image never finished starting up.
         var sema = this.vm.top();
-        if (!this.isA(sema, Squeak.splOb_ClassSemaphore)) return false;
+        if (!this.isKindOf(sema, Squeak.splOb_ClassSemaphore)) return false;
         var excessSignals = sema.pointers[Squeak.Semaphore_excessSignals];
         if (excessSignals > 0)
             sema.pointers[Squeak.Semaphore_excessSignals] = excessSignals - 1;
@@ -2099,7 +2102,7 @@ Object.subclass('Squeak.Primitives',
     },
     primitiveSignal: function() {
         var sema = this.vm.top();
-        if (!this.isA(sema, Squeak.splOb_ClassSemaphore)) return false;
+        if (!this.isKindOf(sema, Squeak.splOb_ClassSemaphore)) return false;
         this.synchronousSignal(sema);
         return true;
     },
@@ -2112,7 +2115,7 @@ Object.subclass('Squeak.Primitives',
         return;
     },
     signalAtMilliseconds: function(sema, msTime) {
-        if (this.isA(sema, Squeak.splOb_ClassSemaphore)) {
+        if (this.isKindOf(sema, Squeak.splOb_ClassSemaphore)) {
             this.vm.specialObjects[Squeak.splOb_TheTimerSemaphore] = sema;
             this.vm.nextWakeupTick = msTime;
         } else {
