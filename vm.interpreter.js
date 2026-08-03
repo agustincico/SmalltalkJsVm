@@ -135,7 +135,11 @@ Object.subclass('Squeak.Interpreter',
         if (smalltalkClass === "SmalltalkImage") {
             var globals = smalltalk.pointers[0],
                 globalsClass = globals.sqClass.className();
-            if (globalsClass === "SystemDictionary")
+            // Pharo 13 renamed the globals holder to SystemEnvironment. It is still a
+            // HashedCollection laid out as (tally, array), so it is read like a
+            // SystemDictionary — without this the VM finds no globals at all, and the
+            // image dies on startup instead of booting.
+            if (globalsClass === "SystemDictionary" || globalsClass === "SystemEnvironment")
                 return function() { return globals.pointers[1].pointers; };
             if (globalsClass === "Environment")
                 return function() { return globals.pointers[2].pointers[1].pointers; };
@@ -464,6 +468,11 @@ Object.subclass('Squeak.Interpreter',
             case 0x52:
                 if (extB == 0) {
                     this.push(this.exportThisContext()); return;
+                } else if (extB == 1) {
+                    // Sista: bytecode 82 with Extend B = 1 is "push thisProcess". Pharo 13
+                    // compiles it (Process>>terminate among others), and without it the image
+                    // dies on startup with an unimplemented-bytecode trap.
+                    this.push(this.activeProcess()); return;
                 } else {
                     this.nono(); return;
                 }
@@ -705,6 +714,11 @@ Object.subclass('Squeak.Interpreter',
     },
     nextByte: function() {
         return this.method.bytes[this.pc++];
+    },
+    activeProcess: function() {
+        // The scheduler's current process, for the "push thisProcess" bytecode.
+        var sched = this.specialObjects[Squeak.splOb_SchedulerAssociation].pointers[Squeak.Assn_value];
+        return sched.pointers[Squeak.ProcSched_activeProcess];
     },
     nono: function() {
         throw Error("Oh No!");
