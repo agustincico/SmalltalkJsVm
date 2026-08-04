@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-"""Generate pharo/startup-compat13.st: the 64-bit compat script, made to work on Pharo 13.
+"""Generate pharo/startup-compat13.st: the 64-bit compat script for Pharo 12 AND 13.
+
+Both versions share the gaps this script fills: they removed DisplayScreen (and the Display
+global) outright, and dropped the chunk reader's method directive. Verified to boot and
+respond on Pharo 12 (files.pharo.org latest) and Pharo 13 (the Pharo Launcher image and
+files.pharo.org latest) alike.
 
     python3 utils/mk-compat13.py /path/to/Pharo10.0-32bit.sources > pharo/startup-compat13.st
 
-Pharo 13 needs two things on top of what startup-compat64.st does for Pharo 10/11:
+Pharo 12/13 need two things on top of what startup-compat64.st does for Pharo 10/11:
 
 1. DisplayScreen DOES NOT EXIST there (10's 64-bit builds still had the class, just pruned;
    13 removed it outright, along with the Display global). So this port defines the class
