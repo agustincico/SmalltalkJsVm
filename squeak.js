@@ -1173,11 +1173,15 @@ SqueakJS.runImage = function(buffer, name, display, options) {
     display.clear();
     display.showBanner("Loading " + SqueakJS.appName);
     display.showProgress(0);
-    window.setTimeout(function readImageAsync() {
+    // A JIT fault restarts the image once with the compiler off (see the catch in run()
+    // below); triedNoJit keeps that from looping.
+    var triedNoJit = false;
+    window.setTimeout(function readImageAsync(noJit) {
         var image = new Squeak.Image(name);
         image.readFromBuffer(buffer, function startRunning() {
             display.quitFlag = false;
             var vm = new Squeak.Interpreter(image, display, options);
+            if (noJit) vm.compiler = null;
             SqueakJS.vm = vm;
             Squeak.Settings["squeakImageName"] = name;
             display.clear();
@@ -1192,6 +1196,21 @@ SqueakJS.runImage = function(buffer, name, display, options) {
                         loop = window.setTimeout(run, ms);
                     });
                 } catch(error) {
+                    // jit1 mishandles some Sista bytecodes (e.g. Cuis 7.x). The failure
+                    // surfaces differently per engine: V8 raises "invalid PC" later in the
+                    // interpreter, while SpiderMonkey throws straight out of the generated
+                    // function (stack points into jit.js). Treat either as a JIT fault and
+                    // re-run the image once without the JIT -- the plain interpreter handles
+                    // every bytecode set correctly, and images that work with the JIT keep it.
+                    // squeak_worker.js has done this since the worker landed; the main-thread
+                    // path did not, so Cuis 7.x died here on any browser without
+                    // OffscreenCanvas, and on #nomain.
+                    var msg = String(error && error.stack || error);
+                    if ((/invalid PC/.test(msg) || /jit\.js/.test(msg)) && !triedNoJit && !options.nojit) {
+                        triedNoJit = true;
+                        console.warn("SqueakJS: JIT fault (" + msg.split("\n")[0] + "), restarting without JIT");
+                        return readImageAsync(true);
+                    }
                     console.error(error);
                     alert(error);
                 }
