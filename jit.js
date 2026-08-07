@@ -964,42 +964,42 @@ to single-step.
                 this.source.push("var a = stack[vm.sp - 1], b = stack[vm.sp];\n",
                 "if (typeof a === 'number' && typeof b === 'number') {\n",
                 "   stack[--vm.sp] = vm.primHandler.signed32BitIntegerFor(a + b);\n",
-                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(0); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return}\n");
+                "} else { vm.success = true; vm.resultIsFloat = false; if (!vm.pop2AndPushNumResult(vm.stackIntOrFloat(1) + vm.stackIntOrFloat(0))) { vm.pc = ", this.pc, "; vm.sendSpecial(0); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return} }\n");
                 return;
             case 0x1: // MINUS -
                 this.needsVar['stack'] = true;
                 this.source.push("var a = stack[vm.sp - 1], b = stack[vm.sp];\n",
                 "if (typeof a === 'number' && typeof b === 'number') {\n",
                 "   stack[--vm.sp] = vm.primHandler.signed32BitIntegerFor(a - b);\n",
-                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(1); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return}\n");
+                "} else { vm.success = true; vm.resultIsFloat = false; if (!vm.pop2AndPushNumResult(vm.stackIntOrFloat(1) - vm.stackIntOrFloat(0))) { vm.pc = ", this.pc, "; vm.sendSpecial(1); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return} }\n");
                 return;
             case 0x2: // LESS <
                 this.needsVar['stack'] = true;
                 this.source.push("var a = stack[vm.sp - 1], b = stack[vm.sp];\n",
                 "if (typeof a === 'number' && typeof b === 'number') {\n",
                 "   stack[--vm.sp] = a < b ? vm.trueObj : vm.falseObj;\n",
-                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(2); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return}\n");
+                "} else { vm.success = true; if (!vm.pop2AndPushBoolResult(vm.stackIntOrFloat(1) < vm.stackIntOrFloat(0))) { vm.pc = ", this.pc, "; vm.sendSpecial(2); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return} }\n");
                 return;
             case 0x3: // GRTR >
                 this.needsVar['stack'] = true;
                 this.source.push("var a = stack[vm.sp - 1], b = stack[vm.sp];\n",
                 "if (typeof a === 'number' && typeof b === 'number') {\n",
                 "   stack[--vm.sp] = a > b ? vm.trueObj : vm.falseObj;\n",
-                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(3); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return}\n");
+                "} else { vm.success = true; if (!vm.pop2AndPushBoolResult(vm.stackIntOrFloat(1) > vm.stackIntOrFloat(0))) { vm.pc = ", this.pc, "; vm.sendSpecial(3); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return} }\n");
                 return;
             case 0x4: // LEQ <=
                 this.needsVar['stack'] = true;
                 this.source.push("var a = stack[vm.sp - 1], b = stack[vm.sp];\n",
                 "if (typeof a === 'number' && typeof b === 'number') {\n",
                 "   stack[--vm.sp] = a <= b ? vm.trueObj : vm.falseObj;\n",
-                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(4); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return}\n");
+                "} else { vm.success = true; if (!vm.pop2AndPushBoolResult(vm.stackIntOrFloat(1) <= vm.stackIntOrFloat(0))) { vm.pc = ", this.pc, "; vm.sendSpecial(4); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return} }\n");
                 return;
             case 0x5: // GEQ >=
                 this.needsVar['stack'] = true;
                 this.source.push("var a = stack[vm.sp - 1], b = stack[vm.sp];\n",
                 "if (typeof a === 'number' && typeof b === 'number') {\n",
                 "   stack[--vm.sp] = a >= b ? vm.trueObj : vm.falseObj;\n",
-                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(5); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return}\n");
+                "} else { vm.success = true; if (!vm.pop2AndPushBoolResult(vm.stackIntOrFloat(1) >= vm.stackIntOrFloat(0))) { vm.pc = ", this.pc, "; vm.sendSpecial(5); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return} }\n");
                 return;
             case 0x6: // EQU =
                 this.needsVar['stack'] = true;
@@ -1008,7 +1008,7 @@ to single-step.
                 "   stack[--vm.sp] = a === b ? vm.trueObj : vm.falseObj;\n",
                 "} else if (a === b && a.float === a.float) {\n",   // NaN check
                 "   stack[--vm.sp] = vm.trueObj;\n",
-                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(6); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return}\n");
+                "} else { vm.success = true; if (!vm.pop2AndPushBoolResult(vm.stackIntOrFloat(1) === vm.stackIntOrFloat(0))) { vm.pc = ", this.pc, "; vm.sendSpecial(6); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return} }\n");
                 return;
             case 0x7: // NEQ ~=
                 this.needsVar['stack'] = true;
@@ -1017,7 +1017,7 @@ to single-step.
                 "   stack[--vm.sp] = a !== b ? vm.trueObj : vm.falseObj;\n",
                 "} else if (a === b && a.float === a.float) {\n",   // NaN check
                 "   stack[--vm.sp] = vm.falseObj;\n",
-                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(7); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return}\n");
+                "} else { vm.success = true; if (!vm.pop2AndPushBoolResult(vm.stackIntOrFloat(1) !== vm.stackIntOrFloat(0))) { vm.pc = ", this.pc, "; vm.sendSpecial(7); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return} }\n");
                 return;
             case 0x8: // TIMES *
                 this.source.push("vm.success = true; vm.resultIsFloat = false; if(!vm.pop2AndPushNumResult(vm.stackIntOrFloat(1) * vm.stackIntOrFloat(0))) { vm.pc = ", this.pc, "; vm.sendSpecial(8); return}\n");
