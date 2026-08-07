@@ -944,7 +944,7 @@ Object.subclass('Squeak.Interpreter',
         var numCopied = byteB & 63;
         var context;
         if ((byteB >> 6 & 1) == 1) {
-            context = this.vm.nilObj;
+            context = this.nilObj;
         } else {
             context = this.activeContextObj();
         }
