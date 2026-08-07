@@ -70,6 +70,16 @@
             },
         });
     }
+    // --- CORS ------------------------------------------------------------------------
+    // files.squeak.org and files.pharo.org serve their images without Access-Control-Allow-
+    // Origin, so a browser refuses to read them from another page. A small worker of ours
+    // re-serves those bytes with the header (utils/cors-worker.js). That is plumbing, not
+    // something a link should have to spell out: examples name the project's own URL and
+    // this puts the proxy in front only where it is actually needed.
+    var CORS_PROXY = "https://cors.smalltalkjsvm.com.ar/";   // mk-site.py rewrites this
+    var CORS_LESS = /^https?:\/\/(files\.squeak\.org|files\.pharo\.org)\//i;
+    function viaProxy(url) { return CORS_LESS.test(url) ? CORS_PROXY + url : url; }
+
     // --- #worker mode: run the VM in a Web Worker rendering to an OffscreenCanvas ---
     function runSqueakInWorker(imageName, params) {
         if (params.has("zip")) return runZipInWorker(params);
@@ -78,7 +88,7 @@
             // image from the internet: image=<full url>, or url=BASE&files=[img,changes,sources]
             var files = (params.get("files") || "").replace(/^\[|\]$/g, "").split(",").map(function(s){ return s.trim(); }).filter(Boolean);
             if (imageName && !isHttp && files.indexOf(imageName) < 0) files.unshift(imageName);
-            var toUrl = function(f) { return /^https?:\/\//i.test(f) ? f : (urlBase || "").replace(/\/+$/, "") + "/" + f; };
+            var toUrl = function(f) { return viaProxy(/^https?:\/\//i.test(f) ? f : (urlBase || "").replace(/\/+$/, "") + "/" + f); };
             var imageFile = isHttp ? imageName : (files.filter(function(f){ return /\.image$/i.test(f); })[0] || files[0]);
             // download the non-image files (changes/sources) into the FS at "/basename",
             // then boot from the image URL. The image name must be the full path WITH the
@@ -90,6 +100,7 @@
             function boot() { startWorker("/" + (imageFile || "image").replace(/.*\//, ""), toUrl(imageFile)); }
             if (!pending) return boot();
             aux.forEach(function(f) {
+                if (/(^|\/)startup\.st$/i.test(f)) startupFromThisLaunch = true;
                 fetch(toUrl(f)).then(function(r){ return r.arrayBuffer(); }).then(function(buf){
                     Squeak.filePut("/" + f.replace(/.*\//, ""), buf, function(){ if (--pending === 0) boot(); });
                 }).catch(function(){ if (--pending === 0) boot(); });
@@ -111,7 +122,7 @@
     function runZipInWorker(params) {
         if (typeof JSZip === "undefined") return alert("JSZip not loaded");
         var base = params.get("url") || "";
-        var toUrl = function(u){ return /^https?:\/\//i.test(u) ? u : base.replace(/\/+$/, "") + "/" + u; };
+        var toUrl = function(u){ return viaProxy(/^https?:\/\//i.test(u) ? u : base.replace(/\/+$/, "") + "/" + u); };
         var zipUrls = params.get("zip").replace(/^\[|\]$/g, "").split(",").map(function(s){ return s.trim(); }).filter(Boolean);
         // skip macOS metadata and desktop-bundle binaries the VM never reads (a Dialogo.zip
         // ships a 22MB .exe etc.) — keep .image/.changes/.sources and the image's data files.
@@ -136,7 +147,10 @@
                 for (var j = 0; j < entries.length; j++) {
                     var fn = entries[j].fn, data = await entries[j].zip.file(fn).async("arraybuffer");
                     if (/\.image$/i.test(fn)) images.push({ name: "/" + fn, data: data });
-                    else await putFile("/" + fn, data);
+                    else {
+                        if (/^startup\.st$/i.test(fn)) startupFromThisLaunch = true;
+                        await putFile("/" + fn, data);
+                    }
                 }
                 if (!images.length) throw new Error("the zip has no .image");
                 var pick = images.filter(function(c){ return /32/.test(c.name); })[0] || images[0];
@@ -148,7 +162,74 @@
             }
         })();
     }
+    // --- Pharo compatibility scripts ---------------------------------------------------
+    // Pharo's 64-bit builds render through SDL2/native FFI and dropped the classic VM
+    // display/input classes, so in a browser they boot to a black screen unless a startup
+    // script puts those classes back. Which script depends on the build, and rather than ask
+    // the user we read it off the image itself: does it still carry a DisplayScreen class?
+    //   yes (Pharo 10, 11) -> startup-compat64.st, which adds the missing methods
+    //   no  (Pharo 12, 13) -> startup-compat13.st, which ports the whole class in
+    // Testing the capability instead of the version number means a future Pharo lands on the
+    // right script on its own. 32-bit Pharo needs nothing: it still ships everything.
+    function indexOfBytes(bytes, text, from) {
+        var first = text.charCodeAt(0), last = bytes.length - text.length;
+        outer: for (var i = from | 0; i <= last; i++) {
+            if (bytes[i] !== first) continue;
+            for (var j = 1; j < text.length; j++)
+                if (bytes[i + j] !== text.charCodeAt(j)) continue outer;
+            return i;
+        }
+        return -1;
+    }
+    function pharoCompatScript(buffer) {
+        var bytes = new Uint8Array(buffer);
+        if (bytes.length < 64) return null;
+        // same rule the image reader uses (vm.image.js): 64-bit images version >= 68000
+        var version = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
+        if (version < 68000) return null;                  // 32-bit: nothing to fix
+        var isLetter = function(c) { return c && ((c > 64 && c < 91) || (c > 96 && c < 123)); };
+        // "Pharo" followed by two digits and a dot — the image's own version stamp
+        var isPharo = false;
+        for (var at = 0; (at = indexOfBytes(bytes, "Pharo", at)) >= 0; at++) {
+            var d = bytes.subarray(at + 5, at + 8);
+            if (d[0] > 47 && d[0] < 58 && d[1] > 47 && d[1] < 58 && d[2] === 46) { isPharo = true; break; }
+        }
+        if (!isPharo) return null;                         // Squeak/Cuis: leave alone
+        // a DisplayScreen *class* leaves the bare name in the image; #isDisplayScreen, which
+        // survives everywhere, does not — so require non-letters on both sides
+        for (var p = 0; (p = indexOfBytes(bytes, "DisplayScreen", p)) >= 0; p++)
+            if (!isLetter(bytes[p - 1]) && !isLetter(bytes[p + 13]))
+                return "startup-compat64.st";
+        return "startup-compat13.st";
+    }
+    // Set when this launch put a /startup.st in the file system itself — because the bundle
+    // shipped one, or because files dropped on the page included one. Pharo runs whatever
+    // /startup.st it finds, and the file system outlives the image that created it, so a
+    // script left behind by an earlier example would otherwise run against the next one:
+    // that is how an image with its application already saved in it ended up building a
+    // second copy on top and asking for a sources file to recompile against.
+    var startupFromThisLaunch = false;
+    // Install the compatibility script as /startup.st, where Pharo looks at boot. A startup
+    // script that came with the image wins; a leftover from a previous run is cleared.
+    function withPharoCompat(imageSource, thenDo) {
+        if (startupFromThisLaunch) return thenDo();             // the image brought its own
+        if (typeof imageSource === "string") return thenDo();   // a URL; no bytes to inspect
+        var script;
+        try { script = pharoCompatScript(imageSource); } catch (e) { script = null; }
+        if (Squeak.fileDelete("/startup.st")) console.log("removed a startup.st left by an earlier image");
+        if (!script) return thenDo();
+        fetch("../pharo/" + script)
+            .then(function(r) { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+            .then(function(buf) {
+                console.log("Pharo 64-bit image: installing " + script);
+                Squeak.filePut("/startup.st", buf, thenDo) || thenDo();
+            })
+            .catch(function(e) { console.warn("could not install " + script + ": " + e.message); thenDo(); });
+    }
     function startWorker(name, imageSource) {
+        withPharoCompat(imageSource, function() { startWorkerNow(name, imageSource); });
+    }
+    function startWorkerNow(name, imageSource) {
         var W = window.innerWidth, H = window.innerHeight;
         var audioCtx = null, audioNextTime = 0, audioSampleRate = 0;
         sqCanvas.width = W; sqCanvas.height = H;
@@ -436,6 +517,7 @@
                 var buffer = this.result;
                 console.log("Storing " + f.name + " (" + buffer.byteLength + " bytes)");
                 if (/.*image$/.test(f.name)) imageName = f.name;
+                if (/^startup\.st$/i.test(f.name)) startupFromThisLaunch = true;
                 Squeak.filePut(f.name, buffer, function success() {
                     if (--todo > 0) return;
                     afterImport(imageName);
@@ -577,19 +659,19 @@
         <h1><img id="logo" src="squeakjs.png">Smalltalk in your browser</h1>
         <div class="github-fork-ribbon-wrapper right">
             <div class="github-fork-ribbon">
-                <a href="https://github.com/agustincico/SqueakJS" target="_blank">Fork me on GitHub</a>
+                <a href="https://github.com/agustincico/SmalltalkJsVm" target="_blank">Fork me on GitHub</a>
             </div>
         </div>
         <p class="tagline">Run <b>Squeak</b>, <b>Pharo</b> and <b>Cuis</b> images right in the browser — pure JavaScript, no plugins, no server. Built on <a href="https://github.com/codefrau/SqueakJS" target="_blank">SqueakJS</a>, the original project, extended by Agustín Martínez with support for more Smalltalks and a Web-Worker runtime.</p>
         <div class="added">
             <strong>What you get</strong>
             <ul>
-                <li><b>Pharo runs here.</b> Pharo 10, both 32- and 64-bit, boots to a clean, fully interactive world. Getting there meant teaching the VM Pharo's file-attribute primitives, fixing how 64-bit images encode a method's program counter, and stepping around the parts of Pharo that expect native libraries the browser has no business providing — its git integration, for one.</li>
-                <li><b>Cuis 7.x runs here</b>, thanks to reading the 16- and 64-bit array formats that the newer images rely on.</li>
-                <li><b>The page never freezes.</b> The VM runs off the main thread, so the tab stays responsive even under heavy work — no spinner, no “ruedita”.</li>
-                <li>Image-managed cursor, flicker-free rendering, dynamic resize, sound, and the system clipboard.</li>
-                <li><b>Save straight to Downloads</b>, and open files by drag-and-drop or a 📂 button — which also works on mobile.</li>
+                <li><b>Squeak, Pharo and Cuis — the current release of each.</b> Squeak 6.0, Pharo 13 and Cuis 7.8 boot to a full, interactive world, downloaded from their own servers and run as they are.</li>
+                <li><b>Pharo runs here.</b> Versions 10 through 13, 32- and 64-bit, IDE and all.</li>
+                <li><b>The page stays responsive.</b> The VM runs in a Web Worker on an OffscreenCanvas, off the thread that draws your page — so the tab keeps answering while the image works.</li>
+                <li><b>It behaves like a desktop VM.</b> Image-managed cursor, flicker-free drawing, live resize, sound, the system clipboard, save to Downloads, and files by drag-and-drop or a 📂 picker that also works on mobile.</li>
             </ul>
+            <p class="muted">Getting there took a dozen VM fixes — 64-bit indexable arrays, the Sista <code>push thisProcess</code> bytecode, file-attribute and working-directory primitives, semaphores that accept subclasses, the 16- and 64-bit array formats Cuis 7.x relies on, a JIT fault that now falls back to the plain interpreter instead of killing the image — plus startup scripts that hand Pharo's 64-bit builds back the display and event classes they dropped when they moved to SDL2.</p>
         </div>
 
         <h2>Run an image from your device</h2>
@@ -609,40 +691,51 @@
         <h2>Or run one of these from the internet</h2>
         <div class="card">
         <ul>
-        <li><b>Squeak</b> — <a href="#zip=https://dialog.ar/Squeak.zip">6.0</a></li>
-        <li><b>Cuis</b> — <a href="#url=https://raw.githubusercontent.com/Cuis-Smalltalk/Cuis7-8/master/CuisImage/32BitsImage&files=[Cuis7.8-32.image,Cuis7.8-32.changes,Cuis7.8.sources]">7.8</a> <span class="muted">(from the official repo)</span></li>
-        <li><b>Pharo</b> — <a href="#zip=https://dialog.ar/Pharo.zip">10 (32-bit)</a> · <a href="#zip=https://dialog.ar/Pharo64.zip">10 (64-bit)</a> · <a href="#zip=https://dialog.ar/Pharo-demo.zip">live Morphic demo</a></li>
-        <li><b>Dialog.ar</b> — <a href="#zip=https://dialog.ar/Dialogo.zip">example drawing app for kids</a></li>
+        <li><b>Squeak</b> — <a href="#zip=https://files.squeak.org/6.0/Squeak6.0-22156-64bit/Squeak6.0-22156-64bit.zip">6.0</a> <span class="muted">(the current build, from files.squeak.org)</span></li>
+        <li><b>Pharo</b> — <a href="#zip=https://files.pharo.org/image/130/latest-64.zip">13</a> <span class="muted">(the current release, from files.pharo.org)</span></li>
+        <li><b>Cuis</b> — <a href="#url=https://raw.githubusercontent.com/Cuis-Smalltalk/Cuis7-8/master/CuisImage&files=[Cuis7.8.image,Cuis7.8.changes,Cuis7.8.sources]">7.8</a> <span class="muted">(from the official repo)</span></li>
+        <li><b>Pharo app</b> — <a href="#zip=https://dialog.ar/Pharo-demo.zip">live Morphic demo</a> <span class="muted">(an application, not the IDE)</span></li>
         </ul>
-        <p class="muted">First run downloads and caches the image in your browser; later starts are much faster. If a bundle ships both a 32- and 64-bit image, the 32-bit build is used. <em>Cuis loads straight from its official GitHub repository. Squeak and Pharo are mirrored on dialog.ar because files.squeak.org and files.pharo.org don't send CORS headers, so browsers refuse to download from them directly.</em></p>
-        <p class="muted"><b>About Pharo:</b> both builds boot to a clean, fully interactive world. Pharo's git/Iceberg integration needs native FFI (unavailable in the browser), so SqueakJS skips that startup step instead of letting it open a debugger — Pharo simply runs without git, exactly as on a machine without libgit2. Pharo's <b>64-bit</b> builds ship SDL2-only and dropped the classic display/input classes, so their bundle carries a compatibility <code>startup.st</code> that restores them; to run your own 64-bit image, keep that file next to it. The <b>live Morphic demo</b> is the 32-bit image opening a small self-contained app at startup — the full IDE stays one menu-bar click away.</p>
+        <p class="muted">Each link is the build its own project publishes today. First run downloads and caches the image in your browser; later starts are much faster. If a bundle ships both a 32- and 64-bit image, the 32-bit build is used. <em>The links name the project's own server, which is where the bytes come from. GitHub sends the CORS headers a browser requires, so Cuis is fetched directly; files.squeak.org and files.pharo.org don't, so the launcher routes those two through a small proxy of ours.</em></p>
+        <p class="muted"><b>About Pharo:</b> <b>10, 11, 12 and 13</b> all run, 32- and 64-bit — drop any of them on this page, your own images included. The 64-bit builds render through SDL2 and dropped the classic display classes, so they need a startup script that puts those back; the launcher reads the image to work out which of the two it wants (10 and 11 still carry <code>DisplayScreen</code>, 12 and 13 removed it outright) and installs it for you. Git/Iceberg needs native FFI, which a browser can't provide, so that startup step is skipped rather than left to open a debugger — Pharo runs git-less, exactly as on a machine without libgit2. Pharo 14, still in development, does not run yet. The <b>live Morphic demo</b> is Pharo with the IDE cleared away and an application in its place, saved as an image that opens with it already running: bubbles you can drag, and a shockwave where you click.</p>
         </div>
 
         <h2>Embed it on your own site</h2>
         <div class="card">
-            <p>This <code>run/</code> launcher is the reference: copy it and point it at your image. It runs the VM in a Web Worker and wires input, cursor, clipboard, sound, save-to-Downloads and the file picker. At its core:</p>
+            <p>The easy way is an <code>&lt;iframe&gt;</code> pointed at this launcher: input, cursor, clipboard, sound, save-to-Downloads and the file picker all come wired — <a href="embed.html"><b>see it running here</b></a>, with the Pharo app embedded in an ordinary page.</p>
+            <p>To drive the VM from your own page instead, talk to the worker directly. This much boots an image and paints it:</p>
             <pre>&lt;canvas id="sq"&gt;&lt;/canvas&gt;
 &lt;script type="module"&gt;
+  import "./squeak.js";   // brings the virtual file system along
+
+  // an image expects its .changes (and .sources) beside it
+  for (const f of ["my.changes", "my.sources"]) {
+    const buf = await (await fetch(f)).arrayBuffer();
+    await new Promise(ok =&gt; { if (!Squeak.filePut("/" + f, buf, ok)) ok(); });
+  }
   const canvas = document.getElementById("sq");
   canvas.width = innerWidth; canvas.height = innerHeight;
   const offscreen = canvas.transferControlToOffscreen();
   const worker = new Worker("squeak_worker.js", { type: "module" });
+  const settings = {};    // a worker has no localStorage: hand it a snapshot
+  for (let i = 0; i &lt; localStorage.length; i++)
+    settings[localStorage.key(i)] = localStorage.getItem(localStorage.key(i));
   worker.postMessage({
     type: "init", canvas: offscreen,
     width: canvas.width, height: canvas.height,
     image: "my.image",   // a URL, or the image bytes (ArrayBuffer)
     name:  "/my.image",  // full path, including .image
+    settings,
   }, [offscreen]);
   // then forward mouse/keyboard and handle cursor/clipboard/sound —
   // see run/index.html for the complete wiring.
 &lt;/script&gt;</pre>
-            <p class="muted">For a classic single-thread embed you can still use <code>SqueakJS.runSqueak("my.image", canvas, {…})</code> from <code>squeak.js</code>.</p>
-            <p>Simpler still, drop the launcher into an <code>&lt;iframe&gt;</code> and everything comes wired — <a href="embed.html"><b>see it running here</b></a>, with Dialogo embedded in an ordinary page.</p>
+            <p class="muted">Skip the file-system part and the image still boots, but Squeak and Cuis will greet you with a debugger the moment they look for their changes file. The file contents live in IndexedDB, shared with the worker; only the directory listing has to be passed in. For a classic single-thread embed you can still use <code>SqueakJS.runSqueak("my.image", canvas, {…})</code> from <code>squeak.js</code>.</p>
         </div>
 
         <h2>Credits &amp; source</h2>
         <div class="card">
-            <p><b>SmalltalkJsVm is free software (MIT).</b> It builds on <a href="https://github.com/codefrau/SqueakJS" target="_blank">SqueakJS</a>, the original project; the Pharo and Cuis 7.x compatibility work, the Web Worker runtime and the usability additions live in <a href="https://github.com/agustincico/SqueakJS" target="_blank">this fork</a> by Agustín Martínez. Bug reports and pull requests welcome.</p>
+            <p><b>SmalltalkJsVm is free software (MIT).</b> It builds on <a href="https://github.com/codefrau/SqueakJS" target="_blank">SqueakJS</a>, the original project — written by <b>Vanessa Freudenberg</b>, who showed a decade ago that a full Smalltalk VM could live in a browser tab. Everything here stands on that work. The Pharo and Cuis 7.x compatibility, the Web Worker runtime and the usability additions live in <a href="https://github.com/agustincico/SmalltalkJsVm" target="_blank">this fork</a> by Agustín Martínez. Bug reports and pull requests welcome.</p>
         </div>
 
         <p class="muted" style="margin-top:22px">Have fun! — SmalltalkJsVm is free software (MIT).</p>

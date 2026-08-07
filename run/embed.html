@@ -33,13 +33,13 @@
 <div id="sqText">
     <h1><img id="logo" src="squeakjs.png">Embedded, on an ordinary page</h1>
     <p class="tagline">Everything you are reading is plain HTML. The box below is a full
-    Smalltalk VM running <b>Dialogo</b>, a drawing app for kids — inside this page, sharing it
-    with the text, no plugin and no server doing the work.</p>
+    Smalltalk VM running a <b>Pharo application</b> — a Morphic demo with the IDE hidden,
+    inside this page, sharing it with the text, no plugin and no server doing the work.</p>
 
     <div class="stage" id="stage">
         <div class="start" id="start">
-            <b>▶ Start Dialogo</b>
-            <span>About 32 MB the first time — your browser caches it afterwards.</span>
+            <b>▶ Start the Pharo app</b>
+            <span>The image downloads the first time — your browser caches it afterwards.</span>
         </div>
     </div>
 
@@ -49,7 +49,7 @@
         image with the hash. That is the whole trick, and it is the route to take if you just
         want a working Smalltalk on your page — input, cursor, clipboard, sound and the file
         picker come wired:</p>
-        <pre>&lt;iframe src="https://smalltalkjsvm.com.ar/#zip=https://dialog.ar/Dialogo.zip"
+        <pre>&lt;iframe src="https://smalltalkjsvm.com.ar/#zip=https://your.site/your-image.zip"
         style="width:900px; height:675px; border:0"&gt;&lt;/iframe&gt;</pre>
         <p class="muted">Swap the URL after <code>#zip=</code> (or <code>#url=</code>) for your
         own image. Anything the launcher accepts works here too.</p>
@@ -59,8 +59,10 @@
     <div class="card">
         <p>To drive the VM from your own code instead — your own canvas, your own event
         handling — talk to the worker directly. That is what the launcher itself does, and
-        the <a href="./">main page</a> shows the core of it. You take on wiring input and
-        cursor yourself, which is the price of the extra control.</p>
+        the <a href="./">main page</a> shows the core of it: an OffscreenCanvas handed to
+        <code>squeak_worker.js</code>, the image's changes and sources written into the
+        virtual file system first. You take on wiring input and cursor yourself, which is the
+        price of the extra control.</p>
     </div>
 
     <p style="margin-top:26px"><a href="./">← Back to SmalltalkJsVm</a></p>
@@ -72,8 +74,9 @@
     // it just by scrolling past.
     document.getElementById("start").addEventListener("click", function() {
         var frame = document.createElement("iframe");
-        frame.src = "index.html#zip=https://dialog.ar/Dialogo.zip";
-        frame.setAttribute("title", "Dialogo running in SmalltalkJsVm");
+        // DEMO_URL: mk-site.py swaps this for the site's own pharo-app.zip
+        frame.src = "index.html#zip=https://dialog.ar/Pharo-demo.zip";
+        frame.setAttribute("title", "A Pharo application running in SmalltalkJsVm");
         document.getElementById("stage").replaceChildren(frame);
     });
 </script>
