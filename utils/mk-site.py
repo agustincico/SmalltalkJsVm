@@ -5,19 +5,27 @@
 
 What it produces:
   index.html          the launcher, at the site root, paths rewritten (mk-site-index.py)
+  embed.html          the embedding example
   <vm files>          exactly the modules squeak.js / squeak_worker.js import, no more
   lib/, run/          the libraries and the launcher's css + logo
-  compat64.zip        just startup.st for 64-bit Pharo (~13 KB)
+  pharo/*.st          the 64-bit Pharo compatibility scripts the launcher installs itself
+  compat64/13.zip     the same scripts as one-file zips, for hand-assembled bundles
   pharo-demo.zip      just startup.st for the Morphic demo (~3 KB)
 
-The point of the two little zips: the launcher merges several zips into one directory, so
-the *image* can be fetched straight from files.pharo.org and only our startup script has to
-be hosted. That is the difference between hosting ~15 KB and mirroring ~45 MB per Pharo
-variant, and the images stay current with upstream.
+No image is hosted here. Every example links the build its own project publishes, so the
+site stays ~2 MB and the images never go stale. Only the compatibility scripts (a few KB)
+are ours.
 
-Cross-origin note: files.pharo.org / files.squeak.org send no CORS headers, so those URLs
-go through --proxy (see utils/cors-worker.js). Cuis is served from GitHub, which does send
-them, so it is linked directly.
+Cross-origin note: files.pharo.org / files.squeak.org send no CORS headers. The launcher
+routes those two hosts through a proxy of ours on its own (viaProxy / CORS_PROXY in the
+page, see utils/cors-worker.js) — --proxy only says which deployment's worker to use. The
+links themselves name the project's own server, so a reader sees where the bytes come from.
+Cuis is served from GitHub, which does send the headers, so it is fetched directly.
+
+pharo-app.zip (the Morphic application, ~15 MB) is NOT generated here: it is a Pharo image
+saved with the app already running (pharo/app-startup.st + pharo/app-snapshot.st, see that
+README) and committed to the site repo — which is why this script writes into the target
+directory instead of recreating it.
 """
 import argparse
 import os
@@ -43,47 +51,63 @@ def imported_modules():
     return sorted(mods)
 
 
-def examples(proxy):
-    """The example links. Upstream images through the proxy + our tiny startup zips."""
-    pharo = proxy + "https://files.pharo.org/image/100/"
-    cuis = ("#url=https://raw.githubusercontent.com/Cuis-Smalltalk/Cuis7-8/master/CuisImage/32BitsImage"
-            "&files=[Cuis7.8-32.image,Cuis7.8-32.changes,Cuis7.8.sources]")
+# The current release of each environment, from the project's own servers. Squeak has no
+# "latest" alias on files.squeak.org, so its build number is spelled out — bump it here when
+# a newer 6.x build appears (the directory listing at files.squeak.org/6.0/ is the source).
+SQUEAK_BUILD = "Squeak6.0-22156-64bit"
+CUIS_REPO, CUIS_VERSION = "Cuis7-8", "Cuis7.8"
+PHARO_VERSION = "130"
+# the extracted Morphic application, built by pharo/app-build.st and committed to the site
+# repo (this script does not generate it); both the examples list and embed.html point here
+PHARO_APP = "pharo-app.zip"
+
+
+def examples():
+    """The example links: each names the project's own server. The launcher puts the CORS
+    proxy in front of files.squeak.org / files.pharo.org itself (see viaProxy in the page),
+    so nothing here has to know about it."""
+    squeak = "https://files.squeak.org/6.0/%s/%s.zip" % (SQUEAK_BUILD, SQUEAK_BUILD)
+    cuis = ("#url=https://raw.githubusercontent.com/Cuis-Smalltalk/%s/master/CuisImage"
+            "&files=[%s.image,%s.changes,%s.sources]" % (CUIS_REPO, CUIS_VERSION, CUIS_VERSION, CUIS_VERSION))
+    pharo = "https://files.pharo.org/image/%s/latest-64.zip" % PHARO_VERSION
     return [
-        ("Squeak", [("6.0", "#zip=https://dialog.ar/Squeak.zip")], ""),
+        ("Squeak", [("6.0", "#zip=" + squeak)], "the current build, from files.squeak.org"),
+        # No [image,compat13.zip] pair here: the launcher reads the image and installs the
+        # compatibility script itself, exactly as it does for an image dropped on the page.
+        ("Pharo", [("13", "#zip=" + pharo)], "the current release, from files.pharo.org"),
         ("Cuis", [("7.8", cuis)], "from the official repo"),
-        ("Pharo", [
-            ("10 (32-bit)", "#zip=" + pharo + "latest-32.zip"),
-            ("10 (64-bit)", "#zip=[" + pharo + "latest-64.zip,compat64.zip]"),
-        ], "straight from files.pharo.org"),
-        ("Pharo app", [("live Morphic demo", "#zip=pharo-app.zip")],
-         "a deployment image — no IDE, built with pharo/app-build.st"),
-        ("Dialog.ar", [("example drawing app for kids", "#zip=https://dialog.ar/Dialogo.zip")], ""),
+        ("Pharo app", [("live Morphic demo", "#zip=" + PHARO_APP)],
+         "a saved image that opens with the app already running"),
     ]
 
 
-def rewrite_notes(html):
-    """The CORS note in run/index.html describes the dialog.ar setup (everything mirrored).
-    This site fetches the images from upstream instead, so say what actually happens."""
-    return html.replace(
-        "<em>Cuis loads straight from its official GitHub repository. Squeak and Pharo are"
-        " mirrored on dialog.ar because files.squeak.org and files.pharo.org don't send CORS"
-        " headers, so browsers refuse to download from them directly.</em>",
-        "<em>Pharo and Cuis are fetched from their own official repositories, so you always get"
-        " the current build. GitHub sends the CORS headers a browser requires; files.pharo.org"
-        " does not, so those downloads go through a small proxy of ours — the bytes still come"
-        " from Pharo's servers. Only the compatibility startup scripts (a few KB) are hosted"
-        " here.</em>")
+def rewrite_demo(html):
+    """embed.html loads a demo image on click. In the repo it points at the dialog.ar copy;
+    on the site the application sits right beside the page, so use that."""
+    html, n = re.subn(r'frame\.src = "index\.html#zip=[^"]*"',
+                      'frame.src = "index.html#zip=%s"' % PHARO_APP, html, count=1)
+    if not n:
+        sys.stderr.write("warning: embed.html demo URL not found, left as-is\n")
+    return html
 
 
-def rewrite_examples(html, proxy):
+def rewrite_proxy(html, proxy):
+    """Point the launcher's CORS proxy at this deployment's worker."""
+    html, n = re.subn(r'var CORS_PROXY = "[^"]*";', 'var CORS_PROXY = "%s";' % proxy, html, count=1)
+    if not n:
+        sys.stderr.write("warning: CORS_PROXY not found, left as-is\n")
+    return html
+
+
+def rewrite_examples(html):
     items = []
-    for name, links, note in examples(proxy):
+    for name, links, note in examples():
         anchors = " · ".join('<a href="%s">%s</a>' % (href, label) for label, href in links)
         muted = ' <span class="muted">(%s)</span>' % note if note else ""
         items.append("        <li><b>%s</b> — %s%s</li>" % (name, anchors, muted))
     block = "\n".join(items)
     # replace the whole <li> list inside the examples card
-    return re.sub(r"( *<li><b>Squeak</b>.*?<li><b>Dialog\.ar</b>[^\n]*</li>)", block, html, count=1, flags=re.S)
+    return re.sub(r"( *<li><b>Squeak</b>.*?<li><b>Pharo app</b>[^\n]*</li>)", block, html, count=1, flags=re.S)
 
 
 def main():
@@ -115,18 +139,25 @@ def main():
                                os.path.join(ROOT, "run", page)],
                               capture_output=True, text=True, check=True).stdout
 
-    html = rewrite_notes(rewrite_examples(generate("index.html"), args.proxy))
+    html = rewrite_proxy(rewrite_examples(generate("index.html")), args.proxy)
     with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as f:
         f.write(html)
     # the embedding example; its iframe points at index.html, which sits beside it either way
     with open(os.path.join(out, "embed.html"), "w", encoding="utf-8") as f:
-        f.write(generate("embed.html"))
+        f.write(rewrite_demo(generate("embed.html")))
 
     # 4. the startup-script zips (the images themselves come from upstream)
     for zipname, src in (("compat64.zip", "pharo/startup-compat64.st"),
+                         ("compat13.zip", "pharo/startup-compat13.st"),
                          ("pharo-demo.zip", "pharo/demo-startup.st")):
         with zipfile.ZipFile(os.path.join(out, zipname), "w", zipfile.ZIP_DEFLATED) as z:
             z.write(os.path.join(ROOT, src), "startup.st")
+
+    # 5. the same scripts as plain files: the launcher fetches one of them when someone
+    # drops a bare 64-bit Pharo .image, having read the image to see which it needs
+    os.makedirs(os.path.join(out, "pharo"), exist_ok=True)
+    for st in ("startup-compat64.st", "startup-compat13.st"):
+        shutil.copy2(os.path.join(ROOT, "pharo", st), os.path.join(out, "pharo", st))
 
     n = sum(len(files) for _, _, files in os.walk(out))
     size = sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(out) for f in fs)
