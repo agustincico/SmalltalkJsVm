@@ -7,6 +7,7 @@
 /*
 	Manual fixes:
 	2022-01-15 VMMaker.oscog-mt.3135 and VMMaker.oscog-mt.3136
+	2026-08-07 primitiveUpdateAdler32: defer the modulo per block (zlib NMAX)
 */
 
 (function ZipPlugin() {
@@ -771,10 +772,23 @@ function primitiveUpdateAdler32() {
 	--stopIndex;
 	s1 = adler32 & 65535;
 	s2 = (adler32 >>> 16) & 65535;
-	for (i = startIndex; i <= stopIndex; i++) {
-		b = bytePtr[i];
-		s1 = MOD((s1 + b), 65521);
-		s2 = MOD((s2 + s1), 65521);
+	/* Deferred modulo, the way zlib does it. The translated code took the
+	   remainder on both sums for every single byte, and MOD here is a divide
+	   plus a floor plus a multiply -- two of those per byte made this the most
+	   expensive function in the whole VM while a project is being saved or
+	   loaded. Neither sum can overflow within 5552 bytes (zlib's NMAX), so the
+	   remainder is only needed once per block. Same checksum, byte for byte. */
+	b = stopIndex - startIndex + 1;
+	i = startIndex;
+	while (b > 0) {
+		var block = b < 5552 ? b : 5552;
+		b -= block;
+		while (block-- > 0) {
+			s1 += bytePtr[i++];
+			s2 += s1;
+		}
+		s1 = MOD(s1, 65521);
+		s2 = MOD(s2, 65521);
 	}
 	adler32 = (s2 << 16) + s1;
 	interpreterProxy.popthenPush(5, interpreterProxy.positive32BitIntegerFor(adler32));
