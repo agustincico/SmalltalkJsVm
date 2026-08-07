@@ -120,7 +120,7 @@ Object.extend(Squeak,
     vmFile: "vm.js",
     vmMakerVersion: "[VMMakerJS-bf.17 VMMaker-bf.353]", // for Smalltalk vmVMMakerVersion
     vmInterpreterVersion: "JSInterpreter VMMaker.js-codefrau.1", // for Smalltalk interpreterVMMakerVersion
-    platformName: "JS",
+    platformName: "unix",               // emulated env is Unix-like ("/" paths); "JS" matched no OSPlatform in strict images (Pharo)
     platformSubtype: "unknown",         // Replaced at runtime
     osVersion: "unknown",               // Replaced at runtime
     windowSystem: "unknown",            // Replaced at runtime
@@ -403,6 +403,8 @@ Object.subclass('Squeak.Object',
         } else {
             if (original.pointers) this.pointers = original.pointers.slice(0);   // copy
             if (original.words) this.words = new Uint32Array(original.words);    // copy
+            if (original.words16) this.words16 = new Uint16Array(original.words16); // copy
+            if (original.words64) this.words64 = new BigUint64Array(original.words64); // copy
             if (original.bytes) this.bytes = new Uint8Array(original.bytes);     // copy
         }
     },
@@ -503,6 +505,14 @@ Object.subclass('Squeak.Object',
         bytes.set(wordsAsBytes);
         return bytes;
     },
+    decodeShorts: function(nWords, theBits, fmtLowBits) {
+        // 16-bit indexable words (format 12-15). Adjust length for odd low bits, make a copy.
+        var nShorts = (nWords * 2) - fmtLowBits,
+            wordsAsShorts = new Uint16Array(theBits.buffer, theBits.byteOffset, nShorts),
+            shorts = new Uint16Array(nShorts);
+        shorts.set(wordsAsShorts);
+        return shorts;
+    },
     decodeFloat: function(theBits, littleEndian, nativeFloats) {
         var data = new DataView(theBits.buffer, theBits.byteOffset);
         // it's either big endian ...
@@ -525,6 +535,11 @@ Object.subclass('Squeak.Object',
 'testing', {
     isWords: function() {
         return this._format === 6;
+    },
+    isWords64: function() {
+        // Spur format 9: 64-bit indexable (DoubleWordArray). Only in 64-bit images, and
+        // stored in words64, not words — so it must never be treated as a 32-bit array.
+        return this._format === 9;
     },
     isBytes: function() {
         var fmt = this._format;
@@ -620,6 +635,12 @@ Object.subclass('Squeak.Object',
     wordsSize: function() {
         return this.isFloat ? 2 : this.words ? this.words.length : 0;
     },
+    words16Size: function() {
+        return this.words16 ? this.words16.length : 0;
+    },
+    words64Size: function() {
+        return this.words64 ? this.words64.length : 0;
+    },
     instSize: function() {//same as class.classInstSize, but faster from format
         var fmt = this._format;
         if (fmt > 4 || fmt === 2) return 0;      //indexable fields only
@@ -650,6 +671,7 @@ Object.subclass('Squeak.Object',
     },
     wordsAsFloat64Array: function() {
         return this.float64Array
+            || (this.words64 && (this.float64Array = new Float64Array(this.words64.buffer)))
             || (this.words && (this.float64Array = new Float64Array(this.words.buffer)));
     },
     wordsAsInt32Array: function() {
@@ -658,6 +680,7 @@ Object.subclass('Squeak.Object',
     },
     wordsAsInt16Array: function() {
         return this.int16Array
+            || (this.words16 && (this.int16Array = new Int16Array(this.words16.buffer)))
             || (this.words && (this.int16Array = new Int16Array(this.words.buffer)));
     },
     wordsAsUint16Array: function() {
@@ -809,6 +832,30 @@ Object.subclass('Squeak.Object',
     },
     classInstProto: function(className) {
         if (this.instProto) return this.instProto;
+        // Monomorfización (default desde 2026-07-12): un ÚNICO constructor
+        // compartido para todos los objetos → V8 ve pocos maps (~4-5, por formato
+        // pointers/bytes/words/float) en vez de cientos (uno por clase). Medido con
+        // la vara honesta (tiempo hasta renderizar el resultado, no microbench):
+        // **6.6% más rápido** en el workload real de Dialogo (best-of-5 intercalado:
+        // 4022 vs 4307 ms, más rápido en las 5 corridas), semántica byte-idéntica
+        // (trace + dibujo + ctx≡frames en V3 y Cuis). Mecanismo (verificado por
+        // perfil A/B, NO es "matar el LoadIC" como se dijo primero): las operaciones
+        // IC MEGAMÓRFICAS caen a monomórficas — StoreIC de initInstanceOf (sqClass=,
+        // hash=, _format=, pointers=) y LoadIC_Megamorphic. El LoadIC regular
+        // (loads de `.pointers`/`.sqClass`) QUEDA como costo residual top (~18%): los
+        // loads siguen ocurriendo, ahora baratos pero no gratis; eliminarlos del
+        // todo requiere objetos en memoria lineal (WASM). Distinto del intento "flat
+        // shape" previo (−7%, shape con TODOS los campos, medido send-heavy): acá los
+        // campos por-formato se mantienen, solo se comparte el constructor. Opt-out
+        // (nombres por clase en devtools): Squeak.perClassShape = true.
+        if (Squeak.perClassShape !== true) {
+            if (!Squeak.sharedInstProto) {
+                Squeak.sharedInstProto = new Function("return function SqueakObject() { this.oop = 0; this.hash = 0; this.dirty = false; this.mark = false; this.nextObject = null; };")();
+                Squeak.sharedInstProto.prototype = this.defaultInst().prototype;
+            }
+            Object.defineProperty(this, 'instProto', { value: Squeak.sharedInstProto });
+            return Squeak.sharedInstProto;
+        }
         var proto = this.defaultInst();  // in case below fails
         try {
             if (!className) className = this.className();
@@ -818,7 +865,7 @@ Object.subclass('Squeak.Object',
             else if (safeName === "False") safeName = "false_";
             else safeName = ((/^[AEIOU]/.test(safeName)) ? 'an' : 'a') + safeName;
             // fail okay if no eval()
-            proto = new Function("return function " + safeName + "() {};")();
+            proto = new Function("return function " + safeName + "() { this.oop = 0; this.hash = 0; this.dirty = false; this.mark = false; this.nextObject = null; };")();
             proto.prototype = this.defaultInst().prototype;
         } catch(e) {}
         Object.defineProperty(this, 'instProto', { value: proto });
@@ -922,7 +969,15 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
             format = (instSpec>>16) & 0x1F;
         this._format = format;
         if (format < 12) {
-            if (format < 10) {
+            if (format === 9) { // 64-bit indexable (DoubleWordArray)
+                // Must come before the pointer case: format 9 sits below 10 numerically but
+                // is a bits object, and allocating it as pointers left it with no storage at
+                // all — `DoubleWordArray new: n` answered an empty array, so the first
+                // at:put: failed with a subscript-out-of-bounds. Pharo 12 hits this while
+                // seeding Random during startup, which stops the image from booting.
+                if (indexableSize > 0)
+                    this.words64 = new BigUint64Array(indexableSize);
+            } else if (format < 10) {
                 if (instSize + indexableSize > 0)
                     this.pointers = this.fillArray(instSize + indexableSize, nilObj);
             } else // Words
@@ -977,6 +1032,24 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
                     this.pointers = this.decodePointers(nWords, oops, oopMap, getCharacter, is64Bit);
                 }
                 break;
+            case 9: // 64 bit array (words64, only in 64 bit images)
+                if (nWords > 0) {
+                    // reassemble each 64-bit element from the image words (either a JS number
+                    // or a [hi, lo] pair for values wider than 53 bits; see word64FromUint32)
+                    var w64 = new Uint32Array(nWords * 2);
+                    for (var i = 0; i < nWords; i++) {
+                        var hiLoOrValue = bits[i];
+                        if (typeof hiLoOrValue === "number") {
+                            w64[i*2] = hiLoOrValue >>> 0;
+                            w64[i*2+1] = hiLoOrValue / 0x100000000 >>> 0;
+                        } else {
+                            w64[i*2] = hiLoOrValue[1];
+                            w64[i*2+1] = hiLoOrValue[0];
+                        }
+                    }
+                    this.words64 = new BigUint64Array(w64.buffer);
+                }
+                break;
             case 11: // 32 bit array (odd length in 64 bits)
                 nWords--;
                 this._format = 10;
@@ -989,9 +1062,15 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
                     this.words = this.decodeWords(nWords, bits, littleEndian);
                 }
                 break;
+            case 14: // 16 bit array (odd length in 64 bit images)
+            case 15:
+                nWords--;
+                this._format -= 2;
             case 12: // 16 bit array
             case 13: // 16 bit array (odd length)
-                throw Error("16 bit arrays not supported yet");
+                if (nWords > 0)
+                    this.words16 = this.decodeShorts(nWords, bits, this._format & 1);
+                break;
             case 20: // 8 bit array, length-4 (64 bit image)
             case 21: // ... length-5
             case 22: // ... length-6
@@ -1191,9 +1270,15 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
         if (fmt === 3 && primHandler.vm.isContext(this))
             return this.pointers[Squeak.Context_stackPointer]; // no access beyond top of stacks
         if (fmt < 6) return this.pointersSize() - this.instSize(); // pointers
+        // 64-bit indexable (DoubleWordArray) lives in words64; asking wordsSize() answers 0,
+        // which made every at: fail with a subscript-out-of-bounds (hit by Pharo 12+).
+        if (fmt === 9) return this.words64Size();
         if (fmt < 12) return this.wordsSize(); // words
-        if (fmt < 16) return this.shortsSize(); // shorts
+        if (fmt < 16) return this.words16Size(); // shorts
         if (fmt < 24) return this.bytesSize(); // bytes
+        // methods: 4 bytes per literal slot even in 64-bit images — SqueakJS normalizes all
+        // pcs to 4 bytes/literal at load (vm.image.js fixPCs) and hacks Smalltalk wordSize
+        // to answer 4, so in-image initialPC math matches this indexing.
         return 4 * this.pointersSize() + this.bytesSize(); // methods
     },
     snapshotSize: function() {
@@ -1487,6 +1572,11 @@ Object.subclass('Squeak.Image',
         var is64Bit = version >= 68000;
         if (is64Bit && !this.isSpur) throw Error("64 bit non-spur images not supported yet");
         if (is64Bit)  { readWord = readWord64; wordSize = 8; }
+        // remember the image word size (4 or 8). NB: pcs and CompiledMethod at:-indexing use
+        // 4 bytes/literal regardless — 64-bit pcs are normalized at load (fixPCs) and
+        // Smalltalk wordSize is hacked to answer 4 (see hackImage) so in-image math matches.
+        this.is64Bit = is64Bit;
+        this.wordSize = wordSize;
         // parse image header
         var imageHeaderSize = readWord32(); // always 32 bits
         var objectMemorySize = readWord(); //first unused location in heap
@@ -1786,9 +1876,13 @@ Object.subclass('Squeak.Image',
             obj = this.firstOldObject;
         while (obj) {
             if (obj.sqClass === clsMethodContext) {
-                obj.pointers[pc] -= obj.pointers[method].pointers.length * 4;
+                // terminated contexts store nil as their ip — leave those alone
+                // (nil - n would turn them into NaN)
+                if (typeof obj.pointers[pc] === "number")
+                    obj.pointers[pc] -= obj.pointers[method].pointers.length * 4;
             } else if (obj.sqClass === clsBlockClosure) {
-                obj.pointers[startpc] -= obj.pointers[outerContext].pointers[method].pointers.length * 4;
+                if (typeof obj.pointers[startpc] === "number")
+                    obj.pointers[startpc] -= obj.pointers[outerContext].pointers[method].pointers.length * 4;
             }
             obj = obj.nextObject;
         }
@@ -2105,10 +2199,24 @@ Object.subclass('Squeak.Image',
     },
     instantiateClass: function(aClass, indexableSize, filler) {
         var newObject = new (aClass.classInstProto()); // Squeak.Object
-        var hash = this.registerObject(newObject);
+        var hash = aClass === this.contextClass() ? this.registerContext(newObject)
+            : this.registerObject(newObject);
         newObject.initInstanceOf(aClass, indexableSize, hash, filler);
         this.hasNewInstances[aClass.oop] = true;   // need GC to find all instances
         return newObject;
+    },
+    contextClass: function() {
+        return this.specialObjectsArray.pointers[Squeak.splOb_ClassMethodContext];
+    },
+    registerContext: function(obj) {
+        // like registerObject, but contexts draw their identity hashes from a
+        // separate stream: their allocation pattern is an implementation detail
+        // (recycling, or stack-zone frames that materialize contexts lazily),
+        // and interleaving them into the main stream would make every other
+        // object's identity hash depend on it
+        obj.oop = -(++this.newSpaceCount);
+        this.lastContextHash = (13849 + (27181 * (this.lastContextHash || 999))) & 0xFFFFFFFF;
+        return this.lastContextHash & 0xFFF;
     },
     clone: function(object) {
         var newObject = new (object.sqClass.classInstProto()); // Squeak.Object
@@ -2134,6 +2242,10 @@ Object.subclass('Squeak.Image',
             this.vm.storeContextRegisters();    // still need to update active context
         // obj.oop used as dict key here is why we store them
         // rather than just calculating at image snapshot time
+        // a plain object, not a Map, on purpose: old-space oops are positive, so V8
+        // keeps them as elements and a miss — which is what almost every one of the
+        // millions of lookups below is — is faster than hashing. Measured on Pharo 13,
+        // Squeak 6.0 and Cuis 7.8: a Map is 5% to 29% slower.
         var mutations = {};
         for (var i = 0; i < n; i++) {
             var obj = fromArray[i];
@@ -2173,7 +2285,11 @@ Object.subclass('Squeak.Image',
             // and mutate body pointers
             var body = obj.pointers;
             if (body) for (var j = 0; j < body.length; j++) {
-                mut = mutations[body[j].oop];
+                // SmallIntegers are plain JS numbers and can never be becomed; skipping
+                // them here avoids a lookup for ~40% of all the pointer fields in the heap
+                var val = body[j];
+                if (typeof val === "number") continue;
+                mut = mutations[val.oop];
                 if (mut) {
                     body[j] = mut;
                     if (mut.oop < 0) obj.dirty = true;
@@ -2787,9 +2903,16 @@ Object.subclass('Squeak.Interpreter',
         this.primHandler = new Squeak.Primitives(this, display);
         this.loadImageState();
         this.initVMState();
+        // presencia del flag alcanza: el launcher puede reescribir #stackZone
+        // como stackZone= (valor string vacío, falsy)
+        if (this.options.stackZone !== undefined && this.options.stackZone !== false
+            && this.enableStackZone) this.enableStackZone();
         this.loadInitialContext();
         this.hackImage();
         this.initCompiler();
+        if (this.useStackZone && this.options.jit2 !== undefined && this.options.jit2 !== false
+            && this.compiler && Squeak.Compiler2)
+            this.compiler = new Squeak.Compiler2(this); // stack-to-register jit (WIP, opt-in)
         console.log('squeak: ready');
     },
     loadImageState: function() {
@@ -2810,6 +2933,20 @@ Object.subclass('Squeak.Interpreter',
     initVMState: function() {
         this.byteCodeCount = 0;
         this.sendCount = 0;
+        this.stack = null; // operand stack array (activeContext.pointers; a zone page once stack frames land)
+        this.temps = null; // temp base array (homeContext.pointers; a zone page once stack frames land)
+        this.tempOffset = Squeak.Context_tempFrameStart; // index of temp 0 in this.temps
+        // stack-zone state, declared here for stable object shape even when unused
+        this.jsDepth = 0; // profundidad de llamadas JS directas (modo frames)
+        this.LEAF_DEOPT_ = null;
+        this.jit2LeafHook = null;
+        this.nLeafCalls = 0;
+        this.nLeafDeopts = 0;
+        this.useStackZone = false;
+        this.zonePages = null;
+        this.zonePage = null;
+        this.fp = -1;
+        this.contextClass_ = null; // set by enableStackZone; gates married-context probes
         this.interruptCheckCounter = 0;
         this.interruptCheckCounterFeedBackReset = 1000;
         this.interruptChecksEveryNms = 3;
@@ -2869,7 +3006,11 @@ Object.subclass('Squeak.Interpreter',
         if (smalltalkClass === "SmalltalkImage") {
             var globals = smalltalk.pointers[0],
                 globalsClass = globals.sqClass.className();
-            if (globalsClass === "SystemDictionary")
+            // Pharo 13 renamed the globals holder to SystemEnvironment. It is still a
+            // HashedCollection laid out as (tally, array), so it is read like a
+            // SystemDictionary — without this the VM finds no globals at all, and the
+            // image dies on startup instead of booting.
+            if (globalsClass === "SystemDictionary" || globalsClass === "SystemEnvironment")
                 return function() { return globals.pointers[1].pointers; };
             if (globalsClass === "Environment")
                 return function() { return globals.pointers[2].pointers[1].pointers; };
@@ -2914,6 +3055,10 @@ Object.subclass('Squeak.Interpreter',
             //{method: "String>>translatedInAllDomains", primitive: returnSelf, enabled: true},
             // 64 bit Squeak does not flush word size on snapshot
             {method: "SmalltalkImage>>wordSize", literal: {index: 1, old: 8, hack: 4, skip: this.nilObj}, enabled: true},
+            // Pharo caches it in VirtualMachine's WordSize class var instead (SmalltalkImage>>wordSize
+            // just delegates to it). Same stale-8 problem, same fix: we normalize all 64-bit pcs to
+            // 4 bytes/literal at load (see fixPCs), so in-image initialPC math must use 4 as well.
+            {method: "VirtualMachine>>wordSize", literal: {index: 1, old: 8, hack: 4, skip: this.nilObj}, enabled: true},
             // Squeak 5.3 disable wizard by replacing #open send with pop
             {method: "ReleaseBuilder class>>prepareEnvironment", bytecode: {pc: 28, old: 0xD8, hack: 0x87}, enabled: !sista & this.options.wizard===false},
             // Squeak 6.0 disable wizard by replacing #openWelcomeWorkspacesWith: send with pop
@@ -2926,6 +3071,15 @@ Object.subclass('Squeak.Interpreter',
             {method: "Latin1Environment class>>systemConverterClass", bytecode: {pc: 50, old: 0x44, hack: 0x48}, enabled: this.image.isSpur && !sista},
             // New FFI can't detect platform – pretend to be 32 bit intel
             {method: "FFIPlatformDescription>>abi", literal: { index: 21, old_str: 'UNKNOWN_ABI', new_str: 'IA32'}, enabled: sista},
+            // Pharo: at startup Iceberg initializes libgit2 through the FFI, which SqueakJS
+            // has no backend for. The failure is re-raised (LGitLibrary>>initializeLibGit2
+            // does `ex pass`) and Pharo shows a post-mortem debugger ("Cannot locate libgit2"
+            // in 32-bit / FFICallout subclassResponsibility in 64-bit) over an otherwise fresh
+            // world — the "FFI errors on open" users hit. There is no git in the browser, so
+            // make the startup a no-op: Iceberg then simply runs git-less, exactly as on a
+            // machine without libgit2. LGitLibrary only exists in Pharo, so this is a no-op
+            // elsewhere. Same landmine in 32- and 64-bit images.
+            {method: "LGitLibrary class>>startUp:", neuter: true, enabled: true},
         ].forEach(function(each) {
             try {
                 var m = each.enabled && this.findMethod(each.method);
@@ -2935,7 +3089,14 @@ Object.subclass('Squeak.Interpreter',
                         lit = each.literal,
                         hacked = true;
                     if (byte && byte.closure) m = m.pointers[byte.closure];
-                    if (prim) m.pointers[0] |= prim;
+                    if (each.neuter) {
+                        // Make the method a no-op (^self) by overwriting its first bytecode
+                        // with return-receiver (Sista 0x58 / V3 0x78). Only safe when the
+                        // method has no primitive (else bytes[0..] is the callPrimitive).
+                        if (m.methodPrimitiveIndex() !== 0) hacked = false;
+                        else { m.bytes[0] = m.methodSignFlag() ? 0x58 : 0x78; m.compiled = null; }
+                    }
+                    else if (prim) m.pointers[0] |= prim;
                     else if (byte && m.bytes[byte.pc] === byte.old) m.bytes[byte.pc] = byte.hack;
                     else if (byte && m.bytes[byte.pc] === byte.hack) hacked = false; // already there
                     else if (lit && lit.old_str && m.pointers[lit.index].bytesAsString() === lit.old_str) m.pointers[lit.index] = this.primHandler.makeStString(lit.new_str);
@@ -2982,7 +3143,7 @@ Object.subclass('Squeak.Interpreter',
             // load temporary variable
             case 0x10: case 0x11: case 0x12: case 0x13: case 0x14: case 0x15: case 0x16: case 0x17:
             case 0x18: case 0x19: case 0x1A: case 0x1B: case 0x1C: case 0x1D: case 0x1E: case 0x1F:
-                this.push(this.homeContext.pointers[Squeak.Context_tempFrameStart+(b&0xF)]); return;
+                this.push(this.temps[this.tempOffset+(b&0xF)]); return;
 
             // loadLiteral
             case 0x20: case 0x21: case 0x22: case 0x23: case 0x24: case 0x25: case 0x26: case 0x27:
@@ -3001,9 +3162,9 @@ Object.subclass('Squeak.Interpreter',
             // storeAndPop rcvr, temp
             case 0x60: case 0x61: case 0x62: case 0x63: case 0x64: case 0x65: case 0x66: case 0x67:
                 this.receiver.dirty = true;
-                this.receiver.pointers[b&7] = this.pop(); return;
+                this.storeInstVar(b&7, this.pop()); return;
             case 0x68: case 0x69: case 0x6A: case 0x6B: case 0x6C: case 0x6D: case 0x6E: case 0x6F:
-                this.homeContext.pointers[Squeak.Context_tempFrameStart+(b&7)] = this.pop(); return;
+                this.temps[this.tempOffset+(b&7)] = this.pop(); return;
 
             // Quick push
             case 0x70: this.push(this.receiver); return;
@@ -3021,7 +3182,7 @@ Object.subclass('Squeak.Interpreter',
             case 0x7A: this.doReturn(this.falseObj); return;
             case 0x7B: this.doReturn(this.nilObj); return;
             case 0x7C: this.doReturn(this.pop()); return;
-            case 0x7D: this.doReturn(this.pop(), this.activeContext.pointers[Squeak.BlockContext_caller]); return; // blockReturn
+            case 0x7D: this.doBlockReturn(this.pop()); return; // blockReturn
             case 0x7E: this.nono(); return;
             case 0x7F: this.nono(); return;
             // Sundry
@@ -3046,15 +3207,15 @@ Object.subclass('Squeak.Interpreter',
             case 0x8B: this.callPrimBytecode(0x81);
                 return;
             case 0x8C: b2 = this.nextByte(); // remote push from temp vector
-                this.push(this.homeContext.pointers[Squeak.Context_tempFrameStart+this.nextByte()].pointers[b2]);
+                this.push(this.temps[this.tempOffset+this.nextByte()].pointers[b2]);
                 return;
             case 0x8D: b2 = this.nextByte(); // remote store into temp vector
-                var vec = this.homeContext.pointers[Squeak.Context_tempFrameStart+this.nextByte()];
+                var vec = this.temps[this.tempOffset+this.nextByte()];
                 vec.pointers[b2] = this.top();
                 vec.dirty = true;
                 return;
             case 0x8E: b2 = this.nextByte(); // remote store and pop into temp vector
-                var vec = this.homeContext.pointers[Squeak.Context_tempFrameStart+this.nextByte()];
+                var vec = this.temps[this.tempOffset+this.nextByte()];
                 vec.pointers[b2] = this.pop();
                 vec.dirty = true;
                 return;
@@ -3161,9 +3322,9 @@ Object.subclass('Squeak.Interpreter',
 
             // load temporary variable
             case 0x40: case 0x41: case 0x42: case 0x43: case 0x44: case 0x45: case 0x46: case 0x47:
-                this.push(this.homeContext.pointers[Squeak.Context_tempFrameStart+(b&0x7)]); return;
+                this.push(this.temps[this.tempOffset+(b&0x7)]); return;
             case 0x48: case 0x49: case 0x4A: case 0x4B:
-                this.push(this.homeContext.pointers[Squeak.Context_tempFrameStart+(b&0x3)+8]); return;
+                this.push(this.temps[this.tempOffset+(b&0x3)+8]); return;
 
             case 0x4C: this.push(this.receiver); return;
             case 0x4D: this.push(this.trueObj); return;
@@ -3174,6 +3335,11 @@ Object.subclass('Squeak.Interpreter',
             case 0x52:
                 if (extB == 0) {
                     this.push(this.exportThisContext()); return;
+                } else if (extB == 1) {
+                    // Sista: bytecode 82 with Extend B = 1 is "push thisProcess". Pharo 13
+                    // compiles it (Process>>terminate among others), and without it the image
+                    // dies on startup with an unimplemented-bytecode trap.
+                    this.push(this.activeProcess()); return;
                 } else {
                     this.nono(); return;
                 }
@@ -3184,10 +3350,10 @@ Object.subclass('Squeak.Interpreter',
             case 0x5A: this.doReturn(this.falseObj); return;
             case 0x5B: this.doReturn(this.nilObj); return;
             case 0x5C: this.doReturn(this.pop()); return;
-            case 0x5D: this.doReturn(this.nilObj, this.activeContext.pointers[Squeak.BlockContext_caller]); return; // blockReturn nil
+            case 0x5D: this.doBlockReturn(this.nilObj); return; // blockReturn nil
             case 0x5E:
                 if (extA == 0) {
-                    this.doReturn(this.pop(), this.activeContext.pointers[Squeak.BlockContext_caller]); return; // blockReturn
+                    this.doBlockReturn(this.pop()); return; // blockReturn
                 } else {
                     this.nono(); return;
                 }
@@ -3258,9 +3424,9 @@ Object.subclass('Squeak.Interpreter',
             // storeAndPop rcvr, temp
             case 0xC8: case 0xC9: case 0xCA: case 0xCB: case 0xCC: case 0xCD: case 0xCE: case 0xCF:
                 this.receiver.dirty = true;
-                this.receiver.pointers[b&7] = this.pop(); return;
+                this.storeInstVar(b&7, this.pop()); return;
             case 0xD0: case 0xD1: case 0xD2: case 0xD3: case 0xD4: case 0xD5: case 0xD6: case 0xD7:
-                this.homeContext.pointers[Squeak.Context_tempFrameStart+(b&7)] = this.pop(); return;
+                this.temps[this.tempOffset+(b&7)] = this.pop(); return;
 
             case 0xD8: this.pop(); return;  // pop
             case 0xD9: this.nono(); return; // FIXME: Unconditional trap
@@ -3280,7 +3446,7 @@ Object.subclass('Squeak.Interpreter',
             case 0xE4:
                 b2 = this.nextByte(); this.push(this.method.methodGetLiteral(b2 + (extA << 8))); return;
             case 0xE5:
-                b2 = this.nextByte(); this.push(this.homeContext.pointers[Squeak.Context_tempFrameStart+b2]); return;
+                b2 = this.nextByte(); this.push(this.temps[this.tempOffset+b2]); return;
             case 0xE6: this.nono(); return; // unused
             case 0xE7: this.pushNewArray(this.nextByte()); return; // create new temp vector
             case 0xE8: b2 = this.nextByte(); this.push(b2 + (extB << 8)); return; // push SmallInteger
@@ -3309,7 +3475,7 @@ Object.subclass('Squeak.Interpreter',
                 this.jumpIfFalse(this.nextByte() + (extB << 8)); return;
             case 0xF0: // pop into receiver
                 this.receiver.dirty = true;
-                this.receiver.pointers[this.nextByte() + (extA << 8)] = this.pop();
+                this.storeInstVar(this.nextByte() + (extA << 8), this.pop());
                 return;
             case 0xF1: // pop into literal
                 var assoc = this.method.methodGetLiteral(this.nextByte() + (extA << 8));
@@ -3317,11 +3483,11 @@ Object.subclass('Squeak.Interpreter',
                 assoc.pointers[Squeak.Assn_value] = this.pop();
                 return;
             case 0xF2: // pop into temp
-                this.homeContext.pointers[Squeak.Context_tempFrameStart + this.nextByte()] = this.pop();
+                this.temps[this.tempOffset + this.nextByte()] = this.pop();
                 return;
             case 0xF3: // store into receiver
                 this.receiver.dirty = true;
-                this.receiver.pointers[this.nextByte() + (extA << 8)] = this.top();
+                this.storeInstVar(this.nextByte() + (extA << 8), this.top());
                 return;
             case 0xF4: // store into literal
                 var assoc = this.method.methodGetLiteral(this.nextByte() + (extA << 8));
@@ -3329,7 +3495,7 @@ Object.subclass('Squeak.Interpreter',
                 assoc.pointers[Squeak.Assn_value] = this.top();
                 return;
             case 0xF5: // store into temp
-                this.homeContext.pointers[Squeak.Context_tempFrameStart + this.nextByte()] = this.top();
+                this.temps[this.tempOffset + this.nextByte()] = this.top();
                 return;
             case 0xF6: case 0xF7: this.nono(); return; // unused
 
@@ -3339,15 +3505,15 @@ Object.subclass('Squeak.Interpreter',
             case 0xF9: this.pushFullClosure(extA); return;
             case 0xFA: this.pushClosureCopyExtended(extA, extB); return;
             case 0xFB: b2 = this.nextByte(); // remote push from temp vector
-                this.push(this.homeContext.pointers[Squeak.Context_tempFrameStart+this.nextByte()].pointers[b2]);
+                this.push(this.temps[this.tempOffset+this.nextByte()].pointers[b2]);
                 return;
             case 0xFC: b2 = this.nextByte(); // remote store into temp vector
-                var vec = this.homeContext.pointers[Squeak.Context_tempFrameStart+this.nextByte()];
+                var vec = this.temps[this.tempOffset+this.nextByte()];
                 vec.pointers[b2] = this.top();
                 vec.dirty = true;
                 return;
             case 0xFD: b2 = this.nextByte(); // remote store and pop into temp vector
-                var vec = this.homeContext.pointers[Squeak.Context_tempFrameStart+this.nextByte()];
+                var vec = this.temps[this.tempOffset+this.nextByte()];
                 vec.pointers[b2] = this.pop();
                 vec.dirty = true;
                 return;
@@ -3416,6 +3582,11 @@ Object.subclass('Squeak.Interpreter',
     nextByte: function() {
         return this.method.bytes[this.pc++];
     },
+    activeProcess: function() {
+        // The scheduler's current process, for the "push thisProcess" bytecode.
+        var sched = this.specialObjects[Squeak.splOb_SchedulerAssociation].pointers[Squeak.Assn_value];
+        return sched.pointers[Squeak.ProcSched_activeProcess];
+    },
     nono: function() {
         throw Error("Oh No!");
     },
@@ -3479,7 +3650,7 @@ Object.subclass('Squeak.Interpreter',
         var lobits = nextByte & 63;
         switch (nextByte>>6) {
             case 0: this.push(this.receiver.pointers[lobits]);break;
-            case 1: this.push(this.homeContext.pointers[Squeak.Context_tempFrameStart+lobits]); break;
+            case 1: this.push(this.temps[this.tempOffset+lobits]); break;
             case 2: this.push(this.method.methodGetLiteral(lobits)); break;
             case 3: this.push(this.method.methodGetLiteral(lobits).pointers[Squeak.Assn_value]); break;
         }
@@ -3489,10 +3660,10 @@ Object.subclass('Squeak.Interpreter',
         switch (nextByte>>6) {
             case 0:
                 this.receiver.dirty = true;
-                this.receiver.pointers[lobits] = this.top();
+                this.storeInstVar(lobits, this.top());
                 break;
             case 1:
-                this.homeContext.pointers[Squeak.Context_tempFrameStart+lobits] = this.top();
+                this.temps[this.tempOffset+lobits] = this.top();
                 break;
             case 2:
                 this.nono();
@@ -3509,10 +3680,10 @@ Object.subclass('Squeak.Interpreter',
         switch (nextByte>>6) {
             case 0:
                 this.receiver.dirty = true;
-                this.receiver.pointers[lobits] = this.pop();
+                this.storeInstVar(lobits, this.pop());
                 break;
             case 1:
-                this.homeContext.pointers[Squeak.Context_tempFrameStart+lobits] = this.pop();
+                this.temps[this.tempOffset+lobits] = this.pop();
                 break;
             case 2:
                 this.nono();
@@ -3532,8 +3703,8 @@ Object.subclass('Squeak.Interpreter',
             case 2: this.push(this.receiver.pointers[byte3]); break;
             case 3: this.push(this.method.methodGetLiteral(byte3)); break;
             case 4: this.push(this.method.methodGetLiteral(byte3).pointers[Squeak.Assn_value]); break;
-            case 5: this.receiver.dirty = true; this.receiver.pointers[byte3] = this.top(); break;
-            case 6: this.receiver.dirty = true; this.receiver.pointers[byte3] = this.pop(); break;
+            case 5: this.receiver.dirty = true; this.storeInstVar(byte3, this.top()); break;
+            case 6: this.receiver.dirty = true; this.storeInstVar(byte3, this.pop()); break;
             case 7: var assoc = this.method.methodGetLiteral(byte3);
                 assoc.dirty = true;
                 assoc.pointers[Squeak.Assn_value] = this.top(); break;
@@ -3567,6 +3738,13 @@ Object.subclass('Squeak.Interpreter',
         }
     },
     getErrorObjectFromPrimFailCode: function() {
+        // a primitive may hand back a specific error object (e.g. FileAttributesPlugin
+        // fails with a PrimitiveError whose errorCode Pharo maps to an exception class)
+        if (this.primFailErrorObject) {
+            var errObj = this.primFailErrorObject;
+            this.primFailErrorObject = null;
+            return errObj;
+        }
         var primErrTable = this.specialObjects[Squeak.splOb_PrimErrTableIndex];
         if (primErrTable && primErrTable.pointers) {
             var errorObject = primErrTable.pointers[this.primFailCode - 1];
@@ -3598,7 +3776,7 @@ Object.subclass('Squeak.Interpreter',
             blockSize = blockSizeHigh * 256 + this.nextByte(),
             initialPC = this.encodeSqueakPC(this.pc, this.method),
             closure = this.newClosure(numArgs, initialPC, numCopied);
-        closure.pointers[Squeak.Closure_outerContext] = this.activeContext;
+        closure.pointers[Squeak.Closure_outerContext] = this.activeContextObj();
         this.reclaimableContextCount = 0; // The closure refers to thisContext so it can't be reclaimed
         if (numCopied > 0) {
             for (var i = 0; i < numCopied; i++)
@@ -3616,7 +3794,7 @@ Object.subclass('Squeak.Interpreter',
             blockSize = byteB + (extB << 8),
             initialPC = this.encodeSqueakPC(this.pc, this.method),
             closure = this.newClosure(numArgs, initialPC, numCopied);
-        closure.pointers[Squeak.Closure_outerContext] = this.activeContext;
+        closure.pointers[Squeak.Closure_outerContext] = this.activeContextObj();
         this.reclaimableContextCount = 0; // The closure refers to thisContext so it can't be reclaimed
         if (numCopied > 0) {
             for (var i = 0; i < numCopied; i++)
@@ -3633,9 +3811,9 @@ Object.subclass('Squeak.Interpreter',
         var numCopied = byteB & 63;
         var context;
         if ((byteB >> 6 & 1) == 1) {
-            context = this.vm.nilObj;
+            context = this.nilObj;
         } else {
-            context = this.activeContext;
+            context = this.activeContextObj();
         }
         var compiledBlock = this.method.methodGetLiteral(literalIndex);
         var closure = this.newFullClosure(context, numCopied, compiledBlock);
@@ -3774,7 +3952,7 @@ Object.subclass('Squeak.Interpreter',
             var indent = ' ';
             var ctx = this.activeContext;
             while (!ctx.isNil) { indent += '| '; ctx = ctx.pointers[Squeak.Context_sender]; }
-            var args = this.activeContext.pointers.slice(this.sp + 1 - argumentCount, this.sp + 1);
+            var args = this.stack.slice(this.sp + 1 - argumentCount, this.sp + 1);
             console.log(this.sendCount + indent + this.printMethod(newMethod, optClass, optSel, args));
         }
         if (this.breakOnContextChanged) {
@@ -3794,7 +3972,7 @@ Object.subclass('Squeak.Interpreter',
         newContext.pointers[Squeak.Context_sender] = this.activeContext;
         //Copy receiver and args to new context
         //Note this statement relies on the receiver slot being contiguous with args...
-        this.arrayCopy(this.activeContext.pointers, this.sp-argumentCount, newContext.pointers, Squeak.Context_tempFrameStart-1, argumentCount+1);
+        this.arrayCopy(this.stack, this.sp-argumentCount, newContext.pointers, Squeak.Context_tempFrameStart-1, argumentCount+1);
         //...and fill the remaining temps with nil
         this.arrayFill(newContext.pointers, Squeak.Context_tempFrameStart+argumentCount, Squeak.Context_tempFrameStart+tempCount, this.nilObj);
         this.popN(argumentCount+1);
@@ -3808,6 +3986,9 @@ Object.subclass('Squeak.Interpreter',
         this.method = newMethod;
         this.pc = newPC;
         this.sp = newSP;
+        this.stack = newContext.pointers;
+        this.temps = newContext.pointers; // home === newContext for method activations
+        this.tempOffset = Squeak.Context_tempFrameStart;
         this.receiver = newContext.pointers[Squeak.Context_receiver];
         if (this.receiver !== newRcvr)
             throw Error("receivers don't match");
@@ -3868,6 +4049,22 @@ Object.subclass('Squeak.Interpreter',
             this.breakNow();
         }
     },
+    doBlockReturn: function(returnValue) {
+        // return from block to its caller (stack-zone mode rebinds this)
+        this.doReturn(returnValue, this.activeContext.pointers[Squeak.BlockContext_caller]);
+    },
+    activeContextObj: function() {
+        // the active context as an object (stack-zone mode rebinds this to marry the frame)
+        return this.activeContext;
+    },
+    storeInstVar: function(index, value) {
+        // receiver inst-var store from a bytecode; in stack-zone mode a store
+        // into a married-live context must go through the write-through path
+        var rcvr = this.receiver;
+        if (rcvr.sqClass === this.contextClass_ && rcvr.frame != null)
+            return this.storeToMarriedContext(rcvr, index, value);
+        rcvr.pointers[index] = value;
+    },
     aboutToReturnThrough: function(resultObj, aContext) {
         this.push(this.exportThisContext());
         this.push(resultObj);
@@ -3918,7 +4115,7 @@ Object.subclass('Squeak.Interpreter',
         //Bundle up receiver, args and selector as a messageObject
         var message = this.instantiateClass(this.specialObjects[Squeak.splOb_ClassMessage], 0);
         var argArray = this.instantiateClass(this.specialObjects[Squeak.splOb_ClassArray], argCount);
-        this.arrayCopy(this.activeContext.pointers, this.sp-argCount+1, argArray.pointers, 0, argCount); //copy args from stack
+        this.arrayCopy(this.stack, this.sp-argCount+1, argArray.pointers, 0, argCount); //copy args from stack
         message.pointers[Squeak.Message_selector] = selector;
         message.pointers[Squeak.Message_arguments] = argArray;
         if (message.pointers.length > Squeak.Message_lookupClass) //Early versions don't have lookupClass
@@ -3934,7 +4131,7 @@ Object.subclass('Squeak.Interpreter',
             // selector has been found, rearrange stack
             if (entry.argCount !== trueArgCount)
                 return false;
-        var stack = this.activeContext.pointers; // slide eveything down...
+        var stack = this.stack; // slide eveything down...
             var selectorIndex = this.sp - trueArgCount;
         this.arrayCopy(stack, selectorIndex+1, stack, selectorIndex, trueArgCount);
         this.sp--; // adjust sp accordingly
@@ -3966,7 +4163,7 @@ Object.subclass('Squeak.Interpreter',
             // selector has been found, rearrange stack
             if (entry.argCount !== trueArgCount)
                 return false;
-        var stack = this.activeContext.pointers;
+        var stack = this.stack;
             var selectorIndex = this.sp - (argCount - 1);
             stack[selectorIndex - 1] = rcvr;
         this.arrayCopy(args.pointers, 0, stack, selectorIndex, trueArgCount);
@@ -4080,6 +4277,9 @@ Object.subclass('Squeak.Interpreter',
         this.method = meth;
         this.pc = this.decodeSqueakPC(ctxt.pointers[Squeak.Context_instructionPointer], meth);
         this.sp = this.decodeSqueakSP(ctxt.pointers[Squeak.Context_stackPointer]);
+        this.stack = ctxt.pointers; // operand stack array; sp indexes into it
+        this.temps = this.homeContext.pointers; // temp access: temps[tempOffset+n]
+        this.tempOffset = Squeak.Context_tempFrameStart;
     },
     storeContextRegisters: function() {
         //Save pc, sp into activeContext object, prior to change of context
@@ -4143,25 +4343,25 @@ Object.subclass('Squeak.Interpreter',
 'stack access', {
     pop: function() {
         //Note leaves garbage above SP.  Cleaned out by fullGC.
-        return this.activeContext.pointers[this.sp--];
+        return this.stack[this.sp--];
     },
     popN: function(nToPop) {
         this.sp -= nToPop;
     },
     push: function(object) {
-        this.activeContext.pointers[++this.sp] = object;
+        this.stack[++this.sp] = object;
     },
     popNandPush: function(nToPop, object) {
-        this.activeContext.pointers[this.sp -= nToPop - 1] = object;
+        this.stack[this.sp -= nToPop - 1] = object;
     },
     top: function() {
-        return this.activeContext.pointers[this.sp];
+        return this.stack[this.sp];
     },
     stackTopPut: function(object) {
-        this.activeContext.pointers[this.sp] = object;
+        this.stack[this.sp] = object;
     },
     stackValue: function(depthIntoStack) {
-        return this.activeContext.pointers[this.sp - depthIntoStack];
+        return this.stack[this.sp - depthIntoStack];
     },
     stackInteger: function(depthIntoStack) {
         return this.checkSmallInt(this.stackValue(depthIntoStack));
@@ -4609,7 +4809,7 @@ Object.subclass('Squeak.Interpreter',
         console.log(this.printStack()
             + this.printActiveContext() + '\n\n'
             + this.printByteCodes(this.method, '   ', '=> ', this.pc),
-            this.activeContext.pointers.slice(0, this.sp + 1));
+            this.stack.slice(0, this.sp + 1));
     },
     willSendOrReturn: function() {
         // Answer whether the next bytecode corresponds to a Smalltalk
@@ -5584,24 +5784,24 @@ Object.subclass('Squeak.Primitives',
             case 19: return false;                                 // Guard primitive for simulation -- *must* fail
             // LargeInteger Primitives (20-39)
             // 32-bit logic is aliased to Integer prims above
-            case 20: this.vm.warnOnce("missing primitive: 20 (primitiveRemLargeIntegers)"); return false;
-            case 21: this.vm.warnOnce("missing primitive: 21 (primitiveAddLargeIntegers)"); return false;
-            case 22: this.vm.warnOnce("missing primitive: 22 (primitiveSubtractLargeIntegers)"); return false;
+            case 20: return this.primitiveRemLargeIntegers(argCount);
+            case 21: return this.primitiveAddLargeIntegers(argCount);
+            case 22: return this.primitiveSubtractLargeIntegers(argCount);
             case 23: return this.primitiveLessThanLargeIntegers(argCount);
             case 24: return this.primitiveGreaterThanLargeIntegers(argCount);
             case 25: return this.primitiveLessOrEqualLargeIntegers(argCount);
             case 26: return this.primitiveGreaterOrEqualLargeIntegers(argCount);
             case 27: return this.primitiveEqualLargeIntegers(argCount);
             case 28: return this.primitiveNotEqualLargeIntegers(argCount);
-            case 29: this.vm.warnOnce("missing primitive: 29 (primitiveMultiplyLargeIntegers)"); return false;
-            case 30: this.vm.warnOnce("missing primitive: 30 (primitiveDivideLargeIntegers)"); return false;
-            case 31: this.vm.warnOnce("missing primitive: 31 (primitiveModLargeIntegers)"); return false;
-            case 32: this.vm.warnOnce("missing primitive: 32 (primitiveDivLargeIntegers)"); return false;
-            case 33: this.vm.warnOnce("missing primitive: 33 (primitiveQuoLargeIntegers)"); return false;
-            case 34: this.vm.warnOnce("missing primitive: 34 (primitiveBitAndLargeIntegers)"); return false;
-            case 35: this.vm.warnOnce("missing primitive: 35 (primitiveBitOrLargeIntegers)"); return false;
-            case 36: this.vm.warnOnce("missing primitive: 36 (primitiveBitXorLargeIntegers)"); return false;
-            case 37: this.vm.warnOnce("missing primitive: 37 (primitiveBitShiftLargeIntegers)"); return false;
+            case 29: return this.primitiveMultiplyLargeIntegers(argCount);
+            case 30: return this.primitiveDivideLargeIntegers(argCount);
+            case 31: return this.primitiveModLargeIntegers(argCount);
+            case 32: return this.primitiveDivLargeIntegers(argCount);
+            case 33: return this.primitiveQuoLargeIntegers(argCount);
+            case 34: return this.primitiveBitAndLargeIntegers(argCount);
+            case 35: return this.primitiveBitOrLargeIntegers(argCount);
+            case 36: return this.primitiveBitXorLargeIntegers(argCount);
+            case 37: return this.primitiveBitShiftLargeIntegers(argCount);
             case 38: return this.popNandPushIfOK(argCount+1, this.objectAt(false,false,false)); // Float basicAt
             case 39: return this.popNandPushIfOK(argCount+1, this.objectAtPut(false,false,false)); // Float basicAtPut
             // Float Primitives (40-59)
@@ -5631,9 +5831,9 @@ Object.subclass('Squeak.Primitives',
             case 62: return this.popNandPushIfOK(argCount+1, this.objectSize(false)); // size
             case 63: return this.popNandPushIfOK(argCount+1, this.objectAt(false,true,false)); // String.basicAt:
             case 64: return this.popNandPushIfOK(argCount+1, this.objectAtPut(false,true,false)); // String.basicAt:put:
-            case 65: this.vm.warnOnce("missing primitive: 65 (primitiveNext)"); return false;
-            case 66: this.vm.warnOnce("missing primitive: 66 (primitiveNextPut)"); return false;
-            case 67: this.vm.warnOnce("missing primitive: 67 (primitiveAtEnd)"); return false;
+            case 65: return this.primitiveStreamNext(argCount); // primitiveNext
+            case 66: return this.primitiveStreamNextPut(argCount); // primitiveNextPut
+            case 67: return this.primitiveStreamAtEnd(argCount); // primitiveAtEnd
             // StorageManagement Primitives (68-79)
             case 68: return this.popNandPushIfOK(argCount+1, this.objectAt(false,false,true)); // Method.objectAt:
             case 69: return this.popNandPushIfOK(argCount+1, this.objectAtPut(false,false,true)); // Method.objectAt:put:
@@ -5729,10 +5929,11 @@ Object.subclass('Squeak.Primitives',
             case 154: if (this.oldPrims) return this.primitiveFileRead(argCount);
             case 155: if (this.oldPrims) return this.primitiveFileSetPosition(argCount);
             case 156: if (this.oldPrims) return this.primitiveFileDelete(argCount);
+                else return this.primitiveBytesEqual(argCount);
             case 157: if (this.oldPrims) return this.primitiveFileSize(argCount);
                 break;  // fail 150-157 if fell through
             case 158: if (this.oldPrims) return this.primitiveFileWrite(argCount);
-                else this.vm.warnOnce("missing primitive: 158 (primitiveCompareWith)"); return false;
+                else return this.primitiveCompareWith(argCount);
             case 159: if (this.oldPrims) return this.primitiveFileRename(argCount);
                 return this.popNandPushIntIfOK(argCount+1, this.stackSigned53BitInt(0) * 1664525 & 0xFFFFFFF); // primitiveHashMultiply
             case 160: if (this.oldPrims) return this.primitiveDirectoryCreate(argCount);
@@ -5945,12 +6146,20 @@ Object.subclass('Squeak.Primitives',
         return this.success;
     },
     doNamedPrimitive: function(argCount, primMethod) {
-        if (primMethod.pointersSize() < 2) return false;
-        var firstLiteral = primMethod.pointers[1]; // skip method header
-        if (firstLiteral.pointersSize() !== 4) return false;
+        // Los nombres de módulo/función viven en el 1er literal y NO cambian para
+        // un método dado. Decodificarlos con bytesAsString EN CADA llamada era ~10%
+        // del trabajo en workloads con muchos primitivos-117 (medido en profile del
+        // browser, modo ctx). Se cachean en el método (el modo frames ya cachea la
+        // función resuelta vía primFn; esto es el equivalente mínimo para ctx).
+        var moduleName = primMethod._primModName, functionName = primMethod._primFuncName;
+        if (moduleName === undefined) {
+            if (primMethod.pointersSize() < 2) return false;
+            var firstLiteral = primMethod.pointers[1]; // skip method header
+            if (firstLiteral.pointersSize() !== 4) return false;
+            moduleName = primMethod._primModName = firstLiteral.pointers[0].bytesAsString();
+            functionName = primMethod._primFuncName = firstLiteral.pointers[1].bytesAsString();
+        }
         this.primMethod = primMethod;
-        var moduleName = firstLiteral.pointers[0].bytesAsString();
-        var functionName = firstLiteral.pointers[1].bytesAsString();
         return this.namedPrimitive(moduleName, functionName, argCount);
     },
     fakePrimitive: function(prim, retVal, argCount) {
@@ -6103,6 +6312,36 @@ Object.subclass('Squeak.Primitives',
             bytes = lgIntObj.bytes;
         for (var i=0; i<4; i++)
             bytes[i] = (signed32>>>(8*i)) & 255;
+        return lgIntObj;
+    },
+    stackPos64BitInt: function(nDeep) {
+        // The inverse of pos64BitIntFor: a SmallInteger or LargePositiveInteger off the
+        // stack, as a BigInt suitable for a DoubleWordArray slot.
+        var stackVal = this.vm.stackValue(nDeep);
+        if (typeof stackVal === "number") {
+            if (stackVal >= 0) return BigInt(stackVal);
+            this.success = false;
+            return 0n;
+        }
+        if (!this.isA(stackVal, Squeak.splOb_ClassLargePositiveInteger) || !stackVal.bytes) {
+            this.success = false;
+            return 0n;
+        }
+        var big = 0n;
+        for (var i = stackVal.bytes.length - 1; i >= 0; i--) big = (big << 8n) | BigInt(stackVal.bytes[i]);
+        return big;
+    },
+    pos64BitIntFor: function(bigint) {
+        // A whole 64-bit unsigned value, as read from a DoubleWordArray. Small enough
+        // values come back as SmallIntegers; the rest as a LargePositiveInteger, which is
+        // why this takes a BigInt — beyond 2^53 a JS number can no longer name them exactly.
+        if (typeof bigint !== "bigint") bigint = BigInt(bigint);
+        if (bigint <= 0x1FFFFFFFFFFFFFn) return this.pos53BitIntFor(Number(bigint));
+        var bytes = [];
+        for (var v = bigint; v > 0n; v >>= 8n) bytes.push(Number(v & 255n));
+        var lgIntClass = this.vm.specialObjects[Squeak.splOb_ClassLargePositiveInteger],
+            lgIntObj = this.vm.instantiateClass(lgIntClass, bytes.length);
+        for (var i = 0; i < bytes.length; i++) lgIntObj.bytes[i] = bytes[i];
         return lgIntObj;
     },
     pos53BitIntFor: function(longlong) {
@@ -6292,6 +6531,113 @@ Object.subclass('Squeak.Primitives',
     },
     primitiveNotEqualLargeIntegers: function(argCount) {
         return this.popNandPushBoolIfOK(argCount+1, this.stackSigned53BitInt(1) !== this.stackSigned53BitInt(0));
+    },
+    // --- Aritmética LargeInteger (21,22,29,30-33,20) y bit-ops (34-37) ---
+    // Faltaban en SqueakJS: cada operación caía a la implementación en Smalltalk
+    // (cientos de sends: digitAdd:, normalize, ...). Acá se hacen con BigInt, que
+    // es exacto para cualquier tamaño y respeta las semánticas de Squeak. Los
+    // operandos pueden ser SmallInteger o LargeInteger; el resultado se normaliza
+    // a SmallInteger si entra en rango. Toggle: primHandler.largeIntPrims=false
+    // restaura el fallback (para medir A/B).
+    bigIntFromStackInt: function(nDeep) {
+        var v = this.vm.stackValue(nDeep);
+        if (typeof v === "number") return BigInt(v);       // SmallInteger
+        var isPos = this.isA(v, Squeak.splOb_ClassLargePositiveInteger);
+        if ((isPos || this.isA(v, Squeak.splOb_ClassLargeNegativeInteger)) && v.bytes) {
+            var bytes = v.bytes, val = 0n;
+            for (var i = bytes.length - 1; i >= 0; i--) val = (val << 8n) | BigInt(bytes[i]);
+            return isPos ? val : -val;
+        }
+        this.success = false;
+        return 0n;
+    },
+    squeakIntFromBigInt: function(b) {
+        if (b >= BigInt(Squeak.MinSmallInt) && b <= BigInt(Squeak.MaxSmallInt)) return Number(b);
+        var neg = b < 0n, mag = neg ? -b : b, bytes = [];
+        while (mag > 0n) { bytes.push(Number(mag & 255n)); mag >>= 8n; }
+        if (bytes.length === 0) bytes.push(0);
+        var cls = this.vm.specialObjects[neg ? Squeak.splOb_ClassLargeNegativeInteger : Squeak.splOb_ClassLargePositiveInteger],
+            obj = this.vm.instantiateClass(cls, bytes.length);
+        for (var i = 0; i < bytes.length; i++) obj.bytes[i] = bytes[i];
+        return obj;
+    },
+    primitiveAddLargeIntegers: function(argCount) {
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success) return false;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a + b));
+    },
+    primitiveSubtractLargeIntegers: function(argCount) {
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success) return false;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a - b));
+    },
+    primitiveMultiplyLargeIntegers: function(argCount) {
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success) return false;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a * b));
+    },
+    primitiveDivideLargeIntegers: function(argCount) { // 30: / exacto (falla si no divide)
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success || b === 0n || a % b !== 0n) return false;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a / b));
+    },
+    primitiveDivLargeIntegers: function(argCount) { // 32: // división con piso
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success || b === 0n) return false;
+        var q = a / b, r = a % b;
+        if (r !== 0n && ((r < 0n) !== (b < 0n))) q -= 1n;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(q));
+    },
+    primitiveModLargeIntegers: function(argCount) { // 31: \\ módulo con piso (signo del divisor)
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success || b === 0n) return false;
+        var r = a % b;
+        if (r !== 0n && ((r < 0n) !== (b < 0n))) r += b;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(r));
+    },
+    primitiveQuoLargeIntegers: function(argCount) { // 33: quo: truncado hacia cero
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success || b === 0n) return false;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a / b));
+    },
+    primitiveRemLargeIntegers: function(argCount) { // 20: rem: (signo del dividendo)
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success || b === 0n) return false;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a % b));
+    },
+    primitiveBitAndLargeIntegers: function(argCount) { // 34
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success || a < 0n || b < 0n) return false; // negativos: two's complement infinito, fallback
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a & b));
+    },
+    primitiveBitOrLargeIntegers: function(argCount) { // 35
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success || a < 0n || b < 0n) return false;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a | b));
+    },
+    primitiveBitXorLargeIntegers: function(argCount) { // 36
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
+        if (!this.success || a < 0n || b < 0n) return false;
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a ^ b));
+    },
+    primitiveBitShiftLargeIntegers: function(argCount) { // 37
+        if (this.largeIntPrims === false) return false;
+        var a = this.bigIntFromStackInt(1), shift = this.vm.stackValue(0);
+        if (typeof shift !== "number" || a < 0n) { this.success = false; return false; }
+        if (!this.success) return false;
+        var s = BigInt(shift), res = s >= 0n ? (a << s) : (a >> -s);
+        return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(res));
     },
 },
 'utils', {
@@ -6495,6 +6841,65 @@ Object.subclass('Squeak.Primitives',
     },
 },
 'indexing', {
+    // Stream primitives 65/66/67 (PositionableStream). Como el VM real de Squeak,
+    // solo manejan colecciones Array o String; ante cualquier otra cosa o borde
+    // (índice fuera de límite, tipos raros) devuelven false → fallback a Smalltalk,
+    // que es siempre correcto. Antes de mutar la posición validamos TODO, así un
+    // fallback nunca la doble-avanza. writeLimit es el instVar 3 (WriteStream).
+    primitiveStreamNext: function(argCount) {
+        if (this.streamPrims === false) return false;
+        var stream = this.stackNonInteger(0);
+        if (!stream.pointers || stream.pointers.length <= Squeak.Stream_limit) return false;
+        var array = stream.pointers[Squeak.Stream_array],
+            index = stream.pointers[Squeak.Stream_position],
+            limit = stream.pointers[Squeak.Stream_limit];
+        if (typeof index !== "number" || typeof limit !== "number") return false;
+        if (index >= limit || !array || !array.sqClass) return false;
+        var result;
+        if (array.sqClass === this.vm.specialObjects[Squeak.splOb_ClassArray]) {
+            if (!array.pointers || index >= array.pointers.length) return false;
+            result = array.pointers[index];
+        } else if (array.sqClass === this.vm.specialObjects[Squeak.splOb_ClassString]) {
+            if (!array.bytes || index >= array.bytes.length) return false;
+            result = this.charFromInt(array.bytes[index] & 0xFF);
+        } else return false;
+        if (result === undefined || result === null) return false;
+        stream.pointers[Squeak.Stream_position] = index + 1;
+        return this.popNandPushIfOK(argCount + 1, result);
+    },
+    primitiveStreamNextPut: function(argCount) {
+        if (this.streamPrims === false) return false;
+        var value = this.vm.stackValue(0),
+            stream = this.stackNonInteger(1);
+        if (!stream.pointers || stream.pointers.length <= 3) return false;
+        var array = stream.pointers[Squeak.Stream_array],
+            index = stream.pointers[Squeak.Stream_position],
+            limit = stream.pointers[3]; // writeLimit
+        if (typeof index !== "number" || typeof limit !== "number") return false;
+        if (index >= limit || !array || !array.sqClass) return false;
+        if (array.sqClass === this.vm.specialObjects[Squeak.splOb_ClassArray]) {
+            if (!array.pointers || index >= array.pointers.length) return false;
+            array.pointers[index] = value;
+            array.dirty = true;
+        } else if (array.sqClass === this.vm.specialObjects[Squeak.splOb_ClassString]) {
+            if (!array.bytes || index >= array.bytes.length) return false;
+            if (!value || value.sqClass !== this.vm.specialObjects[Squeak.splOb_ClassCharacter]) return false;
+            var ascii = this.charToInt(value);
+            if (typeof ascii !== "number" || ascii < 0 || ascii > 255) return false;
+            array.bytes[index] = ascii;
+        } else return false;
+        stream.pointers[Squeak.Stream_position] = index + 1;
+        return this.popNandPushIfOK(argCount + 1, value);
+    },
+    primitiveStreamAtEnd: function(argCount) {
+        if (this.streamPrims === false) return false;
+        var stream = this.stackNonInteger(0);
+        if (!stream.pointers || stream.pointers.length <= Squeak.Stream_limit) return false;
+        var index = stream.pointers[Squeak.Stream_position],
+            limit = stream.pointers[Squeak.Stream_limit];
+        if (typeof index !== "number" || typeof limit !== "number") return false;
+        return this.popNandPushIfOK(argCount + 1, index >= limit ? this.vm.trueObj : this.vm.falseObj);
+    },
     objectAt: function(cameFromBytecode, convertChars, includeInstVars) {
         //Returns result of at: or sets success false
         var array = this.stackNonInteger(1);
@@ -6518,13 +6923,16 @@ Object.subclass('Squeak.Primitives',
             return array.pointers[index-1];
         if (array.isPointers())   //pointers...   normal at:
             return array.pointers[index-1+info.ivarOffset];
+        if (array.isWords64()) // 64-bit words (DoubleWordArray)
+            return this.pos64BitIntFor(array.words64[index-1]);
         if (array.isWords()) // words...
             if (info.convertChars) return this.charFromInt(array.words[index-1] & 0x3FFFFFFF);
             else return this.pos32BitIntFor(array.words[index-1]);
         if (array.isBytes()) // bytes...
             if (info.convertChars) return this.charFromInt(array.bytes[index-1] & 0xFF);
             else return array.bytes[index-1] & 0xFF;
-        // methods must simulate Squeak's method indexing
+        // methods must simulate Squeak's method indexing (4 bytes/literal even in 64-bit
+        // images — pcs are normalized at load, see vm.image.js fixPCs)
         var offset = array.pointersSize() * 4;
         if (index-1-offset < 0) {this.success = false; return array;} //reading lits as bytes
         return array.bytes[index-1-offset] & 0xFF;
@@ -6561,6 +6969,12 @@ Object.subclass('Squeak.Primitives',
             return array.pointers[index-1+info.ivarOffset] = objToPut;
         }
         var intToPut;
+        if (array.isWords64()) { // 64-bit words (DoubleWordArray)
+            var big = this.stackPos64BitInt(0);
+            if (!this.success) return array;
+            array.words64[index-1] = big;
+            return objToPut;
+        }
         if (array.isWords()) {  // words...
             if (convertChars) {
                 // put a character...
@@ -6588,7 +7002,8 @@ Object.subclass('Squeak.Primitives',
         if (intToPut<0 || intToPut>255) {this.success = false; return objToPut;}
         if (array.isBytes())  // bytes...
             {array.bytes[index-1] = intToPut; return objToPut;}
-        // methods must simulate Squeak's method indexing
+        // methods must simulate Squeak's method indexing (4 bytes/literal even in 64-bit
+        // images — pcs are normalized at load, see vm.image.js fixPCs)
         var offset = array.pointersSize() * 4;
         if (index-1-offset < 0) {this.success = false; return array;} //writing lits as bytes
         array.bytes[index-1-offset] = intToPut;
@@ -6824,7 +7239,7 @@ Object.subclass('Squeak.Primitives',
             primIdx = this.stackInteger(1);
         if (!this.success) return false;
         var arraySize = argumentArray.pointersSize(),
-            cntxSize = this.vm.activeContext.pointersSize();
+            cntxSize = this.vm.activeContextObj().pointersSize();
         if (this.vm.sp + arraySize >= cntxSize) return false;
         // Pop primIndex and argArray, then push args in place...
         this.vm.popN(2);
@@ -6845,7 +7260,7 @@ Object.subclass('Squeak.Primitives',
             primMethod = this.stackNonInteger(2);
         if (!this.success) return false;
         var arraySize = argumentArray.pointersSize(),
-            cntxSize = this.vm.activeContext.pointersSize();
+            cntxSize = this.vm.activeContextObj().pointersSize();
         if (this.vm.sp + arraySize >= cntxSize) return false;
         // Pop primIndex, rcvr, and argArray, then push new receiver and args in place...
         this.vm.popN(3);
@@ -6950,7 +7365,56 @@ Object.subclass('Squeak.Primitives',
         if (argCount > 1) copyHash = this.stackBoolean(argCount-2);
         if (!this.success) return false;
         this.success = this.vm.image.bulkBecome(rcvr.pointers, arg.pointers, doBothWays, copyHash);
+        // become may have swapped the active context's pointers array
+        if (!this.vm.useStackZone) {
+            this.vm.stack = this.vm.activeContext.pointers;
+            this.vm.temps = this.vm.homeContext.pointers;
+        }
         return this.popNIfOK(argCount);
+    },
+    primitiveBytesEqual: function(argCount) {
+        // ByteArray>>= and friends. The Smalltalk fallback is SequenceableCollection>>=,
+        // which answers on identity, then on species, then on the elements. We only
+        // answer when both are plain byte objects of the SAME class (which implies the
+        // same species); anything else fails and the image decides, as before.
+        if (argCount !== 1) return false;
+        var other = this.stackNonInteger(0),
+            rcvr = this.stackNonInteger(1);
+        if (!this.success) return false;
+        if (!rcvr.bytes || !other.bytes) return false;      // word-based arrays: not ours
+        if (rcvr.sqClass !== other.sqClass) return false;
+        var a = rcvr.bytes, b = other.bytes;
+        if (a.length !== b.length) return this.popNandPushBoolIfOK(argCount + 1, false);
+        for (var i = 0; i < a.length; i++)
+            if (a[i] !== b[i]) return this.popNandPushBoolIfOK(argCount + 1, false);
+        return this.popNandPushBoolIfOK(argCount + 1, true);
+    },
+    primitiveCompareWith: function(argCount) {
+        // String>>compareWith: aString  /  compareWith: aString collated: order
+        // Answers -1, 0 or 1. Both dialects agree on that: Pharo returns those
+        // directly, Squeak computes (compare:with:collated:) - 2. Note this is
+        // NOT the 1/2/3 of MiscPrimitivePlugin's primitiveCompareString.
+        // Without a collation table (compareWith:) the bytes are their own order.
+        if (argCount !== 1 && argCount !== 2) return false;
+        var order = argCount === 2 ? this.stackNonInteger(0) : null,
+            string2 = this.stackNonInteger(argCount - 1),
+            string1 = this.stackNonInteger(argCount);
+        if (!this.success) return false;
+        var b1 = string1.bytes, b2 = string2.bytes;
+        if (!b1 || !b2) return false;       // WideString and friends: let Smalltalk do it
+        var map = null;
+        if (order) {
+            map = order.bytes;
+            if (!map || map.length < 256) return false;
+        }
+        var len1 = b1.length, len2 = b2.length,
+            n = len1 < len2 ? len1 : len2;
+        for (var i = 0; i < n; i++) {
+            var c1 = map ? map[b1[i]] : b1[i],
+                c2 = map ? map[b2[i]] : b2[i];
+            if (c1 !== c2) return this.popNandPushIntIfOK(argCount + 1, c1 < c2 ? -1 : 1);
+        }
+        return this.popNandPushIntIfOK(argCount + 1, len1 === len2 ? 0 : len1 < len2 ? -1 : 1);
     },
     doStringReplace: function() {
         var dst = this.stackNonInteger(4);
@@ -6973,6 +7437,7 @@ Object.subclass('Squeak.Primitives',
                 {this.success= false; return dst;} //would go out of bounds
             for (var i = 0; i < count; i++)
                 dst.pointers[dstPos + i] = src.pointers[srcPos + i];
+            dst.dirty = true; // we may have just stored a young object into an old one
             return dst;
         } else if (src.isWords()) { //words type objects
             var totalLength = src.wordsSize();
@@ -6987,6 +7452,10 @@ Object.subclass('Squeak.Primitives',
                 dst.wordsAsFloat64Array()[dstPos] = src.float;
             else if (dst.isFloat)
                 dst.float = src.wordsAsFloat64Array()[srcPos];
+            else if (count >= 32 && (dst.words !== src.words || dstPos <= srcPos || dstPos >= srcPos + count))
+                dst.words === src.words // see the note on the byte copy below
+                    ? dst.words.copyWithin(dstPos, srcPos, srcPos + count)
+                    : dst.words.set(src.words.subarray(srcPos, srcPos + count), dstPos);
             else for (var i = 0; i < count; i++)
                 dst.words[dstPos + i] = src.words[srcPos + i];
             return dst;
@@ -6997,7 +7466,26 @@ Object.subclass('Squeak.Primitives',
             totalLength = dst.bytesSize();
             if ((dstPos < 0) || (dstPos + count) > totalLength)
                 {this.success = false; return dst;} //would go out of bounds
-            for (var i = 0; i < count; i++)
+            // Copy through the typed array rather than element by element: this is
+            // primitive 105, which is how Squeak moves every String, ByteArray and
+            // Bitmap around, and it showed up at 8.8% of the time inside the longest
+            // frames of a Dialogo session. set() is specified to handle a source and
+            // target that share a buffer, and copyWithin behaves like memmove, so a
+            // self-copy stays correct. Small copies stay on the loop: below a few
+            // dozen elements the subarray view costs more than it saves.
+            //
+            // One case has to stay on the loop for a different reason. When an object
+            // is copied onto itself and the destination starts INSIDE the source, the
+            // element loop reads back what it has already written and smears the first
+            // values across the range, while copyWithin behaves like memmove and does
+            // not. Squeak's own Smalltalk fallback for this primitive is a forward
+            // loop, so the smear is the behaviour images have always seen here; this
+            // is a speed-up, not the place to change what it does.
+            if (count >= 32 && (dst.bytes !== src.bytes || dstPos <= srcPos || dstPos >= srcPos + count))
+                dst.bytes === src.bytes
+                    ? dst.bytes.copyWithin(dstPos, srcPos, srcPos + count)
+                    : dst.bytes.set(src.bytes.subarray(srcPos, srcPos + count), dstPos);
+            else for (var i = 0; i < count; i++)
                 dst.bytes[dstPos + i] = src.bytes[srcPos + i];
             return dst;
         }
@@ -7064,11 +7552,11 @@ Object.subclass('Squeak.Primitives',
         if (typeof blockArgCount !== "number") return false;
         if (blockArgCount != argCount) return false;
         if (!block.pointers[Squeak.BlockContext_caller].isNil) return false;
-        this.vm.arrayCopy(this.vm.activeContext.pointers, this.vm.sp-argCount+1, block.pointers, Squeak.Context_tempFrameStart, argCount);
+        this.vm.arrayCopy(this.vm.stack, this.vm.sp-argCount+1, block.pointers, Squeak.Context_tempFrameStart, argCount);
         var initialIP = block.pointers[Squeak.BlockContext_initialIP];
         block.pointers[Squeak.Context_instructionPointer] = initialIP;
         block.pointers[Squeak.Context_stackPointer] = argCount;
-        block.pointers[Squeak.BlockContext_caller] = this.vm.activeContext;
+        block.pointers[Squeak.BlockContext_caller] = this.vm.activeContextObj();
         this.vm.popN(argCount+1);
         this.vm.newActiveContext(block);
         if (this.vm.interruptCheckCounter-- <= 0) this.vm.checkForInterrupts();
@@ -7087,7 +7575,7 @@ Object.subclass('Squeak.Primitives',
         var initialIP = block.pointers[Squeak.BlockContext_initialIP];
         block.pointers[Squeak.Context_instructionPointer] = initialIP;
         block.pointers[Squeak.Context_stackPointer] = blockArgCount;
-        block.pointers[Squeak.BlockContext_caller] = this.vm.activeContext;
+        block.pointers[Squeak.BlockContext_caller] = this.vm.activeContextObj();
         this.vm.popN(argCount+1);
         this.vm.newActiveContext(block);
         if (this.vm.interruptCheckCounter-- <= 0) this.vm.checkForInterrupts();
@@ -7250,7 +7738,7 @@ Object.subclass('Squeak.Primitives',
         var oldProc = sched.pointers[Squeak.ProcSched_activeProcess];
         sched.pointers[Squeak.ProcSched_activeProcess] = newProc;
         sched.dirty = true;
-        oldProc.pointers[Squeak.Proc_suspendedContext] = this.vm.activeContext;
+        oldProc.pointers[Squeak.Proc_suspendedContext] = this.vm.activeContextObj();
         oldProc.dirty = true;
         this.vm.newActiveContext(newProc.pointers[Squeak.Proc_suspendedContext]);
         newProc.pointers[Squeak.Proc_suspendedContext] = this.vm.nilObj;
@@ -7340,15 +7828,18 @@ Object.subclass('Squeak.Primitives',
     },
     registerSemaphore: function(specialObjIndex) {
         var sema = this.vm.top();
-        if (this.isA(sema, Squeak.splOb_ClassSemaphore))
+        if (this.isKindOf(sema, Squeak.splOb_ClassSemaphore))
             this.vm.specialObjects[specialObjIndex] = sema;
         else
             this.vm.specialObjects[specialObjIndex] = this.vm.nilObj;
         return this.vm.stackValue(1);
     },
     primitiveWait: function() {
+        // Subclasses count: Pharo 13 waits on a SymbolTableSemaphore, and an exact-class
+        // check failed the primitive, so Symbol class>>intern: could never take its lock —
+        // no symbol could be created and the image never finished starting up.
         var sema = this.vm.top();
-        if (!this.isA(sema, Squeak.splOb_ClassSemaphore)) return false;
+        if (!this.isKindOf(sema, Squeak.splOb_ClassSemaphore)) return false;
         var excessSignals = sema.pointers[Squeak.Semaphore_excessSignals];
         if (excessSignals > 0)
             sema.pointers[Squeak.Semaphore_excessSignals] = excessSignals - 1;
@@ -7360,7 +7851,7 @@ Object.subclass('Squeak.Primitives',
     },
     primitiveSignal: function() {
         var sema = this.vm.top();
-        if (!this.isA(sema, Squeak.splOb_ClassSemaphore)) return false;
+        if (!this.isKindOf(sema, Squeak.splOb_ClassSemaphore)) return false;
         this.synchronousSignal(sema);
         return true;
     },
@@ -7373,7 +7864,7 @@ Object.subclass('Squeak.Primitives',
         return;
     },
     signalAtMilliseconds: function(sema, msTime) {
-        if (this.isA(sema, Squeak.splOb_ClassSemaphore)) {
+        if (this.isKindOf(sema, Squeak.splOb_ClassSemaphore)) {
             this.vm.specialObjects[Squeak.splOb_TheTimerSemaphore] = sema;
             this.vm.nextWakeupTick = msTime;
         } else {
@@ -7625,10 +8116,39 @@ Object.subclass('Squeak.Primitives',
         this.vm.popN(argCount);
         return true;
     },
+    primitiveInterpreterSourceVersion: function(argCount) {
+        // Pharo parses this via (version splitOn: 'Date: ') second asDate, and
+        // DiskStore>>checkVMVersion requires that date >= 2019-01-05 — otherwise the
+        // error aborts DiskStore's startUp before it sets its working directory
+        // (breaking FileSystem workingDirectory and startup scripts). Use the same
+        // "<version> Date: <iso date>" shape the real VM (and our attribute 1009) uses.
+        return this.popNandPushIfOK(argCount + 1, this.makeStString(Squeak.vmVersion + " Date: " + Squeak.vmDate));
+    },
+    primitiveGetCurrentWorkingDirectory: function(argCount) {
+        // Pharo's working-directory primitive (empty-module VM primitive, distinct
+        // from Cuis's FilePlugin.primitiveGetWorkingDirectory). Report our virtual
+        // FS root as a UTF-8 String.
+        var cwd = Squeak.workingDirectory || Squeak.vmPath || "/";
+        return this.popNandPushIfOK(argCount + 1, this.makeStString(this.filenameToSqueak(cwd)));
+    },
+    primitiveGetenv: function(argCount) {
+        // Pharo's UnixResolver reads HOME / TEMP / USER at startup to locate its
+        // work directories ("origin"). We expose a Unix-like FS rooted at "/", so
+        // hand back "/" for the home/temp vars (nil for the rest → Pharo derives
+        // XDG_* etc. from HOME). Without this it errors: "Can't find the requested origin".
+        var nameObj = this.stackNonInteger(0);
+        if (!this.success) return false;
+        var name = nameObj.bytesAsString();
+        var env = { HOME: "/", PWD: "/", TEMP: "/", TMP: "/", TMPDIR: "/",
+                    USER: "squeak", LOGNAME: "squeak" };
+        var val = env.hasOwnProperty(name) ? env[name] : null;
+        var result = val == null ? this.vm.nilObj : this.makeStString(val);
+        return this.popNandPushIfOK(argCount + 1, result);
+    },
     primitiveSnapshot: function(argCount) {
         this.vm.popNandPush(1, this.vm.trueObj);        // put true on stack for saved snapshot
         this.vm.storeContextRegisters();                // store current state for snapshot
-        this.activeProcess().pointers[Squeak.Proc_suspendedContext] = this.vm.activeContext; // store initial context
+        this.activeProcess().pointers[Squeak.Proc_suspendedContext] = this.vm.activeContextObj(); // store initial context
         this.vm.image.fullGC("snapshot");               // before cleanup so traversal works
         var buffer = this.vm.image.writeToBuffer();
         // Write snapshot if files are supported
@@ -7928,6 +8448,18 @@ to single-step.
         // if a compiler does not support single-stepping, return false
         return true;
     },
+    activationCheck: function() {
+        // expression that is true when the send/jump above switched activations
+        return this.vm.useStackZone
+            ? "vm.fp !== fp || vm.zonePage !== page"
+            : "context !== vm.activeContext";
+    },
+    tempIndex: function(n) {
+        // index expression for temp n inside this.source:
+        // context mode: constant (temps at homeContext.pointers[6+n]);
+        // stack-zone mode: frame-relative (temps at vm.temps[tempBase+n], tempBase per activation)
+        return this.vm.useStackZone ? "tB + " + n : Squeak.Context_tempFrameStart + n;
+    },
     functionNameFor: function(cls, sel) {
         if (cls === undefined || cls === '?') {
             var isMethod = this.method.sqClass === this.vm.specialObjects[Squeak.splOb_ClassCompiledMethod];
@@ -7962,11 +8494,15 @@ to single-step.
             this.source.push("// ", optClass, ">>", optSel, "\n");
         this.instVarNames = optInstVarNames;
         this.allVars = ['context', 'stack', 'rcvr', 'inst[', 'temp[', 'lit['];
-        this.sourcePos['context']    = this.source.length; this.source.push("var context = vm.activeContext;\n");
-        this.sourcePos['stack']      = this.source.length; this.source.push("var stack = context.pointers;\n");
+        this.sourcePos['context']    = this.source.length; this.source.push(this.vm.useStackZone
+            ? "var fp = vm.fp, page = vm.zonePage;\n"
+            : "var context = vm.activeContext;\n");
+        this.sourcePos['stack']      = this.source.length; this.source.push("var stack = vm.stack;\n");
         this.sourcePos['rcvr']       = this.source.length; this.source.push("var rcvr = vm.receiver;\n");
         this.sourcePos['inst[']      = this.source.length; this.source.push("var inst = rcvr.pointers;\n");
-        this.sourcePos['temp[']      = this.source.length; this.source.push("var temp = vm.homeContext.pointers;\n");
+        this.sourcePos['temp[']      = this.source.length; this.source.push(this.vm.useStackZone
+            ? "var temp = vm.temps, tB = vm.tempOffset;\n"
+            : "var temp = vm.temps;\n");
         this.sourcePos['lit[']       = this.source.length; this.source.push("var lit = vm.method.pointers;\n");
         this.sourcePos['loop-start'] = this.source.length; this.source.push("while (true) switch (vm.pc) {\ncase 0:\n");
         if (this.sista) this.generateSista(method);
@@ -7995,7 +8531,7 @@ to single-step.
                     break;
                 // load temp var
                 case 0x10: case 0x18:
-                    this.generatePush("temp[", 6 + (byte & 0xF), "]");
+                    this.generatePush("temp[", this.tempIndex((byte & 0xF)), "]");
                     break;
                 // loadLiteral
                 case 0x20: case 0x28: case 0x30: case 0x38:
@@ -8011,7 +8547,7 @@ to single-step.
                     break;
                 // storeAndPop temp var
                 case 0x68:
-                    this.generatePopInto("temp[", 6 + (byte & 0x07), "]");
+                    this.generatePopInto("temp[", this.tempIndex((byte & 0x07)), "]");
                     break;
                 // Quick push
                 case 0x70:
@@ -8089,7 +8625,7 @@ to single-step.
                 byte2 = this.method.bytes[this.pc++];
                 switch (byte2 >> 6) {
                     case 0: this.generatePush("inst[", byte2 & 0x3F, "]"); return;
-                    case 1: this.generatePush("temp[", 6 + (byte2 & 0x3F), "]"); return;
+                    case 1: this.generatePush("temp[", this.tempIndex((byte2 & 0x3F)), "]"); return;
                     case 2: this.generatePush("lit[", 1 + (byte2 & 0x3F), "]"); return;
                     case 3: this.generatePush("lit[", 1 + (byte2 & 0x3F), "].pointers[1]"); return;
                 }
@@ -8098,7 +8634,7 @@ to single-step.
                 byte2 = this.method.bytes[this.pc++];
                 switch (byte2 >> 6) {
                     case 0: this.generateStoreInto("inst[", byte2 & 0x3F, "]"); return;
-                    case 1: this.generateStoreInto("temp[", 6 + (byte2 & 0x3F), "]"); return;
+                    case 1: this.generateStoreInto("temp[", this.tempIndex((byte2 & 0x3F)), "]"); return;
                     case 2: throw Error("illegal store into literal");
                     case 3: this.generateStoreInto("lit[", 1 + (byte2 & 0x3F), "].pointers[1]"); return;
                 }
@@ -8108,7 +8644,7 @@ to single-step.
                 byte2 = this.method.bytes[this.pc++];
                 switch (byte2 >> 6) {
                     case 0: this.generatePopInto("inst[", byte2 & 0x3F, "]"); return;
-                    case 1: this.generatePopInto("temp[", 6 + (byte2 & 0x3F), "]"); return;
+                    case 1: this.generatePopInto("temp[", this.tempIndex((byte2 & 0x3F)), "]"); return;
                     case 2: throw Error("illegal pop into literal");
                     case 3: this.generatePopInto("lit[", 1 + (byte2 & 0x3F), "].pointers[1]"); return;
                 }
@@ -8172,19 +8708,19 @@ to single-step.
             case 0x8C:
                 byte2 = this.method.bytes[this.pc++];
                 byte3 = this.method.bytes[this.pc++];
-                this.generatePush("temp[", 6 + byte3, "].pointers[", byte2, "]");
+                this.generatePush("temp[", this.tempIndex(byte3), "].pointers[", byte2, "]");
                 return;
             // remote store into temp vector
             case 0x8D:
                 byte2 = this.method.bytes[this.pc++];
                 byte3 = this.method.bytes[this.pc++];
-                this.generateStoreInto("temp[", 6 + byte3, "].pointers[", byte2, "]");
+                this.generateStoreInto("temp[", this.tempIndex(byte3), "].pointers[", byte2, "]");
                 return;
             // remote store and pop into temp vector
             case 0x8E:
                 byte2 = this.method.bytes[this.pc++];
                 byte3 = this.method.bytes[this.pc++];
-                this.generatePopInto("temp[", 6 + byte3, "].pointers[", byte2, "]");
+                this.generatePopInto("temp[", this.tempIndex(byte3), "].pointers[", byte2, "]");
                 return;
             // pushClosureCopy
             case 0x8F:
@@ -8230,10 +8766,10 @@ to single-step.
                     break;
                 // load temporary variable
                 case 0x40: case 0x41: case 0x42: case 0x43: case 0x44: case 0x45: case 0x46: case 0x47:
-                    this.generatePush("temp[", 6 + (b & 0x07), "]");
+                    this.generatePush("temp[", this.tempIndex((b & 0x07)), "]");
                     break;
                 case 0x48: case 0x49: case 0x4A: case 0x4B:
-                    this.generatePush("temp[", 6 + (b & 0x03) + 8, "]");
+                    this.generatePush("temp[", this.tempIndex((b & 0x03) + 8), "]");
                     break;
                 case 0x4C: this.generatePush("rcvr");
                     break;
@@ -8249,7 +8785,16 @@ to single-step.
                     break;
                 case 0x52:
                     this.needsVar['stack'] = true;
-                    this.generateInstruction("push thisContext", "stack[++vm.sp] = vm.exportThisContext()");
+                    if (extB == 0) {
+                        this.generateInstruction("push thisContext", "stack[++vm.sp] = vm.exportThisContext()");
+                    } else if (extB == 1) {
+                        // Sista: bytecode 82 with Extend B = 1 is "push thisProcess" (see the
+                        // interpreter's 0x52). Pharo 13 compiles it in Process>>complete: and
+                        // friends; without this the JIT silently pushed thisContext instead.
+                        this.generateInstruction("push thisProcess", "stack[++vm.sp] = vm.activeProcess()");
+                    } else {
+                        throw Error("unusedBytecode " + b);
+                    }
                     break;
                 case 0x53:
                     this.needsVar['stack'] = true;
@@ -8271,7 +8816,9 @@ to single-step.
                     break;
                 case 0x5E: this.generateBlockReturn();
                     break;
-                case 0x5F: break; // nop
+                case 0x5F: this.generateInstruction("nop", ""); break; // emits no code, but the
+                    // next pc still has to be labeled: generateLabel() is what advances prevPC,
+                    // so skipping it leaves the instruction after a nop unreachable by jumps.
                 case 0x60: case 0x61: case 0x62: case 0x63: case 0x64: case 0x65: case 0x66: case 0x67:
                 case 0x68: case 0x69: case 0x6A: case 0x6B: case 0x6C: case 0x6D: case 0x6E: case 0x6F:
                     this.generateNumericOp(b);
@@ -8305,7 +8852,7 @@ to single-step.
                     this.generatePopInto("inst[", b & 0x07, "]");
                     break;
                 case 0xD0: case 0xD1: case 0xD2: case 0xD3: case 0xD4: case 0xD5: case 0xD6: case 0xD7:
-                    this.generatePopInto("temp[", 6 + (b & 0x07), "]");
+                    this.generatePopInto("temp[", this.tempIndex((b & 0x07)), "]");
                     break;
                 case 0xD8: this.generateInstruction("pop", "vm.sp--");
                     break;
@@ -8337,7 +8884,7 @@ to single-step.
                     break;
                 case 0xE5:
                     b2 = bytes[this.pc++];
-                    this.generatePush("temp[", 6 + b2, "]");
+                    this.generatePush("temp[", this.tempIndex(b2), "]");
                     break;
                 case 0xE6:
                     throw Error("unusedBytecode 0xE6");
@@ -8390,7 +8937,7 @@ to single-step.
                     break;
                 case 0xF2:
                     b2 = bytes[this.pc++];
-                    this.generatePopInto("temp[", 6 + b2, "]");
+                    this.generatePopInto("temp[", this.tempIndex(b2), "]");
                     break;
                 case 0xF3:
                     b2 = bytes[this.pc++];
@@ -8402,7 +8949,7 @@ to single-step.
                     break;
                 case 0xF5:
                     b2 = bytes[this.pc++];
-                    this.generateStoreInto("temp[", 6 + b2, "]");
+                    this.generateStoreInto("temp[", this.tempIndex(b2), "]");
                     break;
                 case 0xF6: case 0xF7:
                     throw Error("unusedBytecode " + b);
@@ -8417,7 +8964,7 @@ to single-step.
                 case 0xF9:
                     b2 = bytes[this.pc++];
                     b3 = bytes[this.pc++];
-                    this.generatePushFullClosure(b2 + extA * 255, b3);
+                    this.generatePushFullClosure(b2 + extA * 256, b3);
                     break;
                 case 0xFA:
                     b2 = bytes[this.pc++];
@@ -8430,17 +8977,17 @@ to single-step.
                 case 0xFB:
                     b2 = bytes[this.pc++];
                     b3 = bytes[this.pc++];
-                    this.generatePush("temp[", 6 + b3, "].pointers[", b2, "]");
+                    this.generatePush("temp[", this.tempIndex(b3), "].pointers[", b2, "]");
                     break;
                 case 0xFC:
                     b2 = bytes[this.pc++];
                     b3 = bytes[this.pc++];
-                    this.generateStoreInto("temp[", 6 + b3, "].pointers[", b2, "]");
+                    this.generateStoreInto("temp[", this.tempIndex(b3), "].pointers[", b2, "]");
                     break;
                 case 0xFD:
                     b2 = bytes[this.pc++];
                     b3 = bytes[this.pc++];
-                    this.generatePopInto("temp[", 6 + b3, "].pointers[", b2, "]");
+                    this.generatePopInto("temp[", this.tempIndex(b3), "].pointers[", b2, "]");
                     break;
                 case 0xFE: case 0xFF:
                     throw Error("unusedBytecode " + b);
@@ -8470,6 +9017,16 @@ to single-step.
         this.generateLabel();
         this.needsVar[target] = true;
         this.needsVar['stack'] = true;
+        if (this.vm.useStackZone && target === "inst[") {
+            // un store a un context casado-vivo debe pasar por write-through
+            // (flush + escritura sobre el context real); pc fresco para el resume
+            this.needsVar['context'] = true; // fp/page
+            this.source.push(
+                "if (rcvr.sqClass !== vm.contextClass_ || rcvr.frame == null) { inst[", arg1, "] = stack[vm.sp]; rcvr.dirty = true; }\n",
+                "else { vm.pc = ", this.pc, "; vm.storeToMarriedContext(rcvr, ", arg1, ", stack[vm.sp]); if (vm.fp !== fp || vm.zonePage !== page) return; }\n");
+            this.needsLabel[this.pc] = true;
+            return;
+        }
         this.source.push(target);
         if (arg1 !== undefined) {
             this.source.push(arg1, suffix1);
@@ -8485,6 +9042,15 @@ to single-step.
         this.generateLabel();
         this.needsVar[target] = true;
         this.needsVar['stack'] = true;
+        if (this.vm.useStackZone && target === "inst[") {
+            this.needsVar['context'] = true; // fp/page
+            this.source.push(
+                "var iv = stack[vm.sp--];\n",
+                "if (rcvr.sqClass !== vm.contextClass_ || rcvr.frame == null) { inst[", arg1, "] = iv; rcvr.dirty = true; }\n",
+                "else { vm.pc = ", this.pc, "; vm.storeToMarriedContext(rcvr, ", arg1, ", iv); if (vm.fp !== fp || vm.zonePage !== page) return; }\n");
+            this.needsLabel[this.pc] = true;
+            return;
+        }
         this.source.push(target);
         if (arg1 !== undefined) {
             this.source.push(arg1, suffix1);
@@ -8514,7 +9080,7 @@ to single-step.
         // actually stack === context.pointers but that would look weird
         this.needsVar['context'] = true;
         this.source.push(
-            "vm.pc = ", this.pc, "; vm.doReturn(", retVal, ", context.pointers[0]); return;\n");
+            "vm.pc = ", this.pc, "; vm.doBlockReturn(", retVal, "); return;\n");
         this.needsBreak = false; // returning anyway
         this.done = this.pc > this.endPC;
     },
@@ -8527,7 +9093,7 @@ to single-step.
         if (distance < 0) this.source.push(
             "\nif (vm.interruptCheckCounter-- <= 0) {\n",
             "   vm.checkForInterrupts();\n",
-            "   if (context !== vm.activeContext || vm.breakOutOfInterpreter !== false) return;\n",
+            "   if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return;\n",
             "}\n");
         if (this.singleStep) this.source.push("\nif (vm.breakOutOfInterpreter) return;\n");
         this.source.push("continue;\n");
@@ -8559,16 +9125,28 @@ to single-step.
                     "var a, b; if ((a=stack[vm.sp-1]).sqClass === vm.specialObjects[7] && a.pointers && typeof (b=stack[vm.sp]) === 'number' && b>0 && b<=a.pointers.length) {\n",
                     "  stack[--vm.sp] = a.pointers[b-1];",
                     "} else { var c = vm.primHandler.objectAt(true,true,false); if (vm.primHandler.success) stack[--vm.sp] = c; else {\n",
-                    "  vm.pc = ", this.pc, "; vm.sendSpecial(16); if (context !== vm.activeContext || vm.breakOutOfInterpreter !== false) return; }}\n");
+                    "  vm.pc = ", this.pc, "; vm.sendSpecial(16); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return; }}\n");
                 this.needsLabel[this.pc] = true;
                 return;
             case 0x1: // at:put:
                 this.needsVar['stack'] = true;
+                if (this.vm.useStackZone) {
+                    this.needsVar['context'] = true; // fp/page
+                    this.source.push(
+                        "var a, b; if ((a=stack[vm.sp-2]).sqClass === vm.specialObjects[7] && a.pointers && typeof (b=stack[vm.sp-1]) === 'number' && b>0 && b<=a.pointers.length) {\n",
+                        "  var c = stack[vm.sp]; stack[vm.sp-=2] = a.pointers[b-1] = c; a.dirty = true;",
+                        "} else { var c = stack[vm.sp]; vm.pc = ", this.prevPC, "; vm.primHandler.objectAtPut(true,true,false); if (vm.fp !== fp || vm.zonePage !== page) return;\n",
+                        "  if (vm.primHandler.success) stack[vm.sp-=2] = c; else {\n",
+                        "  vm.pc = ", this.pc, "; vm.sendSpecial(17); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return; }}\n");
+                    this.needsLabel[this.prevPC] = true;
+                    this.needsLabel[this.pc] = true;
+                    return;
+                }
                 this.source.push(
                     "var a, b; if ((a=stack[vm.sp-2]).sqClass === vm.specialObjects[7] && a.pointers && typeof (b=stack[vm.sp-1]) === 'number' && b>0 && b<=a.pointers.length) {\n",
                     "  var c = stack[vm.sp]; stack[vm.sp-=2] = a.pointers[b-1] = c; a.dirty = true;",
                     "} else { vm.primHandler.objectAtPut(true,true,false); if (vm.primHandler.success) stack[vm.sp-=2] = c; else {\n",
-                    "  vm.pc = ", this.pc, "; vm.sendSpecial(17); if (context !== vm.activeContext || vm.breakOutOfInterpreter !== false) return; }}\n");
+                    "  vm.pc = ", this.pc, "; vm.sendSpecial(17); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return; }}\n");
                 this.needsLabel[this.pc] = true;
                 return;
             case 0x2: // size
@@ -8576,7 +9154,7 @@ to single-step.
                 this.source.push(
                     "if (stack[vm.sp].sqClass === vm.specialObjects[7]) stack[vm.sp] = stack[vm.sp].pointersSize();\n",     // Array
                     "else if (stack[vm.sp].sqClass === vm.specialObjects[6]) stack[vm.sp] = stack[vm.sp].bytesSize();\n",   // ByteString
-                    "else { vm.pc = ", this.pc, "; vm.sendSpecial(18); if (context !== vm.activeContext || vm.breakOutOfInterpreter !== false) return; }\n");
+                    "else { vm.pc = ", this.pc, "; vm.sendSpecial(18); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return; }\n");
                 this.needsLabel[this.pc] = true;
                 return;
             //case 0x3: return false; // next
@@ -8617,7 +9195,7 @@ to single-step.
         this.source.push(
             "vm.pc = ", this.pc, "; if (!vm.primHandler.quickSendOther(rcvr, ", (byte & 0x0F), "))",
             " vm.sendSpecial(", ((byte & 0x0F) + 16), ");\n",
-            "if (context !== vm.activeContext || vm.breakOutOfInterpreter !== false) return;\n");
+            "if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return;\n");
         this.needsBreak = false; // already checked
         // if falling back to a full send we need a label for coming back
         this.needsLabel[this.pc] = true;
@@ -8634,42 +9212,42 @@ to single-step.
                 this.source.push("var a = stack[vm.sp - 1], b = stack[vm.sp];\n",
                 "if (typeof a === 'number' && typeof b === 'number') {\n",
                 "   stack[--vm.sp] = vm.primHandler.signed32BitIntegerFor(a + b);\n",
-                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(0); if (context !== vm.activeContext || vm.breakOutOfInterpreter !== false) return}\n");
+                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(0); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return}\n");
                 return;
             case 0x1: // MINUS -
                 this.needsVar['stack'] = true;
                 this.source.push("var a = stack[vm.sp - 1], b = stack[vm.sp];\n",
                 "if (typeof a === 'number' && typeof b === 'number') {\n",
                 "   stack[--vm.sp] = vm.primHandler.signed32BitIntegerFor(a - b);\n",
-                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(1); if (context !== vm.activeContext || vm.breakOutOfInterpreter !== false) return}\n");
+                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(1); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return}\n");
                 return;
             case 0x2: // LESS <
                 this.needsVar['stack'] = true;
                 this.source.push("var a = stack[vm.sp - 1], b = stack[vm.sp];\n",
                 "if (typeof a === 'number' && typeof b === 'number') {\n",
                 "   stack[--vm.sp] = a < b ? vm.trueObj : vm.falseObj;\n",
-                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(2); if (context !== vm.activeContext || vm.breakOutOfInterpreter !== false) return}\n");
+                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(2); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return}\n");
                 return;
             case 0x3: // GRTR >
                 this.needsVar['stack'] = true;
                 this.source.push("var a = stack[vm.sp - 1], b = stack[vm.sp];\n",
                 "if (typeof a === 'number' && typeof b === 'number') {\n",
                 "   stack[--vm.sp] = a > b ? vm.trueObj : vm.falseObj;\n",
-                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(3); if (context !== vm.activeContext || vm.breakOutOfInterpreter !== false) return}\n");
+                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(3); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return}\n");
                 return;
             case 0x4: // LEQ <=
                 this.needsVar['stack'] = true;
                 this.source.push("var a = stack[vm.sp - 1], b = stack[vm.sp];\n",
                 "if (typeof a === 'number' && typeof b === 'number') {\n",
                 "   stack[--vm.sp] = a <= b ? vm.trueObj : vm.falseObj;\n",
-                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(4); if (context !== vm.activeContext || vm.breakOutOfInterpreter !== false) return}\n");
+                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(4); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return}\n");
                 return;
             case 0x5: // GEQ >=
                 this.needsVar['stack'] = true;
                 this.source.push("var a = stack[vm.sp - 1], b = stack[vm.sp];\n",
                 "if (typeof a === 'number' && typeof b === 'number') {\n",
                 "   stack[--vm.sp] = a >= b ? vm.trueObj : vm.falseObj;\n",
-                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(5); if (context !== vm.activeContext || vm.breakOutOfInterpreter !== false) return}\n");
+                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(5); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return}\n");
                 return;
             case 0x6: // EQU =
                 this.needsVar['stack'] = true;
@@ -8678,7 +9256,7 @@ to single-step.
                 "   stack[--vm.sp] = a === b ? vm.trueObj : vm.falseObj;\n",
                 "} else if (a === b && a.float === a.float) {\n",   // NaN check
                 "   stack[--vm.sp] = vm.trueObj;\n",
-                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(6); if (context !== vm.activeContext || vm.breakOutOfInterpreter !== false) return}\n");
+                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(6); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return}\n");
                 return;
             case 0x7: // NEQ ~=
                 this.needsVar['stack'] = true;
@@ -8687,7 +9265,7 @@ to single-step.
                 "   stack[--vm.sp] = a !== b ? vm.trueObj : vm.falseObj;\n",
                 "} else if (a === b && a.float === a.float) {\n",   // NaN check
                 "   stack[--vm.sp] = vm.falseObj;\n",
-                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(7); if (context !== vm.activeContext || vm.breakOutOfInterpreter !== false) return}\n");
+                "} else { vm.pc = ", this.pc, "; vm.sendSpecial(7); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return}\n");
                 return;
             case 0x8: // TIMES *
                 this.source.push("vm.success = true; vm.resultIsFloat = false; if(!vm.pop2AndPushNumResult(vm.stackIntOrFloat(1) * vm.stackIntOrFloat(0))) { vm.pc = ", this.pc, "; vm.sendSpecial(8); return}\n");
@@ -8730,7 +9308,7 @@ to single-step.
         } else {
             this.source.push("; vm.send(", prefix, num, suffix, ", ", numArgs, ", ", superSend, "); ");
         }
-        this.source.push("if (context !== vm.activeContext || vm.breakOutOfInterpreter !== false) return;\n");
+        this.source.push("if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return;\n");
         this.needsBreak = false; // already checked
         // need a label for coming back after send
         this.needsLabel[this.pc] = true;
@@ -8756,7 +9334,7 @@ to single-step.
         this.needsVar['stack'] = true;
         this.source.push(
             "var closure = vm.instantiateClass(vm.specialObjects[36], ", numCopied, ");\n",
-            "closure.pointers[0] = context; vm.reclaimableContextCount = 0;\n",
+            "closure.pointers[0] = vm.activeContextObj(); vm.reclaimableContextCount = 0;\n",
             "closure.pointers[1] = ", from + this.method.pointers.length * 4 + 1, ";\n",  // encodeSqueakPC
             "closure.pointers[2] = ", numArgs, ";\n");
         if (numCopied > 0) {
@@ -9122,7 +9700,8 @@ Object.extend(Squeak.Primitives.prototype,
     initPlugins: function() {
         Object.extend(this.builtinModules, {
             JavaScriptPlugin:       this.findPluginFunctions("js_"),
-            FilePlugin:             this.findPluginFunctions("", "primitive(Disable)?(File|Directory)"),
+            FilePlugin:             this.findPluginFunctions("", "primitive(Disable)?(File|Directory|(Get|Set)WorkingDirectory)"),
+            FileAttributesPlugin:   this.findPluginFunctions("fileAttributes_", "prim"),
             DropPlugin:             this.findPluginFunctions("", "primitiveDropRequest"),
             SoundPlugin:            this.findPluginFunctions("snd_"),
             JPEGReadWriter2Plugin:  this.findPluginFunctions("jpeg2_"),
@@ -9134,6 +9713,15 @@ Object.extend(Squeak.Primitives.prototype,
             },
             LocalePlugin: {
                 primitiveTimezoneOffset: this.fakePrimitive.bind(this, "LocalePlugin.primitiveTimezoneOffset", 0),
+            },
+            // Pharo probes for a native SDL2 display and an MD5 plugin at startup. We have
+            // neither — report "not available" so Pharo uses its own fallbacks (the SqueakJS
+            // display, in-image MD5) instead of erroring.
+            SDL2DisplayPlugin: {
+                primitiveHasDisplayPlugin: this.fakePrimitive.bind(this, "SDL2DisplayPlugin.primitiveHasDisplayPlugin", false),
+            },
+            MD5Plugin: {
+                primitivePluginAvailable: this.fakePrimitive.bind(this, "MD5Plugin.primitivePluginAvailable", false),
             },
         });
         Object.extend(this.patchModules, {
