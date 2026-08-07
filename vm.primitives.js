@@ -247,6 +247,7 @@ Object.subclass('Squeak.Primitives',
             case 154: if (this.oldPrims) return this.primitiveFileRead(argCount);
             case 155: if (this.oldPrims) return this.primitiveFileSetPosition(argCount);
             case 156: if (this.oldPrims) return this.primitiveFileDelete(argCount);
+                else return this.primitiveBytesEqual(argCount);
             case 157: if (this.oldPrims) return this.primitiveFileSize(argCount);
                 break;  // fail 150-157 if fell through
             case 158: if (this.oldPrims) return this.primitiveFileWrite(argCount);
@@ -1690,6 +1691,23 @@ Object.subclass('Squeak.Primitives',
             this.vm.temps = this.vm.homeContext.pointers;
         }
         return this.popNIfOK(argCount);
+    },
+    primitiveBytesEqual: function(argCount) {
+        // ByteArray>>= and friends. The Smalltalk fallback is SequenceableCollection>>=,
+        // which answers on identity, then on species, then on the elements. We only
+        // answer when both are plain byte objects of the SAME class (which implies the
+        // same species); anything else fails and the image decides, as before.
+        if (argCount !== 1) return false;
+        var other = this.stackNonInteger(0),
+            rcvr = this.stackNonInteger(1);
+        if (!this.success) return false;
+        if (!rcvr.bytes || !other.bytes) return false;      // word-based arrays: not ours
+        if (rcvr.sqClass !== other.sqClass) return false;
+        var a = rcvr.bytes, b = other.bytes;
+        if (a.length !== b.length) return this.popNandPushBoolIfOK(argCount + 1, false);
+        for (var i = 0; i < a.length; i++)
+            if (a[i] !== b[i]) return this.popNandPushBoolIfOK(argCount + 1, false);
+        return this.popNandPushBoolIfOK(argCount + 1, true);
     },
     primitiveCompareWith: function(argCount) {
         // String>>compareWith: aString  /  compareWith: aString collated: order
