@@ -1727,6 +1727,10 @@ Object.subclass('Squeak.Primitives',
                 dst.wordsAsFloat64Array()[dstPos] = src.float;
             else if (dst.isFloat)
                 dst.float = src.wordsAsFloat64Array()[srcPos];
+            else if (count >= 32 && (dst.words !== src.words || dstPos <= srcPos || dstPos >= srcPos + count))
+                dst.words === src.words // see the note on the byte copy below
+                    ? dst.words.copyWithin(dstPos, srcPos, srcPos + count)
+                    : dst.words.set(src.words.subarray(srcPos, srcPos + count), dstPos);
             else for (var i = 0; i < count; i++)
                 dst.words[dstPos + i] = src.words[srcPos + i];
             return dst;
@@ -1737,7 +1741,26 @@ Object.subclass('Squeak.Primitives',
             totalLength = dst.bytesSize();
             if ((dstPos < 0) || (dstPos + count) > totalLength)
                 {this.success = false; return dst;} //would go out of bounds
-            for (var i = 0; i < count; i++)
+            // Copy through the typed array rather than element by element: this is
+            // primitive 105, which is how Squeak moves every String, ByteArray and
+            // Bitmap around, and it showed up at 8.8% of the time inside the longest
+            // frames of a Dialogo session. set() is specified to handle a source and
+            // target that share a buffer, and copyWithin behaves like memmove, so a
+            // self-copy stays correct. Small copies stay on the loop: below a few
+            // dozen elements the subarray view costs more than it saves.
+            //
+            // One case has to stay on the loop for a different reason. When an object
+            // is copied onto itself and the destination starts INSIDE the source, the
+            // element loop reads back what it has already written and smears the first
+            // values across the range, while copyWithin behaves like memmove and does
+            // not. Squeak's own Smalltalk fallback for this primitive is a forward
+            // loop, so the smear is the behaviour images have always seen here; this
+            // is a speed-up, not the place to change what it does.
+            if (count >= 32 && (dst.bytes !== src.bytes || dstPos <= srcPos || dstPos >= srcPos + count))
+                dst.bytes === src.bytes
+                    ? dst.bytes.copyWithin(dstPos, srcPos, srcPos + count)
+                    : dst.bytes.set(src.bytes.subarray(srcPos, srcPos + count), dstPos);
+            else for (var i = 0; i < count; i++)
                 dst.bytes[dstPos + i] = src.bytes[srcPos + i];
             return dst;
         }
