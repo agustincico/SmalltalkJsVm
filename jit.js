@@ -537,7 +537,16 @@ to single-step.
                     break;
                 case 0x52:
                     this.needsVar['stack'] = true;
-                    this.generateInstruction("push thisContext", "stack[++vm.sp] = vm.exportThisContext()");
+                    if (extB == 0) {
+                        this.generateInstruction("push thisContext", "stack[++vm.sp] = vm.exportThisContext()");
+                    } else if (extB == 1) {
+                        // Sista: bytecode 82 with Extend B = 1 is "push thisProcess" (see the
+                        // interpreter's 0x52). Pharo 13 compiles it in Process>>complete: and
+                        // friends; without this the JIT silently pushed thisContext instead.
+                        this.generateInstruction("push thisProcess", "stack[++vm.sp] = vm.activeProcess()");
+                    } else {
+                        throw Error("unusedBytecode " + b);
+                    }
                     break;
                 case 0x53:
                     this.needsVar['stack'] = true;
@@ -559,7 +568,9 @@ to single-step.
                     break;
                 case 0x5E: this.generateBlockReturn();
                     break;
-                case 0x5F: this.generateLabel(); break; // nop
+                case 0x5F: this.generateInstruction("nop", ""); break; // emits no code, but the
+                    // next pc still has to be labeled: generateLabel() is what advances prevPC,
+                    // so skipping it leaves the instruction after a nop unreachable by jumps.
                 case 0x60: case 0x61: case 0x62: case 0x63: case 0x64: case 0x65: case 0x66: case 0x67:
                 case 0x68: case 0x69: case 0x6A: case 0x6B: case 0x6C: case 0x6D: case 0x6E: case 0x6F:
                     this.generateNumericOp(b);
@@ -705,7 +716,7 @@ to single-step.
                 case 0xF9:
                     b2 = bytes[this.pc++];
                     b3 = bytes[this.pc++];
-                    this.generatePushFullClosure(b2 + extA * 255, b3);
+                    this.generatePushFullClosure(b2 + extA * 256, b3);
                     break;
                 case 0xFA:
                     b2 = bytes[this.pc++];
