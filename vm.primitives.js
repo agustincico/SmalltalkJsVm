@@ -1712,6 +1712,7 @@ Object.subclass('Squeak.Primitives',
                 {this.success= false; return dst;} //would go out of bounds
             for (var i = 0; i < count; i++)
                 dst.pointers[dstPos + i] = src.pointers[srcPos + i];
+            dst.dirty = true; // we may have just stored a young object into an old one
             return dst;
         } else if (src.isWords()) { //words type objects
             var totalLength = src.wordsSize();
