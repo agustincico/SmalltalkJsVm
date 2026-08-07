@@ -863,8 +863,24 @@ Object.subclass('Squeak.Primitives',
         if (typeof v === "number") return BigInt(v);       // SmallInteger
         var isPos = this.isA(v, Squeak.splOb_ClassLargePositiveInteger);
         if ((isPos || this.isA(v, Squeak.splOb_ClassLargeNegativeInteger)) && v.bytes) {
-            var bytes = v.bytes, val = 0n;
-            for (var i = bytes.length - 1; i >= 0; i--) val = (val << 8n) | BigInt(bytes[i]);
+            // Shifting a BigInt that grows a byte at a time copies the whole thing every
+            // time, so the obvious loop is quadratic: on a 2400-byte operand the round
+            // trip cost 0.77 ms against 0.0003 ms for the multiplication it was feeding.
+            // Going through one hex string is linear -- but it is also slower on small
+            // operands, which are the common ones, so each way is used where it wins.
+            // Measured crossover for this direction: 128 bytes (below it the loop is up
+            // to 2x faster, above it the string is up to 1.6x faster and keeps growing).
+            var bytes = v.bytes, n = bytes.length, val = 0n;
+            if (n < 128) {
+                for (var i = n - 1; i >= 0; i--) val = (val << 8n) | BigInt(bytes[i]);
+            } else {
+                var digits = new Array(n);
+                for (var i = 0; i < n; i++) {
+                    var b = bytes[n - 1 - i];
+                    digits[i] = b < 16 ? "0" + b.toString(16) : b.toString(16);
+                }
+                val = BigInt("0x" + digits.join(""));
+            }
             return isPos ? val : -val;
         }
         this.success = false;
@@ -872,12 +888,27 @@ Object.subclass('Squeak.Primitives',
     },
     squeakIntFromBigInt: function(b) {
         if (b >= BigInt(Squeak.MinSmallInt) && b <= BigInt(Squeak.MaxSmallInt)) return Number(b);
-        var neg = b < 0n, mag = neg ? -b : b, bytes = [];
-        while (mag > 0n) { bytes.push(Number(mag & 255n)); mag >>= 8n; }
-        if (bytes.length === 0) bytes.push(0);
+        var neg = b < 0n, mag = neg ? -b : b, bytes, n;
+        // same trade as above; the crossover in this direction is 256 bytes, i.e. 2048
+        // bits, so the string only pays past 10^616. Cached: building the bound would
+        // itself allocate a 256-byte BigInt on every call.
+        if (this.twoPow2048 === undefined) this.twoPow2048 = 1n << 2048n;
+        if (mag < this.twoPow2048) {
+            bytes = [];
+            while (mag > 0n) { bytes.push(Number(mag & 255n)); mag >>= 8n; }
+            if (bytes.length === 0) bytes.push(0);
+            n = bytes.length;
+        } else {
+            var hex = mag.toString(16);             // big-endian ...
+            if (hex.length & 1) hex = "0" + hex;
+            n = hex.length >> 1;
+            bytes = new Array(n);
+            for (var i = 0; i < n; i++)             // ... and the bytes are little-endian
+                bytes[n - 1 - i] = parseInt(hex.substr(i * 2, 2), 16);
+        }
         var cls = this.vm.specialObjects[neg ? Squeak.splOb_ClassLargeNegativeInteger : Squeak.splOb_ClassLargePositiveInteger],
-            obj = this.vm.instantiateClass(cls, bytes.length);
-        for (var i = 0; i < bytes.length; i++) obj.bytes[i] = bytes[i];
+            obj = this.vm.instantiateClass(cls, n);
+        for (var i = 0; i < n; i++) obj.bytes[i] = bytes[i];
         return obj;
     },
     primitiveAddLargeIntegers: function(argCount) {
