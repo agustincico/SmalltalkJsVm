@@ -98,6 +98,24 @@ quietly fell behind — no `handlesMouseMove:` (so no dragging), a leftover diag
 and the field added with `openInWorld` instead of `addMorphBack:`, which puts a full-screen
 sheet in front of the bubbles and swallows their clicks.
 
+### The resumed image ignores `startup.st` entirely
+
+Worth knowing before you try to patch the shipped app from outside: a bundle whose `.image` is
+a resumed snapshot does **not** read a `startup.st` placed next to it. Verified the blunt way —
+a bundle carrying a `startup.st` whose whole body is `1/0` boots with no error whatsoever. So
+anything the application needs has to be baked in by `app-startup.st` *before* the snapshot;
+there is no patching it afterwards, and the launcher's compatibility scripts do not reach it
+either (which is fine, since a saved app needs none of them).
+
+That is why the missing-`.sources` notice is silenced in `app-startup.st` and not anywhere
+else. The app ships without its `.sources` on purpose (about 39 MB, and it only serves to
+browse code), so Pharo announces at every session start that it cannot find the file. The
+announcement goes through `StartupUIManager`, not `GrowlMorph`, so the growl silencing next to
+it does not catch it. Pharo already has the right mechanism: `NoPharoFilesOpener install`
+answers nil for sources and changes and says nothing, and since it sets a class variable it
+survives the snapshot. Nothing on the startup path undoes it — `SmalltalkImage>>openSourceFiles`
+resets `Author`, not the opener.
+
 ### Known limitation, and it is not the snapshot's
 
 Morphic runs a burst of cycles whenever an input event arrives and stands still in between,

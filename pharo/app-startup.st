@@ -253,6 +253,20 @@ anything, and that takes the whole script down without a word."!
 
 (Smalltalk at: #SqjsLog) value: 'growls-silenced'!
 
+"The .sources file is deliberately not shipped -- it is about 39 MB and only serves to browse
+code -- so on every startup, and again on every session restart of the resumed image, Pharo
+announces through StartupUIManager that it cannot find it. That announcement does not go
+through GrowlMorph, so the silencing above does not reach it.
+
+Rather than override the method that announces, use the mechanism Pharo already has for an
+image with no source files: NoPharoFilesOpener answers nil for sources and changes and says
+nothing. Its install: sets the shared Default that PharoFilesOpener class>>default reads, and
+being a class variable it survives the snapshot."!
+
+[ (Smalltalk at: #NoPharoFilesOpener) install ] on: Error do: [ :e | ]!
+
+(Smalltalk at: #SqjsLog) value: 'sources-opener-neutered'!
+
 | world field result |
 world := World.
 (Smalltalk at: #SqjsLog) value: 'doit-start'.
