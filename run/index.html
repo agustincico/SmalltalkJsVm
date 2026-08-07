@@ -115,6 +115,52 @@
             startWorker(path.fullname, imageName);
         });
     }
+    // Unzip with the browser's own inflate instead of JSZip's JavaScript one. Measured on
+    // these bundles: 575 ms -> 220 ms for Pharo 13, 581 -> 217 for Squeak 6.0, 333 -> 141 for
+    // the Pharo app, i.e. ~2.6x, and it runs on the main thread while the worker waits.
+    // Answers [{name, data}], or null for anything this deliberately simple reader does not
+    // handle (zip64, encryption, unknown compression) so the caller can fall back to JSZip.
+    async function unzipNative(buffer) {
+        if (typeof DecompressionStream === "undefined") return null;
+        var u8 = new Uint8Array(buffer),
+            dv = new DataView(buffer),
+            eocd = -1,
+            limit = Math.max(0, u8.length - 66000);   // 64K comment + the record itself
+        for (var i = u8.length - 22; i >= limit; i--)
+            if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+        if (eocd < 0) return null;
+        var count = dv.getUint16(eocd + 10, true),
+            cdOffset = dv.getUint32(eocd + 16, true);
+        if (count === 0xFFFF || cdOffset === 0xFFFFFFFF) return null;   // zip64
+        var out = [], off = cdOffset;
+        for (var k = 0; k < count; k++) {
+            if (off + 46 > u8.length || dv.getUint32(off, true) !== 0x02014b50) return null;
+            var flags  = dv.getUint16(off + 8, true),
+                method = dv.getUint16(off + 10, true),
+                csize  = dv.getUint32(off + 20, true),
+                usize  = dv.getUint32(off + 24, true),
+                nlen   = dv.getUint16(off + 28, true),
+                elen   = dv.getUint16(off + 30, true),
+                clen   = dv.getUint16(off + 32, true),
+                lho    = dv.getUint32(off + 42, true);
+            if (flags & 1) return null;                                  // encrypted
+            if (method !== 0 && method !== 8) return null;                // not stored/deflate
+            if (csize === 0xFFFFFFFF || usize === 0xFFFFFFFF || lho === 0xFFFFFFFF) return null; // zip64
+            var name = new TextDecoder().decode(u8.subarray(off + 46, off + 46 + nlen));
+            if (dv.getUint32(lho, true) !== 0x04034b50) return null;
+            var start = lho + 30 + dv.getUint16(lho + 26, true) + dv.getUint16(lho + 28, true);
+            if (start + csize > u8.length) return null;
+            if (!name.endsWith("/")) out.push({ name: name, raw: u8.subarray(start, start + csize), stored: method === 0 });
+            off += 46 + nlen + elen + clen;
+        }
+        for (var j = 0; j < out.length; j++) {
+            var e = out[j];
+            if (e.stored) { e.data = e.raw.slice().buffer; continue; }
+            var stream = new Blob([e.raw]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+            e.data = await new Response(stream).arrayBuffer();
+        }
+        return out;
+    }
     // zip bundle(s) → download + unzip on the main thread (JSZip, loaded by squeak.js), store
     // the aux files (changes/sources) in the shared FS, pick the image, and boot it in the
     // worker. If a bundle ships several .image files and one is a 32-bit build, prefer it;
@@ -141,11 +187,17 @@
                 for (var i = 0; i < zipUrls.length; i++) {
                     var r = await fetch(toUrl(zipUrls[i]));
                     if (!r.ok) throw new Error("HTTP " + r.status);
-                    var zip = await JSZip.loadAsync(await r.arrayBuffer(), { createFolders: true });
-                    zip.forEach(function(fn, meta){ if (!meta.dir && !skip(fn)) entries.push({ fn: fn, zip: zip }); });
+                    var buffer = await r.arrayBuffer();
+                    var native = await unzipNative(buffer).catch(function(){ return null; });
+                    if (native) native.forEach(function(e){ if (!skip(e.name)) entries.push({ fn: e.name, data: e.data }); });
+                    else {
+                        var zip = await JSZip.loadAsync(buffer, { createFolders: true });
+                        zip.forEach(function(fn, meta){ if (!meta.dir && !skip(fn)) entries.push({ fn: fn, zip: zip }); });
+                    }
                 }
                 for (var j = 0; j < entries.length; j++) {
-                    var fn = entries[j].fn, data = await entries[j].zip.file(fn).async("arraybuffer");
+                    var fn = entries[j].fn,
+                        data = entries[j].data || await entries[j].zip.file(fn).async("arraybuffer");
                     if (/\.image$/i.test(fn)) images.push({ name: "/" + fn, data: data });
                     else {
                         if (/^startup\.st$/i.test(fn)) startupFromThisLaunch = true;
