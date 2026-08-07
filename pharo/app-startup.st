@@ -1,12 +1,10 @@
 "The application itself: bubbles you can drag and a shockwave on click, with none of the
-IDE showing. Ship this as startup.st next to the image (Pharo runs it at boot) -- no .sources
-needed, an application does not browse its own code.
+IDE showing. This is the single source of the app; app-snapshot.st appended to it turns a
+stock Pharo image into a deployment image (see README).
 
-Why at startup instead of a saved image: a snapshot taken with the bare snapshotPrimitive
-resumes WITHOUT Pharo's session restart, so the UI process never comes back and the world
-is frozen -- it renders its last frame and ignores input. Booting normally keeps Morphic,
-its stepping and its event dispatch fully alive, and hiding the chrome is enough to make it
-an application."!
+Run as startup.st beside an image and the app is assembled at every boot, which works but
+shows the plain Pharo desktop while it happens. The published bundle instead ships the image
+that app-snapshot.st saves from this one, so it opens with the app already there."!
 
 Morph subclass: #BubbleField
 	instanceVariableNames: 'bubbles'
@@ -201,17 +199,74 @@ startRunning
 
 "--- build the application and freeze it into the image ---"!
 
+"SqjsSweep keeps what the application put on the desktop -- the bubbles, the field, the two
+labels -- and deletes anything else that turned up. Pharo's startup notices (the missing
+.sources file, the absent TFFI callbacks) are what it is for: they are not system windows, so
+picking by isSystemWindow leaves them sitting there, or bakes them into a saved image.
+
+Both this and SqjsLog are defined as chunks of their own, ahead of the doit: a comment that
+closes a chunk in the middle of a doit would cut the doit short, and the remainder would then
+run as separate chunks against variables that no longer exist -- which fails in silence and
+leaves a plain Pharo booting. (Chunk punctuation is unforgiving that way. This paragraph
+cannot even name the character without doubling it: !!)"!
+
+Smalltalk at: #SqjsSweep put: [
+	[ World submorphs do: [ :m |
+		([ m isSystemWindow
+			or: [ m isMenubar
+			or: [ m isTaskbar
+			or: [ m class name includesSubstring: 'Growl' ] ] ] ] on: Error do: [ :e | false ])
+				ifTrue: [ [ m delete ] on: Error do: [ :e | ] ] ].
+	  World changed ] on: Error do: [ :e | ] ]!
+
+Smalltalk at: #SqjsLog put: [ :msg |
+	[ | out |
+	  out := (FileLocator workingDirectory / 'appbuild.log') writeStream.
+	  out nextPutAll: msg; flush; close ] on: Error do: [ :e | ] ]!
+
+(Smalltalk at: #SqjsLog) value: 'chunks-ok'!
+
+"Compiling a method makes Pharo ask who is writing it, and it asks with a modal dialog. In a
+startup script there is nobody to answer, so the script stops there and waits forever -- the
+image finishes booting as plain Pharo and nothing says why. Name the author first. The setter
+on the instance assigns it outright; the class-side one validates and can raise the very
+dialog we are avoiding."!
+
+[ (Smalltalk at: #Author) uniqueInstance fullName: 'SmalltalkJsVm' ] on: Error do: [ :e | ]!
+
+(Smalltalk at: #SqjsLog) value: 'author-set'!
+
+"Sweeping the notices away is a race we keep losing: Pharo raises them at points spread over
+the whole of startup, and on a resumed image the session restart raises them again. Every one
+of them is opened through this single method, so silence it there instead. An application has
+nobody to inform that the .sources file is absent or that the VM has no native FFI callbacks.
+
+The class is reached through Smalltalk at: rather than named outright: naming a global that
+turns out not to exist fails at compile time, before the on:Error around it can catch
+anything, and that takes the whole script down without a word."!
+
+[ (Smalltalk at: #GrowlMorph) class
+	compile: 'openWithLabel: aString contents: contentString backgroundColor: aColor labelColor: aLabelColor
+	"SqueakJS: an application, not the IDE. No notices."
+	^ nil'
+	classified: 'squeakjs-compat' ] on: Error do: [ :e | ]!
+
+(Smalltalk at: #SqjsLog) value: 'growls-silenced'!
+
 | world field result |
 world := World.
+(Smalltalk at: #SqjsLog) value: 'doit-start'.
 
-"1. clean desktop: the IDE chrome is what makes it look like an IDE"
-(world submorphs select: [ :m | m isSystemWindow ]) do: [ :w | w delete ].
+"1. clean desktop: the IDE chrome is what makes it look like an IDE. Windows, menubar and
+taskbar go, and so do Pharo's startup notices -- the missing .sources file and the absent
+TFFI callbacks each raise a Growl, which is not a system window and so survives the obvious
+sweep, then sits there in plain sight or gets baked into a saved image. The desktop logo
+stays: this is still Pharo, and it says so."
+(Smalltalk at: #SqjsSweep) value.
 [ MenubarMorph showMenubar: false ] on: Error do: [ :e | ].
 [ TaskbarMorph showTaskbar: false ] on: Error do: [ :e | ].
 [ Morph halosEnabled: false ] on: Error do: [ :e | ].
-[ world submorphs
-	select: [ :m | m isMenubar or: [ m isTaskbar ] ]
-	thenDo: [ :m | m delete ] ] on: Error do: [ :e | ].
+(Smalltalk at: #SqjsLog) value: 'desktop-cleared'.
 
 "2. the field goes in first so the bubbles end up in front of it and get their own clicks"
 field := BubbleField new.
@@ -247,8 +302,14 @@ world addMorphBack: field.
 
 field startRunning.
 
-"4. ready -- the application is up. No snapshot: resuming an image saved with the bare
-snapshotPrimitive comes back without Pharo's session restart, and its UI process never
-gets going again, so the world renders its last frame and then ignores every event."
+(Smalltalk at: #SqjsLog) value: 'built'.
+
+"4. ready. Some of Pharo's startup notices arrive after this script has run, so keep sweeping
+for a few seconds."
+[ 1 to: 8 do: [ :i |
+	(Delay forMilliseconds: 700) wait.
+	(Smalltalk at: #SqjsSweep) value ] ] forkAt: Processor userBackgroundPriority.
+
 world changed.
+(Smalltalk at: #SqjsLog) value: 'done'.
 !
