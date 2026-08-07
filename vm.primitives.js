@@ -911,20 +911,39 @@ Object.subclass('Squeak.Primitives',
         for (var i = 0; i < n; i++) obj.bytes[i] = bytes[i];
         return obj;
     },
+    // Size of an operand in bytes, 0 for a SmallInteger. Used to decide whether going
+    // through BigInt is worth it: converting costs O(n) on every operand and on the
+    // result, so it only pays when the operation itself is superlinear. Measured on
+    // Pharo 13, microseconds per operation, VM primitive vs the image's own code (which
+    // is backed by LargeIntegers.js and works on the bytes directly):
+    //     add, equal sizes      32 B: 2.8 vs 1.5      512 B: 45 vs 1.3     -> image wins
+    //     mul, equal sizes     512 B: 60 vs 602      2048 B: 250 vs 7300   -> BigInt wins
+    //     mul, large x small    64 B: 4.9 vs 2.1     1024 B: 64 vs 8       -> image wins
+    // The last row is the shape of factorial, and it is why 2000 factorial was slow.
+    largeIntBytes: function(nDeep) {
+        var v = this.vm.stackValue(nDeep);
+        return typeof v === "number" || !v.bytes ? 0 : v.bytes.length;
+    },
     primitiveAddLargeIntegers: function(argCount) {
         if (this.largeIntPrims === false) return false;
+        if (this.largeIntBytes(1) >= 32 || this.largeIntBytes(0) >= 32) return false;
         var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
         if (!this.success) return false;
         return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a + b));
     },
     primitiveSubtractLargeIntegers: function(argCount) {
         if (this.largeIntPrims === false) return false;
+        if (this.largeIntBytes(1) >= 32 || this.largeIntBytes(0) >= 32) return false;
         var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
         if (!this.success) return false;
         return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a - b));
     },
     primitiveMultiplyLargeIntegers: function(argCount) {
         if (this.largeIntPrims === false) return false;
+        var na = this.largeIntBytes(1), nb = this.largeIntBytes(0);
+        // one big operand and one small one: schoolbook is O(n*m), so with m tiny the
+        // image beats us without ever converting anything
+        if ((na >= 64 || nb >= 64) && (na <= 16 || nb <= 16)) return false;
         var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
         if (!this.success) return false;
         return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a * b));
