@@ -812,6 +812,10 @@ Object.subclass('Squeak.Image',
             this.vm.storeContextRegisters();    // still need to update active context
         // obj.oop used as dict key here is why we store them
         // rather than just calculating at image snapshot time
+        // a plain object, not a Map, on purpose: old-space oops are positive, so V8
+        // keeps them as elements and a miss — which is what almost every one of the
+        // millions of lookups below is — is faster than hashing. Measured on Pharo 13,
+        // Squeak 6.0 and Cuis 7.8: a Map is 5% to 29% slower.
         var mutations = {};
         for (var i = 0; i < n; i++) {
             var obj = fromArray[i];
@@ -851,7 +855,11 @@ Object.subclass('Squeak.Image',
             // and mutate body pointers
             var body = obj.pointers;
             if (body) for (var j = 0; j < body.length; j++) {
-                mut = mutations[body[j].oop];
+                // SmallIntegers are plain JS numbers and can never be becomed; skipping
+                // them here avoids a lookup for ~40% of all the pointer fields in the heap
+                var val = body[j];
+                if (typeof val === "number") continue;
+                mut = mutations[val.oop];
                 if (mut) {
                     body[j] = mut;
                     if (mut.oop < 0) obj.dirty = true;
