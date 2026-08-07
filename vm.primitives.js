@@ -250,7 +250,7 @@ Object.subclass('Squeak.Primitives',
             case 157: if (this.oldPrims) return this.primitiveFileSize(argCount);
                 break;  // fail 150-157 if fell through
             case 158: if (this.oldPrims) return this.primitiveFileWrite(argCount);
-                else this.vm.warnOnce("missing primitive: 158 (primitiveCompareWith)"); return false;
+                else return this.primitiveCompareWith(argCount);
             case 159: if (this.oldPrims) return this.primitiveFileRename(argCount);
                 return this.popNandPushIntIfOK(argCount+1, this.stackSigned53BitInt(0) * 1664525 & 0xFFFFFFF); // primitiveHashMultiply
             case 160: if (this.oldPrims) return this.primitiveDirectoryCreate(argCount);
@@ -1690,6 +1690,33 @@ Object.subclass('Squeak.Primitives',
             this.vm.temps = this.vm.homeContext.pointers;
         }
         return this.popNIfOK(argCount);
+    },
+    primitiveCompareWith: function(argCount) {
+        // String>>compareWith: aString  /  compareWith: aString collated: order
+        // Answers -1, 0 or 1. Both dialects agree on that: Pharo returns those
+        // directly, Squeak computes (compare:with:collated:) - 2. Note this is
+        // NOT the 1/2/3 of MiscPrimitivePlugin's primitiveCompareString.
+        // Without a collation table (compareWith:) the bytes are their own order.
+        if (argCount !== 1 && argCount !== 2) return false;
+        var order = argCount === 2 ? this.stackNonInteger(0) : null,
+            string2 = this.stackNonInteger(argCount - 1),
+            string1 = this.stackNonInteger(argCount);
+        if (!this.success) return false;
+        var b1 = string1.bytes, b2 = string2.bytes;
+        if (!b1 || !b2) return false;       // WideString and friends: let Smalltalk do it
+        var map = null;
+        if (order) {
+            map = order.bytes;
+            if (!map || map.length < 256) return false;
+        }
+        var len1 = b1.length, len2 = b2.length,
+            n = len1 < len2 ? len1 : len2;
+        for (var i = 0; i < n; i++) {
+            var c1 = map ? map[b1[i]] : b1[i],
+                c2 = map ? map[b2[i]] : b2[i];
+            if (c1 !== c2) return this.popNandPushIntIfOK(argCount + 1, c1 < c2 ? -1 : 1);
+        }
+        return this.popNandPushIntIfOK(argCount + 1, len1 === len2 ? 0 : len1 < len2 ? -1 : 1);
     },
     doStringReplace: function() {
         var dst = this.stackNonInteger(4);
