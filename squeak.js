@@ -1386,6 +1386,15 @@ function downloadFile(file, display, options, thenDo) {
             console.error(Squeak.bytesAsString(new Uint8Array(this.response)));
             return alert("Failed to download:\n" + file.url);
         }
+        // Only a cross-origin failure can be a CORS failure. Retrying a same-origin URL
+        // through the proxy cannot fix anything (a 404 stays a 404), it hands the URL to a
+        // third party, and it buries the real error under a CORS one from the proxy.
+        var sameOrigin = false;
+        try { sameOrigin = new URL(file.url, location.href).origin === location.origin; } catch (e) {}
+        if (sameOrigin) {
+            console.error("Failed to download: " + file.url);
+            return alert("Failed to download:\n" + file.url);
+        }
         var proxy = Squeak.defaultCORSProxy,
             retry = new XMLHttpRequest();
         console.warn('Retrying with CORS proxy: ' + proxy + file.url);
