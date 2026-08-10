@@ -670,7 +670,14 @@ Object.subclass('Squeak.Image',
         var roots = this.gcRoots().filter(function(obj){return obj.oop < 0;}),
             object = this.firstOldObject;
         while (object) {
-            if (object.dirty) {
+            // a zero-sized object has no pointers array at all -- initInstanceOf only
+            // creates one when instSize + indexableSize > 0 -- so `Array new: 0` reaches
+            // here with body undefined and used to take the partial GC down with a
+            // TypeError. It can be marked dirty like any other object: bulkBecome sets the
+            // flag whenever it mutates a class, which happens by the thousand while an
+            // image compiles methods. Nothing to scan, and nothing to keep it dirty for.
+            // markReachableObjects already guards the same way.
+            if (object.dirty && object.pointers) {
                 var body = object.pointers,
                     dirty = false;
                 for (var i = 0; i < body.length; i++) {
