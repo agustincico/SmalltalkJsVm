@@ -44,6 +44,11 @@ resuming := false.
 mgr := SessionManager default.
 [ [ DefaultExecutionEnvironment beActiveDuring: [
       [ mgr currentSession stop: false.
+        "The last moment before the write: let go of the .sources file. The build has it
+         open and the published bundle does not ship it, and an image saved holding it open
+         spends 133 full GCs -- some 20 seconds -- failing to reopen it on every boot.
+         app-startup.st, where SqjsDropSources is defined, tells the whole story."
+        (Smalltalk at: #SqjsDropSources) value.
         resuming := Smalltalk snapshotPrimitive == true.
         resuming ifTrue: [ mgr installNewSession ].
         mgr currentSession start: resuming ]

@@ -98,6 +98,30 @@ quietly fell behind — no `handlesMouseMove:` (so no dragging), a leftover diag
 and the field added with `openInWorld` instead of `addMorphBack:`, which puts a full-screen
 sheet in front of the bubbles and swallows their clicks.
 
+### Hand back the `.sources` file before saving
+
+The app is published without its `.sources` (39 MB, and it only serves to browse code), but the
+build *does* have the file — it travels inside the build bundle. An image saved while holding it
+open remembers it: `SourceFiles` keeps the open `SourceFile` in `files at: 1` plus the read-only
+copies in its `readOnlyQueue`. On the published bundle every request for a method's source then
+tries to reopen a file that is not there, and that is not a plain failure:
+`File class>>retryWithGC:until:forFileNamed:` runs a full `Smalltalk garbageCollect` before each
+retry. Pharo asks for the source of every frame while formatting a startup error report, so the
+boot spends **133 full GCs, about 20 seconds**, before showing anything.
+
+`SqjsDropSources` (defined in `app-startup.st`, called from `app-snapshot.st` at the last moment
+before `snapshotPrimitive`) sets `sourcesFileStream: nil` and drains `readOnlyQueue`, which is
+exactly the shape the published image has. It has to run there and not earlier: during the build
+the file is present, and any source lookup reopens it.
+
+Measured, same VM and same procedure, 55-second window: 133 full GCs and 26.7 s to first paint
+with the file held open, 0 and 4.3 s after letting go.
+
+The notices themselves are a separate thing, silenced by overriding
+`PharoFilesOpener>>inform:withRef:` — the single funnel both `informCannotLocateSources` and
+`informProblemInChanges:` reach. Not `NoPharoFilesOpener install`, which looks tidier but answers
+nil for the changes file too, so Pharo only swaps one complaint for another.
+
 ### The resumed image ignores `startup.st` entirely
 
 Worth knowing before you try to patch the shipped app from outside: a bundle whose `.image` is

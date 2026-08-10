@@ -224,6 +224,36 @@ Smalltalk at: #SqjsLog put: [ :msg |
 	  out := (FileLocator workingDirectory / 'appbuild.log') writeStream.
 	  out nextPutAll: msg; flush; close ] on: Error do: [ :e | ] ]!
 
+"SqjsDropSources hands back the .sources file before the image is saved. An image saved with
+that file open remembers it: SourceFiles keeps the open SourceFile in files at: 1, and the
+read-only copies it has handed out sit in its readOnlyQueue. The build does have the file --
+it travels inside build.zip, all 39 MB of it -- but the published bundle deliberately does
+not ship it, so on the resumed image every request for a method's source tries to reopen a
+file that is not there.
+
+That is not a plain failure. File class>>retryWithGC:until:forFileNamed: runs a full
+Smalltalk garbageCollect before each retry, and Pharo asks for the source of every frame on
+the stack while it logs the startup error that the missing TFFI callback primitive raises --
+one full GC per frame. Measured on the rebuilt image: 133 full GCs at about 150 ms each, and
+a boot of 26 seconds against the 4.7 of the published bundle. Nothing else differed.
+
+Putting nil in files at: 1 settles it. createReadOnlyFiles guards on sourcesFileStream, so
+with nil there it opens nothing at all, source text comes from the decompiler, and no file
+is ever looked for -- which is the state the published bundle happened to be in already,
+having been built in a directory with no .sources. Draining readOnlyQueue drops the stale
+read-only copies, which readStreamAtFileIndex:atPosition:ifPresent:ifAbsent: would otherwise
+hand out ahead of that guard.
+
+app-snapshot.st calls it, as late as it can: anything that reads source during the build
+opens the file again, and the only state that ships is the one at snapshotPrimitive."!
+
+Smalltalk at: #SqjsDropSources put: [
+	[ | sf queue |
+	  sf := Smalltalk at: #SourceFiles.
+	  sf sourcesFileStream: nil.
+	  queue := sf instVarNamed: 'readOnlyQueue'.
+	  queue ifNotNil: [ [ queue nextOrNil isNil ] whileFalse ] ] on: Error do: [ :e | ] ]!
+
 (Smalltalk at: #SqjsLog) value: 'chunks-ok'!
 
 "Compiling a method makes Pharo ask who is writing it, and it asks with a modal dialog. In a
@@ -258,14 +288,21 @@ code -- so on every startup, and again on every session restart of the resumed i
 announces through StartupUIManager that it cannot find it. That announcement does not go
 through GrowlMorph, so the silencing above does not reach it.
 
-Rather than override the method that announces, use the mechanism Pharo already has for an
-image with no source files: NoPharoFilesOpener answers nil for sources and changes and says
-nothing. Its install: sets the shared Default that PharoFilesOpener class>>default reads, and
-being a class variable it survives the snapshot."!
+Every one of those notices funnels through inform:withRef:, which is what informCannotLocateSources
+and informProblemInChanges: both end up calling, so silence it there.
 
-[ (Smalltalk at: #NoPharoFilesOpener) install ] on: Error do: [ :e | ]!
+NOT NoPharoFilesOpener install, which is what Pharo offers for an image with no source files
+and looks like the tidy answer: it answers nil for the changes file too, and the app does ship
+one, so Pharo just swaps the complaint for 'cannot write to the changes file' -- same count of
+notices, and the boot goes from 4.6 to 27 seconds. Measured, not guessed."!
 
-(Smalltalk at: #SqjsLog) value: 'sources-opener-neutered'!
+[ (Smalltalk at: #PharoFilesOpener)
+	compile: 'inform: aString withRef: aRef
+	"SqueakJS: an application, not the IDE. There is nobody to inform."
+	^ self'
+	classified: 'squeakjs-compat' ] on: Error do: [ :e | ]!
+
+(Smalltalk at: #SqjsLog) value: 'file-notices-silenced'!
 
 | world field result |
 world := World.
