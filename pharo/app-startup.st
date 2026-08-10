@@ -197,6 +197,25 @@ startRunning
 	"Nothing to start: every bubble steps itself through Morphic."
 	^ self! !
 
+!BubbleField methodsFor: 'stepping' stamp: ''!
+wantsSteps
+	"The sheet has to keep covering the world, and the world is whatever size the browser
+	window happens to be. Sized once at build time it stays at the 1024x768 the build ran
+	at, and every click in the margin beyond that misses the sheet, reaches Pharo's
+	desktop and opens the world menu instead of throwing a shockwave. Morphic prunes hit
+	testing by bounds before it ever asks containsPoint:, so answering for a larger area
+	would not help -- the bounds themselves have to follow."
+	^ true! !
+
+!BubbleField methodsFor: 'stepping' stamp: ''!
+stepTime
+	^ 300! !
+
+!BubbleField methodsFor: 'stepping' stamp: ''!
+step
+	self world ifNotNil: [ :w |
+		self bounds = w bounds ifFalse: [ self bounds: w bounds ] ]! !
+
 "--- build the application and freeze it into the image ---"!
 
 "SqjsSweep keeps what the application put on the desktop -- the bubbles, the field, the two
