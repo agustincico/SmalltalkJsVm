@@ -106,11 +106,23 @@ Object.subclass('Squeak.Image',
         };
         var readWord = readWord32;
         var wordSize = 4;
+        // When the image's byte order is the machine's, the "endian conversion" below is
+        // the identity and the words can be read straight through a typed view instead of
+        // one DataView call each. Set up once the version probe has settled the byte order.
+        var sameByteOrder = null;
         var readBits = function(nWords, isPointers) {
             if (isPointers) { // do endian conversion
+                // push, not a preallocated array: these are read millions of times
+                // afterwards, and new Array(n) leaves them holey, which V8 reads more
+                // slowly than a packed one. Measured: preallocating cost 15%.
                 var oops = [];
-                while (oops.length < nWords)
-                    oops.push(readWord());
+                if (sameByteOrder && wordSize === 4 && (pos & 3) === 0) {
+                    var w = pos >> 2;
+                    for (var i = 0; i < nWords; i++) oops.push(sameByteOrder[w + i]);
+                    pos += nWords * 4;
+                } else {
+                    while (oops.length < nWords) oops.push(readWord());
+                }
                 return oops;
             } else { // words (no endian conversion yet)
                 var bits = new Uint32Array(arraybuffer, pos, nWords * wordSize / 4);
@@ -144,6 +156,13 @@ Object.subclass('Squeak.Image',
         // Smalltalk wordSize is hacked to answer 4 (see hackImage) so in-image math matches.
         this.is64Bit = is64Bit;
         this.wordSize = wordSize;
+        // The typed view readBits uses when no conversion is needed. Every machine that
+        // runs this is little-endian, but ask rather than assume, and only take the view
+        // when the buffer length allows one.
+        if (littleEndian && (arraybuffer.byteLength & 3) === 0 &&
+            new Uint8Array(new Uint32Array([1]).buffer)[0] === 1) {
+            try { sameByteOrder = new Uint32Array(arraybuffer); } catch (e) { sameByteOrder = null; }
+        }
         // parse image header
         var imageHeaderSize = readWord32(); // always 32 bits
         var objectMemorySize = readWord(); //first unused location in heap
