@@ -832,22 +832,14 @@ Object.subclass('Squeak.Object',
     },
     classInstProto: function(className) {
         if (this.instProto) return this.instProto;
-        // Monomorfización (default desde 2026-07-12): un ÚNICO constructor
-        // compartido para todos los objetos → V8 ve pocos maps (~4-5, por formato
-        // pointers/bytes/words/float) en vez de cientos (uno por clase). Medido con
-        // la vara honesta (tiempo hasta renderizar el resultado, no microbench):
-        // **6.6% más rápido** en el workload real de Dialogo (best-of-5 intercalado:
-        // 4022 vs 4307 ms, más rápido en las 5 corridas), semántica byte-idéntica
-        // (trace + dibujo + ctx≡frames en V3 y Cuis). Mecanismo (verificado por
-        // perfil A/B, NO es "matar el LoadIC" como se dijo primero): las operaciones
-        // IC MEGAMÓRFICAS caen a monomórficas — StoreIC de initInstanceOf (sqClass=,
-        // hash=, _format=, pointers=) y LoadIC_Megamorphic. El LoadIC regular
-        // (loads de `.pointers`/`.sqClass`) QUEDA como costo residual top (~18%): los
-        // loads siguen ocurriendo, ahora baratos pero no gratis; eliminarlos del
-        // todo requiere objetos en memoria lineal (WASM). Distinto del intento "flat
-        // shape" previo (−7%, shape con TODOS los campos, medido send-heavy): acá los
-        // campos por-formato se mantienen, solo se comparte el constructor. Opt-out
-        // (nombres por clase en devtools): Squeak.perClassShape = true.
+        // One shared constructor for every object rather than one per Smalltalk class.
+        // V8 then sees a handful of maps (by format: pointers/bytes/words/float) instead
+        // of hundreds, which turns the megamorphic inline caches of initInstanceOf --
+        // the stores of sqClass, hash, _format and pointers -- monomorphic. Measured
+        // 6.6% faster on a real workload, timed to rendered result rather than in a
+        // microbenchmark, with byte-identical behaviour. What is left is the ordinary
+        // loads of .pointers and .sqClass, which only linear object memory would remove.
+        // Squeak.perClassShape = true restores the per-class names for devtools.
         if (Squeak.perClassShape !== true) {
             if (!Squeak.sharedInstProto) {
                 Squeak.sharedInstProto = new Function("return function SqueakObject() { this.oop = 0; this.hash = 0; this.dirty = false; this.mark = false; this.nextObject = null; };")();
@@ -1540,11 +1532,23 @@ Object.subclass('Squeak.Image',
         };
         var readWord = readWord32;
         var wordSize = 4;
+        // When the image's byte order is the machine's, the "endian conversion" below is
+        // the identity and the words can be read straight through a typed view instead of
+        // one DataView call each. Set up once the version probe has settled the byte order.
+        var sameByteOrder = null;
         var readBits = function(nWords, isPointers) {
             if (isPointers) { // do endian conversion
+                // push, not a preallocated array: these are read millions of times
+                // afterwards, and new Array(n) leaves them holey, which V8 reads more
+                // slowly than a packed one. Measured: preallocating cost 15%.
                 var oops = [];
-                while (oops.length < nWords)
-                    oops.push(readWord());
+                if (sameByteOrder && wordSize === 4 && (pos & 3) === 0) {
+                    var w = pos >> 2;
+                    for (var i = 0; i < nWords; i++) oops.push(sameByteOrder[w + i]);
+                    pos += nWords * 4;
+                } else {
+                    while (oops.length < nWords) oops.push(readWord());
+                }
                 return oops;
             } else { // words (no endian conversion yet)
                 var bits = new Uint32Array(arraybuffer, pos, nWords * wordSize / 4);
@@ -1577,6 +1581,13 @@ Object.subclass('Squeak.Image',
         // Smalltalk wordSize is hacked to answer 4 (see hackImage) so in-image math matches.
         this.is64Bit = is64Bit;
         this.wordSize = wordSize;
+        // The typed view readBits uses when no conversion is needed. Every machine that
+        // runs this is little-endian, but ask rather than assume, and only take the view
+        // when the buffer length allows one.
+        if (littleEndian && (arraybuffer.byteLength & 3) === 0 &&
+            new Uint8Array(new Uint32Array([1]).buffer)[0] === 1) {
+            try { sameByteOrder = new Uint32Array(arraybuffer); } catch (e) { sameByteOrder = null; }
+        }
         // parse image header
         var imageHeaderSize = readWord32(); // always 32 bits
         var objectMemorySize = readWord(); //first unused location in heap
@@ -2100,7 +2111,14 @@ Object.subclass('Squeak.Image',
         var roots = this.gcRoots().filter(function(obj){return obj.oop < 0;}),
             object = this.firstOldObject;
         while (object) {
-            if (object.dirty) {
+            // a zero-sized object has no pointers array at all -- initInstanceOf only
+            // creates one when instSize + indexableSize > 0 -- so `Array new: 0` reaches
+            // here with body undefined and used to take the partial GC down with a
+            // TypeError. It can be marked dirty like any other object: bulkBecome sets the
+            // flag whenever it mutates a class, which happens by the thousand while an
+            // image compiles methods. Nothing to scan, and nothing to keep it dirty for.
+            // markReachableObjects already guards the same way.
+            if (object.dirty && object.pointers) {
                 var body = object.pointers,
                     dirty = false;
                 for (var i = 0; i < body.length; i++) {
@@ -2903,8 +2921,8 @@ Object.subclass('Squeak.Interpreter',
         this.primHandler = new Squeak.Primitives(this, display);
         this.loadImageState();
         this.initVMState();
-        // presencia del flag alcanza: el launcher puede reescribir #stackZone
-        // como stackZone= (valor string vacío, falsy)
+        // the flag being present is enough: the launcher may rewrite #stackZone as
+        // stackZone=, whose value is an empty string and therefore falsy
         if (this.options.stackZone !== undefined && this.options.stackZone !== false
             && this.enableStackZone) this.enableStackZone();
         this.loadInitialContext();
@@ -3962,8 +3980,12 @@ Object.subclass('Squeak.Interpreter',
         if (primitiveIndex > 0)
             if (this.tryPrimitive(primitiveIndex, argumentCount, newMethod))
                 return;  //Primitive succeeded -- end of story
-        var newContext = this.allocateOrRecycleContext(newMethod.methodNeedsLargeFrame());
-        var tempCount = newMethod.methodTempCount();
+        // The method header decoded here instead of through two accessors. This runs on
+        // every single activation, and the profile puts methodTempCount alone at 8.7% of
+        // the running app for what is one shift and one mask.
+        var header = newMethod.pointers[0];
+        var newContext = this.allocateOrRecycleContext((header & 0x20000) > 0);
+        var tempCount = (header >> 18) & 63;
         var newPC = 0; // direct zero-based index into byte codes
         var newSP = Squeak.Context_tempFrameStart + tempCount - 1; // direct zero-based index into context pointers
         newContext.pointers[Squeak.Context_method] = newMethod;
@@ -6146,11 +6168,10 @@ Object.subclass('Squeak.Primitives',
         return this.success;
     },
     doNamedPrimitive: function(argCount, primMethod) {
-        // Los nombres de módulo/función viven en el 1er literal y NO cambian para
-        // un método dado. Decodificarlos con bytesAsString EN CADA llamada era ~10%
-        // del trabajo en workloads con muchos primitivos-117 (medido en profile del
-        // browser, modo ctx). Se cachean en el método (el modo frames ya cachea la
-        // función resuelta vía primFn; esto es el equivalente mínimo para ctx).
+        // Module and function name live in the first literal and never change for a
+        // given method, but decoding them with bytesAsString on every call was about
+        // 10% of the work in primitive-117-heavy workloads, so they are cached on the
+        // method itself.
         var moduleName = primMethod._primModName, functionName = primMethod._primFuncName;
         if (moduleName === undefined) {
             if (primMethod.pointersSize() < 2) return false;
@@ -6532,13 +6553,13 @@ Object.subclass('Squeak.Primitives',
     primitiveNotEqualLargeIntegers: function(argCount) {
         return this.popNandPushBoolIfOK(argCount+1, this.stackSigned53BitInt(1) !== this.stackSigned53BitInt(0));
     },
-    // --- Aritmética LargeInteger (21,22,29,30-33,20) y bit-ops (34-37) ---
-    // Faltaban en SqueakJS: cada operación caía a la implementación en Smalltalk
-    // (cientos de sends: digitAdd:, normalize, ...). Acá se hacen con BigInt, que
-    // es exacto para cualquier tamaño y respeta las semánticas de Squeak. Los
-    // operandos pueden ser SmallInteger o LargeInteger; el resultado se normaliza
-    // a SmallInteger si entra en rango. Toggle: primHandler.largeIntPrims=false
-    // restaura el fallback (para medir A/B).
+    // --- LargeInteger arithmetic (20-22, 29-33) and bit operations (34-37) ---
+    // SqueakJS had none of these, so every one of them fell back to the Smalltalk
+    // implementation and its hundreds of sends. BigInt is exact at any size and
+    // matches Squeak's semantics. Operands may be SmallInteger or LargeInteger, and
+    // the result is normalized back to a SmallInteger when it fits. Which of the two
+    // is actually faster depends on the shape of the operands -- see largeIntBytes.
+    // primHandler.largeIntPrims = false restores the fallback, for A/B measurement.
     bigIntFromStackInt: function(nDeep) {
         var v = this.vm.stackValue(nDeep);
         if (typeof v === "number") return BigInt(v);       // SmallInteger
@@ -6622,9 +6643,11 @@ Object.subclass('Squeak.Primitives',
     primitiveMultiplyLargeIntegers: function(argCount) {
         if (this.largeIntPrims === false) return false;
         var na = this.largeIntBytes(1), nb = this.largeIntBytes(0);
-        // one big operand and one small one: schoolbook is O(n*m), so with m tiny the
-        // image beats us without ever converting anything
-        if ((na >= 64 || nb >= 64) && (na <= 16 || nb <= 16)) return false;
+        // Schoolbook multiplication is O(n*m), so with one operand tiny the image beats
+        // us without ever converting anything -- and that lopsided shape is exactly what
+        // factorial produces.
+        var lopsided = (na >= 64 || nb >= 64) && (na <= 16 || nb <= 16);
+        if (lopsided) return false;
         var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
         if (!this.success) return false;
         return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a * b));
@@ -6891,11 +6914,11 @@ Object.subclass('Squeak.Primitives',
     },
 },
 'indexing', {
-    // Stream primitives 65/66/67 (PositionableStream). Como el VM real de Squeak,
-    // solo manejan colecciones Array o String; ante cualquier otra cosa o borde
-    // (índice fuera de límite, tipos raros) devuelven false → fallback a Smalltalk,
-    // que es siempre correcto. Antes de mutar la posición validamos TODO, así un
-    // fallback nunca la doble-avanza. writeLimit es el instVar 3 (WriteStream).
+    // Stream primitives 65/66/67 (PositionableStream). Like the real Squeak VM these
+    // only handle Array and String collections; anything else, and any edge such as an
+    // index out of bounds, answers false and lets the Smalltalk fallback decide, which
+    // is always correct. Everything is validated before the position is touched, so a
+    // fallback can never advance it twice. writeLimit is inst var 3 (WriteStream).
     primitiveStreamNext: function(argCount) {
         if (this.streamPrims === false) return false;
         var stream = this.stackNonInteger(0);
@@ -7502,12 +7525,17 @@ Object.subclass('Squeak.Primitives',
                 dst.wordsAsFloat64Array()[dstPos] = src.float;
             else if (dst.isFloat)
                 dst.float = src.wordsAsFloat64Array()[srcPos];
-            else if (count >= 32 && (dst.words !== src.words || dstPos <= srcPos || dstPos >= srcPos + count))
-                dst.words === src.words // see the note on the byte copy below
-                    ? dst.words.copyWithin(dstPos, srcPos, srcPos + count)
-                    : dst.words.set(src.words.subarray(srcPos, srcPos + count), dstPos);
-            else for (var i = 0; i < count; i++)
-                dst.words[dstPos + i] = src.words[srcPos + i];
+            else {
+                var sharedWords = dst.words === src.words,
+                    // see the note on the byte copy below for why this one case stays on the loop
+                    overlapsForward = sharedWords && dstPos > srcPos && dstPos < srcPos + count;
+                if (count >= 32 && !overlapsForward)
+                    sharedWords
+                        ? dst.words.copyWithin(dstPos, srcPos, srcPos + count)
+                        : dst.words.set(src.words.subarray(srcPos, srcPos + count), dstPos);
+                else for (var i = 0; i < count; i++)
+                    dst.words[dstPos + i] = src.words[srcPos + i];
+            }
             return dst;
         } else { //bytes type objects
             var totalLength = src.bytesSize();
@@ -7531,8 +7559,10 @@ Object.subclass('Squeak.Primitives',
             // not. Squeak's own Smalltalk fallback for this primitive is a forward
             // loop, so the smear is the behaviour images have always seen here; this
             // is a speed-up, not the place to change what it does.
-            if (count >= 32 && (dst.bytes !== src.bytes || dstPos <= srcPos || dstPos >= srcPos + count))
-                dst.bytes === src.bytes
+            var sharedBytes = dst.bytes === src.bytes,
+                overlapsForward = sharedBytes && dstPos > srcPos && dstPos < srcPos + count;
+            if (count >= 32 && !overlapsForward)
+                sharedBytes
                     ? dst.bytes.copyWithin(dstPos, srcPos, srcPos + count)
                     : dst.bytes.set(src.bytes.subarray(srcPos, srcPos + count), dstPos);
             else for (var i = 0; i < count; i++)
@@ -9068,8 +9098,8 @@ to single-step.
         this.needsVar[target] = true;
         this.needsVar['stack'] = true;
         if (this.vm.useStackZone && target === "inst[") {
-            // un store a un context casado-vivo debe pasar por write-through
-            // (flush + escritura sobre el context real); pc fresco para el resume
+            // a store into a live married context has to be written through: flush,
+            // then store into the real context. The pc is refreshed for the resume.
             this.needsVar['context'] = true; // fp/page
             this.source.push(
                 "if (rcvr.sqClass !== vm.contextClass_ || rcvr.frame == null) { inst[", arg1, "] = stack[vm.sp]; rcvr.dirty = true; }\n",
@@ -9408,19 +9438,21 @@ to single-step.
         this.needsVar['lit['] = true;
         this.needsVar['rcvr'] = true;
         this.needsVar['stack'] = true;
-        var numCopied = b3 & 63;
-        var outer;
-        if ((b3 >> 6 & 1) === 1) {
-            outer = "vm.nilObj";
-        } else {
-            outer = "context";
-        }
+        var numCopied = b3 & 63,
+            isCleanBlock = (b3 >> 6 & 1) === 1,
+            // A clean block has no outer context. Otherwise it needs the running one, and
+            // how to name it depends on the mode: with contexts it is the `context` local,
+            // but in stack-zone mode that local does not exist -- the prologue declares
+            // `fp` and `page` instead -- so the frame has to be materialized, the same way
+            // "push thisContext" does it.
+            outer = isCleanBlock ? "vm.nilObj"
+                  : this.vm.useStackZone ? "vm.exportThisContext()" : "context";
         if ((b3 >> 7 & 1) === 1) {
             throw Error("on-stack receiver not yet supported");
         }
         this.source.push("var closure = vm.newFullClosure(", outer, ", ", numCopied, ", lit[", 1 + index, "]);\n");
         this.source.push("closure.pointers[", Squeak.ClosureFull_receiver, "] = rcvr;\n");
-        if (outer === "context") this.source.push("vm.reclaimableContextCount = 0;\n");
+        if (!isCleanBlock) this.source.push("vm.reclaimableContextCount = 0;\n");
         if (numCopied > 0) {
             for (var i = 0; i < numCopied; i++)
                 this.source.push("closure.pointers[", i + Squeak.ClosureFull_firstCopiedValue, "] = stack[vm.sp - ", numCopied - i - 1,"];\n");
@@ -9436,6 +9468,12 @@ to single-step.
             this.needsVar['stack'] = true;
             this.source.push("if (vm.primFailCode) {stack[vm.sp] = vm.getErrorObjectFromPrimFailCode(); vm.primFailCode = 0;}\n");
         }
+        // 256-519 are the quick returns (self, a constant, an inst var). tryPrimitive
+        // always answers true for those, so the method has no bytecodes to fall back on
+        // and there is nothing left to generate. Without stopping here the generator
+        // walks off the end into the method trailer and dies on "illegal bytecode:
+        // undefined" -- 1269 methods of Cuis 7.8 have exactly this shape.
+        if (index > 255 && index < 520) this.done = true;
     },
     generateDirty: function(target, arg, suffix) {
         switch(target) {
