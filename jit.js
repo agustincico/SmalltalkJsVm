@@ -770,8 +770,8 @@ to single-step.
         this.needsVar[target] = true;
         this.needsVar['stack'] = true;
         if (this.vm.useStackZone && target === "inst[") {
-            // un store a un context casado-vivo debe pasar por write-through
-            // (flush + escritura sobre el context real); pc fresco para el resume
+            // a store into a live married context has to be written through: flush,
+            // then store into the real context. The pc is refreshed for the resume.
             this.needsVar['context'] = true; // fp/page
             this.source.push(
                 "if (rcvr.sqClass !== vm.contextClass_ || rcvr.frame == null) { inst[", arg1, "] = stack[vm.sp]; rcvr.dirty = true; }\n",
@@ -1110,19 +1110,21 @@ to single-step.
         this.needsVar['lit['] = true;
         this.needsVar['rcvr'] = true;
         this.needsVar['stack'] = true;
-        var numCopied = b3 & 63;
-        var outer;
-        if ((b3 >> 6 & 1) === 1) {
-            outer = "vm.nilObj";
-        } else {
-            outer = "context";
-        }
+        var numCopied = b3 & 63,
+            isCleanBlock = (b3 >> 6 & 1) === 1,
+            // A clean block has no outer context. Otherwise it needs the running one, and
+            // how to name it depends on the mode: with contexts it is the `context` local,
+            // but in stack-zone mode that local does not exist -- the prologue declares
+            // `fp` and `page` instead -- so the frame has to be materialized, the same way
+            // "push thisContext" does it.
+            outer = isCleanBlock ? "vm.nilObj"
+                  : this.vm.useStackZone ? "vm.exportThisContext()" : "context";
         if ((b3 >> 7 & 1) === 1) {
             throw Error("on-stack receiver not yet supported");
         }
         this.source.push("var closure = vm.newFullClosure(", outer, ", ", numCopied, ", lit[", 1 + index, "]);\n");
         this.source.push("closure.pointers[", Squeak.ClosureFull_receiver, "] = rcvr;\n");
-        if (outer === "context") this.source.push("vm.reclaimableContextCount = 0;\n");
+        if (!isCleanBlock) this.source.push("vm.reclaimableContextCount = 0;\n");
         if (numCopied > 0) {
             for (var i = 0; i < numCopied; i++)
                 this.source.push("closure.pointers[", i + Squeak.ClosureFull_firstCopiedValue, "] = stack[vm.sp - ", numCopied - i - 1,"];\n");
@@ -1138,6 +1140,12 @@ to single-step.
             this.needsVar['stack'] = true;
             this.source.push("if (vm.primFailCode) {stack[vm.sp] = vm.getErrorObjectFromPrimFailCode(); vm.primFailCode = 0;}\n");
         }
+        // 256-519 are the quick returns (self, a constant, an inst var). tryPrimitive
+        // always answers true for those, so the method has no bytecodes to fall back on
+        // and there is nothing left to generate. Without stopping here the generator
+        // walks off the end into the method trailer and dies on "illegal bytecode:
+        // undefined" -- 1269 methods of Cuis 7.8 have exactly this shape.
+        if (index > 255 && index < 520) this.done = true;
     },
     generateDirty: function(target, arg, suffix) {
         switch(target) {

@@ -32,8 +32,8 @@ Object.subclass('Squeak.Interpreter',
         this.primHandler = new Squeak.Primitives(this, display);
         this.loadImageState();
         this.initVMState();
-        // presencia del flag alcanza: el launcher puede reescribir #stackZone
-        // como stackZone= (valor string vacío, falsy)
+        // the flag being present is enough: the launcher may rewrite #stackZone as
+        // stackZone=, whose value is an empty string and therefore falsy
         if (this.options.stackZone !== undefined && this.options.stackZone !== false
             && this.enableStackZone) this.enableStackZone();
         this.loadInitialContext();

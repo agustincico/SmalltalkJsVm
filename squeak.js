@@ -399,14 +399,13 @@ function createSqueakDisplay(canvas, options) {
     }
 
     if (options.record) {
-        // Grabador de eventos para el oráculo diferencial (perf/harness --events).
-        // Captura cada evento en el punto de encolado junto con el sendCount, para
-        // reproducir el timing/interleaving headless. Volcar con SqueakJS.downloadEvents().
+        // Event recorder for the differential harness (--events). Captures every event
+        // where it is queued, together with the send count, so a headless replay can
+        // reproduce the same timing and interleaving. SqueakJS.downloadEvents() dumps it.
         display.recordedEvents = [];
         SqueakJS.downloadEvents = function(filename) {
-            // capturar la resolución real del Display (splOb_TheDisplay=14) para que
-            // el replay headless use el mismo tamaño y las coordenadas peguen en los
-            // mismos morphs
+            // record the Display's real resolution (splOb_TheDisplay = 14) so a headless
+            // replay uses the same size and the coordinates land on the same morphs
             var disp = SqueakJS.vm && SqueakJS.vm.specialObjects && SqueakJS.vm.specialObjects[14];
             var w = disp && disp.pointers ? disp.pointers[1] : (display.width || 0);
             var h = disp && disp.pointers ? disp.pointers[2] : (display.height || 0);

@@ -464,11 +464,10 @@ Object.subclass('Squeak.Primitives',
         return this.success;
     },
     doNamedPrimitive: function(argCount, primMethod) {
-        // Los nombres de módulo/función viven en el 1er literal y NO cambian para
-        // un método dado. Decodificarlos con bytesAsString EN CADA llamada era ~10%
-        // del trabajo en workloads con muchos primitivos-117 (medido en profile del
-        // browser, modo ctx). Se cachean en el método (el modo frames ya cachea la
-        // función resuelta vía primFn; esto es el equivalente mínimo para ctx).
+        // Module and function name live in the first literal and never change for a
+        // given method, but decoding them with bytesAsString on every call was about
+        // 10% of the work in primitive-117-heavy workloads, so they are cached on the
+        // method itself.
         var moduleName = primMethod._primModName, functionName = primMethod._primFuncName;
         if (moduleName === undefined) {
             if (primMethod.pointersSize() < 2) return false;
@@ -851,13 +850,13 @@ Object.subclass('Squeak.Primitives',
     primitiveNotEqualLargeIntegers: function(argCount) {
         return this.popNandPushBoolIfOK(argCount+1, this.stackSigned53BitInt(1) !== this.stackSigned53BitInt(0));
     },
-    // --- Aritmética LargeInteger (21,22,29,30-33,20) y bit-ops (34-37) ---
-    // Faltaban en SqueakJS: cada operación caía a la implementación en Smalltalk
-    // (cientos de sends: digitAdd:, normalize, ...). Acá se hacen con BigInt, que
-    // es exacto para cualquier tamaño y respeta las semánticas de Squeak. Los
-    // operandos pueden ser SmallInteger o LargeInteger; el resultado se normaliza
-    // a SmallInteger si entra en rango. Toggle: primHandler.largeIntPrims=false
-    // restaura el fallback (para medir A/B).
+    // --- LargeInteger arithmetic (20-22, 29-33) and bit operations (34-37) ---
+    // SqueakJS had none of these, so every one of them fell back to the Smalltalk
+    // implementation and its hundreds of sends. BigInt is exact at any size and
+    // matches Squeak's semantics. Operands may be SmallInteger or LargeInteger, and
+    // the result is normalized back to a SmallInteger when it fits. Which of the two
+    // is actually faster depends on the shape of the operands -- see largeIntBytes.
+    // primHandler.largeIntPrims = false restores the fallback, for A/B measurement.
     bigIntFromStackInt: function(nDeep) {
         var v = this.vm.stackValue(nDeep);
         if (typeof v === "number") return BigInt(v);       // SmallInteger
@@ -941,9 +940,11 @@ Object.subclass('Squeak.Primitives',
     primitiveMultiplyLargeIntegers: function(argCount) {
         if (this.largeIntPrims === false) return false;
         var na = this.largeIntBytes(1), nb = this.largeIntBytes(0);
-        // one big operand and one small one: schoolbook is O(n*m), so with m tiny the
-        // image beats us without ever converting anything
-        if ((na >= 64 || nb >= 64) && (na <= 16 || nb <= 16)) return false;
+        // Schoolbook multiplication is O(n*m), so with one operand tiny the image beats
+        // us without ever converting anything -- and that lopsided shape is exactly what
+        // factorial produces.
+        var lopsided = (na >= 64 || nb >= 64) && (na <= 16 || nb <= 16);
+        if (lopsided) return false;
         var a = this.bigIntFromStackInt(1), b = this.bigIntFromStackInt(0);
         if (!this.success) return false;
         return this.popNandPushIfOK(argCount+1, this.squeakIntFromBigInt(a * b));
@@ -1210,11 +1211,11 @@ Object.subclass('Squeak.Primitives',
     },
 },
 'indexing', {
-    // Stream primitives 65/66/67 (PositionableStream). Como el VM real de Squeak,
-    // solo manejan colecciones Array o String; ante cualquier otra cosa o borde
-    // (índice fuera de límite, tipos raros) devuelven false → fallback a Smalltalk,
-    // que es siempre correcto. Antes de mutar la posición validamos TODO, así un
-    // fallback nunca la doble-avanza. writeLimit es el instVar 3 (WriteStream).
+    // Stream primitives 65/66/67 (PositionableStream). Like the real Squeak VM these
+    // only handle Array and String collections; anything else, and any edge such as an
+    // index out of bounds, answers false and lets the Smalltalk fallback decide, which
+    // is always correct. Everything is validated before the position is touched, so a
+    // fallback can never advance it twice. writeLimit is inst var 3 (WriteStream).
     primitiveStreamNext: function(argCount) {
         if (this.streamPrims === false) return false;
         var stream = this.stackNonInteger(0);
@@ -1822,12 +1823,17 @@ Object.subclass('Squeak.Primitives',
                 dst.wordsAsFloat64Array()[dstPos] = src.float;
             else if (dst.isFloat)
                 dst.float = src.wordsAsFloat64Array()[srcPos];
-            else if (count >= 32 && (dst.words !== src.words || dstPos <= srcPos || dstPos >= srcPos + count))
-                dst.words === src.words // see the note on the byte copy below
-                    ? dst.words.copyWithin(dstPos, srcPos, srcPos + count)
-                    : dst.words.set(src.words.subarray(srcPos, srcPos + count), dstPos);
-            else for (var i = 0; i < count; i++)
-                dst.words[dstPos + i] = src.words[srcPos + i];
+            else {
+                var sharedWords = dst.words === src.words,
+                    // see the note on the byte copy below for why this one case stays on the loop
+                    overlapsForward = sharedWords && dstPos > srcPos && dstPos < srcPos + count;
+                if (count >= 32 && !overlapsForward)
+                    sharedWords
+                        ? dst.words.copyWithin(dstPos, srcPos, srcPos + count)
+                        : dst.words.set(src.words.subarray(srcPos, srcPos + count), dstPos);
+                else for (var i = 0; i < count; i++)
+                    dst.words[dstPos + i] = src.words[srcPos + i];
+            }
             return dst;
         } else { //bytes type objects
             var totalLength = src.bytesSize();
@@ -1851,8 +1857,10 @@ Object.subclass('Squeak.Primitives',
             // not. Squeak's own Smalltalk fallback for this primitive is a forward
             // loop, so the smear is the behaviour images have always seen here; this
             // is a speed-up, not the place to change what it does.
-            if (count >= 32 && (dst.bytes !== src.bytes || dstPos <= srcPos || dstPos >= srcPos + count))
-                dst.bytes === src.bytes
+            var sharedBytes = dst.bytes === src.bytes,
+                overlapsForward = sharedBytes && dstPos > srcPos && dstPos < srcPos + count;
+            if (count >= 32 && !overlapsForward)
+                sharedBytes
                     ? dst.bytes.copyWithin(dstPos, srcPos, srcPos + count)
                     : dst.bytes.set(src.bytes.subarray(srcPos, srcPos + count), dstPos);
             else for (var i = 0; i < count; i++)

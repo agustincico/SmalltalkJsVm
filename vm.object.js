@@ -504,22 +504,14 @@ Object.subclass('Squeak.Object',
     },
     classInstProto: function(className) {
         if (this.instProto) return this.instProto;
-        // Monomorfización (default desde 2026-07-12): un ÚNICO constructor
-        // compartido para todos los objetos → V8 ve pocos maps (~4-5, por formato
-        // pointers/bytes/words/float) en vez de cientos (uno por clase). Medido con
-        // la vara honesta (tiempo hasta renderizar el resultado, no microbench):
-        // **6.6% más rápido** en el workload real de Dialogo (best-of-5 intercalado:
-        // 4022 vs 4307 ms, más rápido en las 5 corridas), semántica byte-idéntica
-        // (trace + dibujo + ctx≡frames en V3 y Cuis). Mecanismo (verificado por
-        // perfil A/B, NO es "matar el LoadIC" como se dijo primero): las operaciones
-        // IC MEGAMÓRFICAS caen a monomórficas — StoreIC de initInstanceOf (sqClass=,
-        // hash=, _format=, pointers=) y LoadIC_Megamorphic. El LoadIC regular
-        // (loads de `.pointers`/`.sqClass`) QUEDA como costo residual top (~18%): los
-        // loads siguen ocurriendo, ahora baratos pero no gratis; eliminarlos del
-        // todo requiere objetos en memoria lineal (WASM). Distinto del intento "flat
-        // shape" previo (−7%, shape con TODOS los campos, medido send-heavy): acá los
-        // campos por-formato se mantienen, solo se comparte el constructor. Opt-out
-        // (nombres por clase en devtools): Squeak.perClassShape = true.
+        // One shared constructor for every object rather than one per Smalltalk class.
+        // V8 then sees a handful of maps (by format: pointers/bytes/words/float) instead
+        // of hundreds, which turns the megamorphic inline caches of initInstanceOf --
+        // the stores of sqClass, hash, _format and pointers -- monomorphic. Measured
+        // 6.6% faster on a real workload, timed to rendered result rather than in a
+        // microbenchmark, with byte-identical behaviour. What is left is the ordinary
+        // loads of .pointers and .sqClass, which only linear object memory would remove.
+        // Squeak.perClassShape = true restores the per-class names for devtools.
         if (Squeak.perClassShape !== true) {
             if (!Squeak.sharedInstProto) {
                 Squeak.sharedInstProto = new Function("return function SqueakObject() { this.oop = 0; this.hash = 0; this.dirty = false; this.mark = false; this.nextObject = null; };")();
