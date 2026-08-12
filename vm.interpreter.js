@@ -21,6 +21,22 @@
  * THE SOFTWARE.
  */
 
+// The layout constants, read once. Squeak is a plain object that vm.js grows to 155
+// properties one at a time, which drops it out of V8's fast-property mode for good, so
+// every Squeak.Context_sender on the activation path is a dictionary lookup. These are
+// frozen integers, and the interpreter reads them on every send and every return.
+// (Vanessa hit the same class of problem: see "store locally to avoid dynamic lookup".)
+const Context_sender = Squeak.Context_sender;
+const Context_tempFrameStart = Squeak.Context_tempFrameStart;
+const Context_instructionPointer = Squeak.Context_instructionPointer;
+const Context_method = Squeak.Context_method;
+const Context_stackPointer = Squeak.Context_stackPointer;
+const Context_receiver = Squeak.Context_receiver;
+const Context_closure = Squeak.Context_closure;
+const Closure_outerContext = Squeak.Closure_outerContext;
+const BlockContext_initialIP = Squeak.BlockContext_initialIP;
+const BlockContext_home = Squeak.BlockContext_home;
+
 Object.subclass('Squeak.Interpreter',
 'initialization', {
     initialize: function(image, display, options) {
@@ -64,7 +80,7 @@ Object.subclass('Squeak.Interpreter',
         this.sendCount = 0;
         this.stack = null; // operand stack array (activeContext.pointers; a zone page once stack frames land)
         this.temps = null; // temp base array (homeContext.pointers; a zone page once stack frames land)
-        this.tempOffset = Squeak.Context_tempFrameStart; // index of temp 0 in this.temps
+        this.tempOffset = Context_tempFrameStart; // index of temp 0 in this.temps
         // stack-zone state, declared here for stable object shape even when unused
         this.jsDepth = 0; // profundidad de llamadas JS directas (modo frames)
         this.LEAF_DEOPT_ = null;
@@ -909,7 +925,7 @@ Object.subclass('Squeak.Interpreter',
             blockSize = blockSizeHigh * 256 + this.nextByte(),
             initialPC = this.encodeSqueakPC(this.pc, this.method),
             closure = this.newClosure(numArgs, initialPC, numCopied);
-        closure.pointers[Squeak.Closure_outerContext] = this.activeContextObj();
+        closure.pointers[Closure_outerContext] = this.activeContextObj();
         this.reclaimableContextCount = 0; // The closure refers to thisContext so it can't be reclaimed
         if (numCopied > 0) {
             for (var i = 0; i < numCopied; i++)
@@ -927,7 +943,7 @@ Object.subclass('Squeak.Interpreter',
             blockSize = byteB + (extB << 8),
             initialPC = this.encodeSqueakPC(this.pc, this.method),
             closure = this.newClosure(numArgs, initialPC, numCopied);
-        closure.pointers[Squeak.Closure_outerContext] = this.activeContextObj();
+        closure.pointers[Closure_outerContext] = this.activeContextObj();
         this.reclaimableContextCount = 0; // The closure refers to thisContext so it can't be reclaimed
         if (numCopied > 0) {
             for (var i = 0; i < numCopied; i++)
@@ -972,7 +988,7 @@ Object.subclass('Squeak.Interpreter',
     },
     newFullClosure: function(context, numCopied, compiledBlock) {
         var closure = this.instantiateClass(this.specialObjects[Squeak.splOb_ClassFullBlockClosure], numCopied);
-        closure.pointers[Squeak.Closure_outerContext] = context;
+        closure.pointers[Closure_outerContext] = context;
         closure.pointers[Squeak.ClosureFull_method] = compiledBlock;
         closure.pointers[Squeak.Closure_numArgs] = compiledBlock.methodNumArgs();
         return closure;
@@ -1085,7 +1101,7 @@ Object.subclass('Squeak.Interpreter',
         if (this.logSends) {
             var indent = ' ';
             var ctx = this.activeContext;
-            while (!ctx.isNil) { indent += '| '; ctx = ctx.pointers[Squeak.Context_sender]; }
+            while (!ctx.isNil) { indent += '| '; ctx = ctx.pointers[Context_sender]; }
             var args = this.stack.slice(this.sp + 1 - argumentCount, this.sp + 1);
             console.log(this.sendCount + indent + this.printMethod(newMethod, optClass, optSel, args));
         }
@@ -1103,16 +1119,16 @@ Object.subclass('Squeak.Interpreter',
         var newContext = this.allocateOrRecycleContext((header & 0x20000) > 0);
         var tempCount = (header >> 18) & 63;
         var newPC = 0; // direct zero-based index into byte codes
-        var newSP = Squeak.Context_tempFrameStart + tempCount - 1; // direct zero-based index into context pointers
-        newContext.pointers[Squeak.Context_method] = newMethod;
+        var newSP = Context_tempFrameStart + tempCount - 1; // direct zero-based index into context pointers
+        newContext.pointers[Context_method] = newMethod;
         //Following store is in case we alloc without init; all other fields get stored
-        newContext.pointers[Squeak.BlockContext_initialIP] = this.nilObj;
-        newContext.pointers[Squeak.Context_sender] = this.activeContext;
+        newContext.pointers[BlockContext_initialIP] = this.nilObj;
+        newContext.pointers[Context_sender] = this.activeContext;
         //Copy receiver and args to new context
         //Note this statement relies on the receiver slot being contiguous with args...
-        this.arrayCopy(this.stack, this.sp-argumentCount, newContext.pointers, Squeak.Context_tempFrameStart-1, argumentCount+1);
+        this.arrayCopy(this.stack, this.sp-argumentCount, newContext.pointers, Context_tempFrameStart-1, argumentCount+1);
         //...and fill the remaining temps with nil
-        this.arrayFill(newContext.pointers, Squeak.Context_tempFrameStart+argumentCount, Squeak.Context_tempFrameStart+tempCount, this.nilObj);
+        this.arrayFill(newContext.pointers, Context_tempFrameStart+argumentCount, Context_tempFrameStart+tempCount, this.nilObj);
         this.popN(argumentCount+1);
         this.reclaimableContextCount++;
         this.storeContextRegisters();
@@ -1126,8 +1142,8 @@ Object.subclass('Squeak.Interpreter',
         this.sp = newSP;
         this.stack = newContext.pointers;
         this.temps = newContext.pointers; // home === newContext for method activations
-        this.tempOffset = Squeak.Context_tempFrameStart;
-        this.receiver = newContext.pointers[Squeak.Context_receiver];
+        this.tempOffset = Context_tempFrameStart;
+        this.receiver = newContext.pointers[Context_receiver];
         if (this.receiver !== newRcvr)
             throw Error("receivers don't match");
         if (!newMethod.compiled) this.compileIfPossible(newMethod, optClass, optSel);
@@ -1145,21 +1161,21 @@ Object.subclass('Squeak.Interpreter',
             var ctx = this.homeContext;
             if (this.hasClosures) {
                 var closure;
-                while (!(closure = ctx.pointers[Squeak.Context_closure]).isNil)
-                    ctx = closure.pointers[Squeak.Closure_outerContext];
+                while (!(closure = ctx.pointers[Context_closure]).isNil)
+                    ctx = closure.pointers[Closure_outerContext];
             }
-            targetContext = ctx.pointers[Squeak.Context_sender];
+            targetContext = ctx.pointers[Context_sender];
         }
-        if (targetContext.isNil || targetContext.pointers[Squeak.Context_instructionPointer].isNil)
+        if (targetContext.isNil || targetContext.pointers[Context_instructionPointer].isNil)
             return this.cannotReturn(returnValue);
         // search up stack for unwind
-        var thisContext = this.activeContext.pointers[Squeak.Context_sender];
+        var thisContext = this.activeContext.pointers[Context_sender];
         while (thisContext !== targetContext) {
             if (thisContext.isNil)
                 return this.cannotReturn(returnValue);
             if (this.isUnwindMarked(thisContext))
                 return this.aboutToReturnThrough(returnValue, thisContext);
-            thisContext = thisContext.pointers[Squeak.Context_sender];
+            thisContext = thisContext.pointers[Context_sender];
         }
         // no unwind to worry about, just peel back the stack (usually just to sender)
         var nextContext;
@@ -1169,9 +1185,9 @@ Object.subclass('Squeak.Interpreter',
                 this.breakOnContextReturned = null;
                 this.breakNow();
             }
-            nextContext = thisContext.pointers[Squeak.Context_sender];
-            thisContext.pointers[Squeak.Context_sender] = this.nilObj;
-            thisContext.pointers[Squeak.Context_instructionPointer] = this.nilObj;
+            nextContext = thisContext.pointers[Context_sender];
+            thisContext.pointers[Context_sender] = this.nilObj;
+            thisContext.pointers[Context_instructionPointer] = this.nilObj;
             if (this.reclaimableContextCount > 0) {
                 this.reclaimableContextCount--;
                 this.recycleIfPossible(thisContext);
@@ -1384,7 +1400,7 @@ Object.subclass('Squeak.Interpreter',
 'contexts', {
     isUnwindMarked: function(ctx) {
         if (!this.isMethodContext(ctx)) return false;
-        var method = ctx.pointers[Squeak.Context_method];
+        var method = ctx.pointers[Context_method];
         return method.methodPrimitiveIndex() == 198;
     },
     newActiveContext: function(newContext) {
@@ -1404,27 +1420,27 @@ Object.subclass('Squeak.Interpreter',
         return this.activeContext;
     },
     fetchContextRegisters: function(ctxt) {
-        var meth = ctxt.pointers[Squeak.Context_method];
+        var meth = ctxt.pointers[Context_method];
         if (this.isSmallInt(meth)) { //if the Method field is an integer, activeCntx is a block context
-            this.homeContext = ctxt.pointers[Squeak.BlockContext_home];
-            meth = this.homeContext.pointers[Squeak.Context_method];
+            this.homeContext = ctxt.pointers[BlockContext_home];
+            meth = this.homeContext.pointers[Context_method];
         } else { //otherwise home==ctxt
             this.homeContext = ctxt;
         }
-        this.receiver = this.homeContext.pointers[Squeak.Context_receiver];
+        this.receiver = this.homeContext.pointers[Context_receiver];
         this.method = meth;
-        this.pc = this.decodeSqueakPC(ctxt.pointers[Squeak.Context_instructionPointer], meth);
-        this.sp = this.decodeSqueakSP(ctxt.pointers[Squeak.Context_stackPointer]);
+        this.pc = this.decodeSqueakPC(ctxt.pointers[Context_instructionPointer], meth);
+        this.sp = this.decodeSqueakSP(ctxt.pointers[Context_stackPointer]);
         this.stack = ctxt.pointers; // operand stack array; sp indexes into it
         this.temps = this.homeContext.pointers; // temp access: temps[tempOffset+n]
-        this.tempOffset = Squeak.Context_tempFrameStart;
+        this.tempOffset = Context_tempFrameStart;
     },
     storeContextRegisters: function() {
         //Save pc, sp into activeContext object, prior to change of context
         //   see fetchContextRegisters for symmetry
         //   expects activeContext, pc, sp, and method state vars to still be valid
-        this.activeContext.pointers[Squeak.Context_instructionPointer] = this.encodeSqueakPC(this.pc, this.method);
-        this.activeContext.pointers[Squeak.Context_stackPointer] = this.encodeSqueakSP(this.sp);
+        this.activeContext.pointers[Context_instructionPointer] = this.encodeSqueakPC(this.pc, this.method);
+        this.activeContext.pointers[Context_stackPointer] = this.encodeSqueakSP(this.sp);
     },
     encodeSqueakPC: function(intPC, method) {
         // Squeak pc is offset by header and literals
@@ -1436,19 +1452,19 @@ Object.subclass('Squeak.Interpreter',
     },
     encodeSqueakSP: function(intSP) {
         // sp is offset by tempFrameStart, -1 for z-rel addressing
-        return intSP - (Squeak.Context_tempFrameStart - 1);
+        return intSP - (Context_tempFrameStart - 1);
     },
     decodeSqueakSP: function(squeakSP) {
-        return squeakSP + (Squeak.Context_tempFrameStart - 1);
+        return squeakSP + (Context_tempFrameStart - 1);
     },
     recycleIfPossible: function(ctxt) {
         if (!this.isMethodContext(ctxt)) return;
-        if (ctxt.pointersSize() === (Squeak.Context_tempFrameStart+Squeak.Context_smallFrameSize)) {
+        if (ctxt.pointersSize() === (Context_tempFrameStart+Squeak.Context_smallFrameSize)) {
             // Recycle small contexts
             ctxt.pointers[0] = this.freeContexts;
             this.freeContexts = ctxt;
         } else { // Recycle large contexts
-            if (ctxt.pointersSize() !== (Squeak.Context_tempFrameStart+Squeak.Context_largeFrameSize))
+            if (ctxt.pointersSize() !== (Context_tempFrameStart+Squeak.Context_largeFrameSize))
                 return;
             ctxt.pointers[0] = this.freeLargeContexts;
             this.freeLargeContexts = ctxt;
@@ -1703,7 +1719,7 @@ Object.subclass('Squeak.Interpreter',
         });
         if (found) return found;
         if (optContext) {
-            var rcvr = optContext.pointers[Squeak.Context_receiver];
+            var rcvr = optContext.pointers[Context_receiver];
             return "(" + rcvr + ")>>?";
         }
         return "?>>?";
@@ -1769,7 +1785,7 @@ Object.subclass('Squeak.Interpreter',
             hardLimit = Math.max(limit, 1000000);
         while (!ctx.isNil && hardLimit-- > 0) {
             contexts.push(ctx);
-            ctx = ctx.pointers[Squeak.Context_sender];
+            ctx = ctx.pointers[Context_sender];
         }
         var extra = 200;
         if (contexts.length > limit + extra) {
@@ -1786,11 +1802,11 @@ Object.subclass('Squeak.Interpreter',
                 stack.push('...\n');
             } else {
                 var block = '',
-                    method = ctx.pointers[Squeak.Context_method];
+                    method = ctx.pointers[Context_method];
                 if (typeof method === 'number') { // it's a block context, fetch home
-                    method = ctx.pointers[Squeak.BlockContext_home].pointers[Squeak.Context_method];
+                    method = ctx.pointers[BlockContext_home].pointers[Context_method];
                     block = '[] in ';
-                } else if (!ctx.pointers[Squeak.Context_closure].isNil) {
+                } else if (!ctx.pointers[Context_closure].isNil) {
                     block = '[] in '; // it's a closure activation
                 }
                 var line = block + this.printMethod(method, ctx);
@@ -1844,17 +1860,17 @@ Object.subclass('Squeak.Interpreter',
         }
         // temps and stack in current context
         var isBlock = typeof ctx.pointers[Squeak.BlockContext_argumentCount] === 'number';
-        var closure = ctx.pointers[Squeak.Context_closure];
+        var closure = ctx.pointers[Context_closure];
         var isClosure = !isBlock && !closure.isNil;
-        var homeCtx = isBlock ? ctx.pointers[Squeak.BlockContext_home] : ctx;
+        var homeCtx = isBlock ? ctx.pointers[BlockContext_home] : ctx;
         var tempCount = isClosure
             ? closure.pointers[Squeak.Closure_numArgs]
-            : homeCtx.pointers[Squeak.Context_method].methodTempCount();
+            : homeCtx.pointers[Context_method].methodTempCount();
         var stackBottom = this.decodeSqueakSP(0);
         var stackTop = homeCtx.contextSizeWithStack(this) - 1;
         var firstTemp = stackBottom + 1;
         var lastTemp = firstTemp + tempCount - 1;
-        var lastArg = firstTemp + homeCtx.pointers[Squeak.Context_method].methodNumArgs() - 1;
+        var lastArg = firstTemp + homeCtx.pointers[Context_method].methodNumArgs() - 1;
         var stack = '';
         for (var i = stackBottom; i <= stackTop; i++) {
             var value = printObj(homeCtx.pointers[i]);
@@ -1872,7 +1888,7 @@ Object.subclass('Squeak.Interpreter',
             var nArgs = ctx.pointers[Squeak.BlockContext_argumentCount];
             var firstArg = this.decodeSqueakSP(1);
             var lastArg = firstArg + nArgs;
-            var sp = ctx === this.activeContext ? this.sp : ctx.pointers[Squeak.Context_stackPointer];
+            var sp = ctx === this.activeContext ? this.sp : ctx.pointers[Context_stackPointer];
             if (sp < firstArg) stack += '\nblk <stack empty>';
             for (var i = firstArg; i <= sp; i++) {
                 var value = printObj(ctx.pointers[i]);
