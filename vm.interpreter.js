@@ -942,12 +942,8 @@ Object.subclass('Squeak.Interpreter',
         var byteB = this.nextByte();
         var literalIndex = byteA + (extA << 8);
         var numCopied = byteB & 63;
-        var context;
-        if ((byteB >> 6 & 1) == 1) {
-            context = this.nilObj;
-        } else {
-            context = this.activeContextObj();
-        }
+        var isCleanBlock = (byteB >> 6 & 1) == 1;
+        var context = isCleanBlock ? this.nilObj : this.activeContextObj();
         var compiledBlock = this.method.methodGetLiteral(literalIndex);
         var closure = this.newFullClosure(context, numCopied, compiledBlock);
         if ((byteB >> 7 & 1) == 1) {
@@ -955,7 +951,12 @@ Object.subclass('Squeak.Interpreter',
         } else {
             closure.pointers[Squeak.ClosureFull_receiver] = this.receiver;
         }
-        this.reclaimableContextCount = 0; // The closure refers to thisContext so it can't be reclaimed
+        // Only when the closure actually captured the context: a clean block's outer
+        // context is nil, so creating one cannot make any context reachable and the
+        // frames below stay reclaimable. jit.js has always drawn this distinction --
+        // see generatePushFullClosure -- and the interpreter did not, which is what
+        // made it give up recycling far more often than it had to.
+        if (!isCleanBlock) this.reclaimableContextCount = 0;
         if (numCopied > 0) {
             for (var i = 0; i < numCopied; i++)
                 closure.pointers[Squeak.ClosureFull_firstCopiedValue + i] = this.stackValue(numCopied - i - 1);
