@@ -1298,6 +1298,8 @@ Object.subclass('Squeak.Primitives',
         if (array.isWords()) // words...
             if (info.convertChars) return this.charFromInt(array.words[index-1] & 0x3FFFFFFF);
             else return this.pos32BitIntFor(array.words[index-1]);
+        if (array.isShorts()) // 16-bit words (DoubleByteArray), which live in words16
+            return array.words16[index-1];
         if (array.isBytes()) // bytes...
             if (info.convertChars) return this.charFromInt(array.bytes[index-1] & 0xFF);
             else return array.bytes[index-1] & 0xFF;
@@ -1356,6 +1358,13 @@ Object.subclass('Squeak.Primitives',
                 intToPut = this.stackPos32BitInt(0);
             }
             if (this.success) array.words[index-1] = intToPut;
+            return objToPut;
+        }
+        if (array.isShorts()) { // 16-bit words: the byte path below would clamp to 255
+            intToPut = this.stackPos32BitInt(0);
+            if (!this.success) return array;
+            if (intToPut < 0 || intToPut > 65535) {this.success = false; return objToPut;}
+            array.words16[index-1] = intToPut;
             return objToPut;
         }
         // bytes...

@@ -50,6 +50,15 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
                         this.float = 0.0;
                     } else
                         this.words = new Uint32Array(indexableSize);
+        } else if (format < 16) { // 16-bit indexable (DoubleByteArray)
+            // Same story as format 9 above, one range further along: these live in words16
+            // -- installFromImage decodes them there and indexableSize() measures them there
+            // -- but allocating one at runtime handed it a byte array, so `DoubleByteArray
+            // new: n` came back with the wrong storage and every at: fell through to the
+            // CompiledMethod path. Cuis University hits this once VectorEnginePlugin is
+            // missing and it falls back to Smalltalk rendering.
+            if (indexableSize > 0)
+                this.words16 = new Uint16Array(indexableSize);
         } else // Bytes
             if (indexableSize > 0) {
                 // this._format |= -indexableSize & 3;       //deferred to writeTo()
@@ -425,6 +434,13 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
     },
     isWords: function() {
         return this._format === 10;
+    },
+    isShorts: function() {
+        // 12-15: 16-bit indexable (DoubleByteArray). Exactly the trap format 9 had: it sits
+        // between the word and the byte ranges, so anything that only asks isWords and
+        // isBytes falls through both and ends up on the CompiledMethod path.
+        var fmt = this._format;
+        return fmt >= 12 && fmt <= 15;
     },
     isWordsOrBytes: function() {
         var fmt = this._format;

@@ -208,6 +208,12 @@ Object.subclass('Squeak.Object',
     isWords: function() {
         return this._format === 6;
     },
+    isShorts: function() {
+        // Pre-Spur has no 16-bit indexable format: 12-15 there means CompiledMethod.
+        // ObjectSpur overrides this. Defined here so callers can ask without checking
+        // which memory representation they are holding.
+        return false;
+    },
     isWords64: function() {
         // Spur format 9: 64-bit indexable (DoubleWordArray). Only in 64-bit images, and
         // stored in words64, not words — so it must never be treated as a 32-bit array.
