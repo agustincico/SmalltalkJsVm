@@ -178,13 +178,16 @@
     // Only what the VM needs to boot. Not *.st in general: a Cuis bundle ships hundreds of
     // .pck.st packages and asking for each of them is worse than downloading the archive.
     var VM_READS = /(\.(image|changes|sources)|(^|\/)startup\.st)$/i;
+    var RANGE_WORTH_IT = 50 * 1024 * 1024;   // below this, just download the archive
     async function unzipByRange(url) {
         if (typeof DecompressionStream === "undefined") return null;
+        // Ask first rather than probing: a range request against a server that will not do
+        // them answers 416, and the browser logs that as an error even though we recover.
+        var head = await fetch(url, { method: "HEAD" });
+        var total = +head.headers.get("content-length");
+        if (!(total > RANGE_WORTH_IT) || head.headers.get("accept-ranges") !== "bytes") return null;
         var tail = await fetch(url, { headers: { Range: "bytes=-65557" } });   // max comment + EOCD
         if (tail.status !== 206) return null;
-        var range = tail.headers.get("content-range");                          // "bytes A-B/TOTAL"
-        var total = range && +range.split("/")[1];
-        if (!total) return null;
         var tailBuf = new Uint8Array(await tail.arrayBuffer()),
             tailAt = total - tailBuf.length,
             tv = new DataView(tailBuf.buffer, tailBuf.byteOffset, tailBuf.byteLength),
