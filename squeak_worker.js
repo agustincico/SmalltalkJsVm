@@ -257,6 +257,7 @@ self.onmessage = function(e) {
         else if (ev[0] === 3) { display.mouseX = ev[3]; display.mouseY = ev[4]; } // drag: [3,ts,type,x,y,...] → update pointer pos
         display.eventQueue.push(ev);
         if (display.signalInputEvent) display.signalInputEvent();
+        if (self.wakeVM) self.wakeVM();
     } else if (msg.type === "resize") {
         // window resized: change the display resolution; the image picks up the new screen
         // size on its next display cycle and relayouts (or letterboxes, its choice).
@@ -271,6 +272,7 @@ self.onmessage = function(e) {
         display.droppedFiles = msg.files;
         display.eventQueue.push(msg.ev);
         if (display.signalInputEvent) display.signalInputEvent();
+        if (self.wakeVM) self.wakeVM();
     } else if (msg.type === "clipboard-set") {
         display.clipboardString = typeof msg.text === "string" ? msg.text : "";
     } else if (msg.type === "sound-done") {
@@ -314,6 +316,7 @@ function boot(opts) {
             }, 700);
         }
         function startVM(noJit) {
+            var pending = null;   // handle of the sleep timer, so input can cut it short
             var image = new Squeak.Image(opts.name || "SqueakJS");
             // More headroom than the 100MB default: opening a big project spikes transient
             // allocation; 512MB lets the peak fit and the GC reclaim it (only a threshold).
@@ -324,8 +327,22 @@ function boot(opts) {
                 if (opts.nostream) vm.primHandler.streamPrims = false; // A/B: disable stream prims 65/66/67
                 self.postMessage({ type: "ready", build: BUILD });
                 startIntervals();
+                // The interpreter says how long it wants to sleep and we park in a timer.
+                // Input has to be able to cut that short: signalling the semaphore does not
+                // reach a VM that is not running, so an event arriving while parked waited
+                // the timer out -- measured on an idle app, 5-15 ms of dead wait on the
+                // first event after a pause (and that is why a first touch answered worse
+                // than the hundredth of a drag). Cancelling the timer costs nothing at rest:
+                // it only fires when input arrives.
+                self.wakeVM = function() {
+                    if (pending === null) return;       // already running, nothing to cut short
+                    clearTimeout(pending);
+                    pending = null;
+                    run();
+                };
                 function run() {
-                    try { vm.interpret(50, function(ms) { setTimeout(run, ms === "sleep" ? 10 : ms); }); }
+                    pending = null;
+                    try { vm.interpret(50, function(ms) { pending = setTimeout(run, ms === "sleep" ? 10 : ms); }); }
                     catch (err) {
                         var msg = String(err && err.stack || err);
                         // jit1 mishandles some Sista bytecodes (e.g. Cuis 7.x). The failure
