@@ -536,6 +536,12 @@ Object.subclass('Squeak.Object',
     isWords: function() {
         return this._format === 6;
     },
+    isShorts: function() {
+        // Pre-Spur has no 16-bit indexable format: 12-15 there means CompiledMethod.
+        // ObjectSpur overrides this. Defined here so callers can ask without checking
+        // which memory representation they are holding.
+        return false;
+    },
     isWords64: function() {
         // Spur format 9: 64-bit indexable (DoubleWordArray). Only in 64-bit images, and
         // stored in words64, not words — so it must never be treated as a 32-bit array.
@@ -979,6 +985,15 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
                         this.float = 0.0;
                     } else
                         this.words = new Uint32Array(indexableSize);
+        } else if (format < 16) { // 16-bit indexable (DoubleByteArray)
+            // Same story as format 9 above, one range further along: these live in words16
+            // -- installFromImage decodes them there and indexableSize() measures them there
+            // -- but allocating one at runtime handed it a byte array, so `DoubleByteArray
+            // new: n` came back with the wrong storage and every at: fell through to the
+            // CompiledMethod path. Cuis University hits this once VectorEnginePlugin is
+            // missing and it falls back to Smalltalk rendering.
+            if (indexableSize > 0)
+                this.words16 = new Uint16Array(indexableSize);
         } else // Bytes
             if (indexableSize > 0) {
                 // this._format |= -indexableSize & 3;       //deferred to writeTo()
@@ -1354,6 +1369,13 @@ Squeak.Object.subclass('Squeak.ObjectSpur',
     },
     isWords: function() {
         return this._format === 10;
+    },
+    isShorts: function() {
+        // 12-15: 16-bit indexable (DoubleByteArray). Exactly the trap format 9 had: it sits
+        // between the word and the byte ranges, so anything that only asks isWords and
+        // isBytes falls through both and ends up on the CompiledMethod path.
+        var fmt = this._format;
+        return fmt >= 12 && fmt <= 15;
     },
     isWordsOrBytes: function() {
         var fmt = this._format;
@@ -7018,6 +7040,8 @@ Object.subclass('Squeak.Primitives',
         if (array.isWords()) // words...
             if (info.convertChars) return this.charFromInt(array.words[index-1] & 0x3FFFFFFF);
             else return this.pos32BitIntFor(array.words[index-1]);
+        if (array.isShorts()) // 16-bit words (DoubleByteArray), which live in words16
+            return array.words16[index-1];
         if (array.isBytes()) // bytes...
             if (info.convertChars) return this.charFromInt(array.bytes[index-1] & 0xFF);
             else return array.bytes[index-1] & 0xFF;
@@ -7076,6 +7100,13 @@ Object.subclass('Squeak.Primitives',
                 intToPut = this.stackPos32BitInt(0);
             }
             if (this.success) array.words[index-1] = intToPut;
+            return objToPut;
+        }
+        if (array.isShorts()) { // 16-bit words: the byte path below would clamp to 255
+            intToPut = this.stackPos32BitInt(0);
+            if (!this.success) return array;
+            if (intToPut < 0 || intToPut > 65535) {this.success = false; return objToPut;}
+            array.words16[index-1] = intToPut;
             return objToPut;
         }
         // bytes...
