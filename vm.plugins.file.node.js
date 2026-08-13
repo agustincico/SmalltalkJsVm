@@ -41,8 +41,17 @@ Object.extend(Squeak.Primitives.prototype,
         try {
             fs.mkdirSync(dirName);
         } catch(e) {
-            console.error("Failed to create directory: " + dirName);
-            return false;
+            // an existing directory counts as created (same as the browser backend's
+            // dirCreate): Cuis re-creates each path component when checking a path,
+            // and failing here aborts its whole startup
+            var isDir = false;
+            if (e.code === "EEXIST") {
+                try { isDir = fs.statSync(dirName).isDirectory(); } catch(e2) {}
+            }
+            if (!isDir) {
+                console.error("Failed to create directory: " + dirName);
+                return false;
+            }
         }
         return this.popNIfOK(argCount);	// Answer self
     },
