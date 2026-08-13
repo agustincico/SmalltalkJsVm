@@ -56,6 +56,11 @@ def imported_modules():
 # a newer 6.x build appears (the directory listing at files.squeak.org/6.0/ is the source).
 SQUEAK_BUILD = "Squeak6.0-22156-64bit"
 CUIS_REPO, CUIS_VERSION = "Cuis7-8", "Cuis7.8"
+# Cuis University publishes only per-platform bundles (160-205 MB: the VM binaries, the
+# documentation and the package tree next to the image). The launcher reads the zip index
+# by range and pulls just the image out of it, so linking the official asset costs ~11 MB
+# rather than 215 -- see unzipByRange in the page.
+CUISU_TAG, CUISU_ASSET = "v8134", "windows64.zip"
 PHARO_VERSION = "130"
 # the extracted Morphic application, built by pharo/app-build.st and committed to the site
 # repo (this script does not generate it); both the examples list and embed.html point here
@@ -70,14 +75,18 @@ def examples():
     cuis = ("#url=https://raw.githubusercontent.com/Cuis-Smalltalk/%s/master/CuisImage"
             "&files=[%s.image,%s.changes,%s.sources]" % (CUIS_REPO, CUIS_VERSION, CUIS_VERSION, CUIS_VERSION))
     pharo = "https://files.pharo.org/image/%s/latest-64.zip" % PHARO_VERSION
+    cuisu = ("https://github.com/Cuis-University/Cuis-University/releases/download/%s/%s"
+             % (CUISU_TAG, CUISU_ASSET))
     return [
         ("Squeak", [("6.0", "#zip=" + squeak)], "the current build, from files.squeak.org"),
         # No [image,compat13.zip] pair here: the launcher reads the image and installs the
         # compatibility script itself, exactly as it does for an image dropped on the page.
         ("Pharo", [("13", "#zip=" + pharo)], "the current release, from files.pharo.org"),
-        ("Cuis", [("7.8", cuis)], "from the official repo"),
         ("Pharo app", [("live Morphic demo", "#zip=" + PHARO_APP)],
          "a saved image that opens with the app already running"),
+        ("Cuis", [("7.8", cuis)], "from the official repo"),
+        ("Cuis University", [("8134", "#zip=" + cuisu)],
+         "a teaching environment, out of the project's own release bundle"),
     ]
 
 

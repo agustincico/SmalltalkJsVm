@@ -77,7 +77,10 @@
     // something a link should have to spell out: examples name the project's own URL and
     // this puts the proxy in front only where it is actually needed.
     var CORS_PROXY = "https://cors.smalltalkjsvm.com.ar/";   // mk-site.py rewrites this
-    var CORS_LESS = /^https?:\/\/(files\.squeak\.org|files\.pharo\.org)\//i;
+    // Hosts that serve images without access-control headers, so a page on another domain
+    // cannot read them and they have to go through the proxy. GitHub's *raw* files do send
+    // the headers -- that is why Cuis is fetched directly -- but release downloads do not.
+    var CORS_LESS = /^https?:\/\/(files\.squeak\.org|files\.pharo\.org|github\.com)\//i;
     function viaProxy(url) { return CORS_LESS.test(url) ? CORS_PROXY + url : url; }
 
     // --- #worker mode: run the VM in a Web Worker rendering to an OffscreenCanvas ---
@@ -165,6 +168,84 @@
     // the aux files (changes/sources) in the shared FS, pick the image, and boot it in the
     // worker. If a bundle ships several .image files and one is a 32-bit build, prefer it;
     // otherwise take the first (SqueakJS reads 64-bit Spur images natively — no conversion).
+    // A platform bundle ships the VM binaries, the documentation and the package tree
+    // alongside the image: Cuis University's is 215 MB and the image is 10 of those. A zip
+    // keeps its index at the end, so one range request for the tail says where every entry
+    // lives, and only the files the VM actually reads have to come down the wire.
+    // Answers [{name, data}] or null when the server will not serve ranges, when the
+    // archive uses anything the simple reader does not handle, or when there is nothing to
+    // gain -- in every one of those cases the caller just downloads the whole thing.
+    // Only what the VM needs to boot. Not *.st in general: a Cuis bundle ships hundreds of
+    // .pck.st packages and asking for each of them is worse than downloading the archive.
+    var VM_READS = /(\.(image|changes|sources)|(^|\/)startup\.st)$/i;
+    async function unzipByRange(url) {
+        if (typeof DecompressionStream === "undefined") return null;
+        var tail = await fetch(url, { headers: { Range: "bytes=-65557" } });   // max comment + EOCD
+        if (tail.status !== 206) return null;
+        var range = tail.headers.get("content-range");                          // "bytes A-B/TOTAL"
+        var total = range && +range.split("/")[1];
+        if (!total) return null;
+        var tailBuf = new Uint8Array(await tail.arrayBuffer()),
+            tailAt = total - tailBuf.length,
+            tv = new DataView(tailBuf.buffer, tailBuf.byteOffset, tailBuf.byteLength),
+            eocd = -1;
+        for (var i = tailBuf.length - 22; i >= 0; i--)
+            if (tv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+        if (eocd < 0) return null;
+        var count = tv.getUint16(eocd + 10, true),
+            cdSize = tv.getUint32(eocd + 12, true),
+            cdAt = tv.getUint32(eocd + 16, true);
+        if (count === 0xFFFF || cdAt === 0xFFFFFFFF) return null;               // zip64
+        // the directory is usually inside the tail we already have; fetch it if not
+        var cd, cdBase;
+        if (cdAt >= tailAt) { cd = tailBuf; cdBase = tailAt; }
+        else {
+            var r = await fetch(url, { headers: { Range: "bytes=" + cdAt + "-" + (cdAt + cdSize - 1) } });
+            if (r.status !== 206) return null;
+            cd = new Uint8Array(await r.arrayBuffer()); cdBase = cdAt;
+        }
+        var dv = new DataView(cd.buffer, cd.byteOffset, cd.byteLength),
+            off = cdAt - cdBase, wanted = [], bytesAll = 0, bytesWanted = 0;
+        for (var k = 0; k < count; k++) {
+            if (off + 46 > cd.length || dv.getUint32(off, true) !== 0x02014b50) return null;
+            var flags  = dv.getUint16(off + 8, true),
+                method = dv.getUint16(off + 10, true),
+                csize  = dv.getUint32(off + 20, true),
+                nlen   = dv.getUint16(off + 28, true),
+                elen   = dv.getUint16(off + 30, true),
+                clen   = dv.getUint16(off + 32, true),
+                lho    = dv.getUint32(off + 42, true),
+                name   = new TextDecoder().decode(cd.subarray(off + 46, off + 46 + nlen));
+            bytesAll += csize;
+            if (!name.endsWith("/") && VM_READS.test(name)) {
+                if (flags & 1) return null;                                     // encrypted
+                if (method !== 0 && method !== 8) return null;
+                if (csize === 0xFFFFFFFF || lho === 0xFFFFFFFF) return null;    // zip64
+                wanted.push({ name: name.replace(/^.*\//, ""), method: method, csize: csize, lho: lho });
+                bytesWanted += csize;
+            }
+            off += 46 + nlen + elen + clen;
+        }
+        if (!wanted.length) return null;
+        if (bytesWanted > bytesAll * 0.8) return null;                          // nothing to gain
+        for (var j = 0; j < wanted.length; j++) {
+            var e = wanted[j];
+            // the local header repeats the name and may carry a different extra field, so
+            // read it before the data rather than trusting the directory's lengths
+            var hr = await fetch(url, { headers: { Range: "bytes=" + e.lho + "-" + (e.lho + 29) } });
+            if (hr.status !== 206) return null;
+            var h = new DataView(await hr.arrayBuffer());
+            if (h.getUint32(0, true) !== 0x04034b50) return null;
+            var start = e.lho + 30 + h.getUint16(26, true) + h.getUint16(28, true),
+                dr = await fetch(url, { headers: { Range: "bytes=" + start + "-" + (start + e.csize - 1) } });
+            if (dr.status !== 206) return null;
+            var raw = new Uint8Array(await dr.arrayBuffer());
+            e.data = e.method === 0 ? raw.slice().buffer
+                : await new Response(new Blob([raw]).stream()
+                    .pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer();
+        }
+        return wanted;
+    }
     function runZipInWorker(params) {
         if (typeof JSZip === "undefined") return alert("JSZip not loaded");
         var base = params.get("url") || "";
@@ -185,6 +266,12 @@
             try {
                 var entries = [], images = [];
                 for (var i = 0; i < zipUrls.length; i++) {
+                    // pull just the image out of a big platform bundle if the server lets us
+                    var picked = await unzipByRange(toUrl(zipUrls[i])).catch(function(){ return null; });
+                    if (picked) {
+                        picked.forEach(function(e){ entries.push({ fn: e.name, data: e.data }); });
+                        continue;
+                    }
                     var r = await fetch(toUrl(zipUrls[i]));
                     if (!r.ok) throw new Error("HTTP " + r.status);
                     var buffer = await r.arrayBuffer();
