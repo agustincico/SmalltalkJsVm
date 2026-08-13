@@ -62,6 +62,36 @@ Object.extend(Squeak.Primitives.prototype,
         var delimitor = this.emulateMac ? ':' : path.sep;
         return this.popNandPushIfOK(argCount + 1, this.charFromInt(delimitor.charCodeAt(0)));
     },
+    primitiveDirectoryEntry: function(argCount) {
+        // look up ONE entry by name (answer nil if absent). Without this primitive an
+        // image checking "does /some/dir exist?" falls back to enumerating the parent,
+        // and a Cuis image that cannot see its own directories retries creating them
+        // forever at startup.
+        var fileNameObj = this.stackNonInteger(0),
+            dirNameObj = this.stackNonInteger(1);
+        if (!this.success) return false;
+        var fileName = fileNameObj.bytesAsString(),
+            dirName = dirNameObj.bytesAsString(),
+            fullName = fileName === "/" && dirName === "/" ? "/"
+                : dirName + (dirName[dirName.length - 1] === path.sep ? "" : path.sep) + fileName;
+        var entry = null;
+        try {
+            var stats;
+            try { stats = fs.statSync(fullName); }
+            catch(e) { stats = fs.lstatSync(fullName); } // dangling symlink: report the link
+            entry = [
+                fileName,                                           // Name
+                Math.floor((stats.ctimeMs - Squeak.Epoch) / 1000),  // Creation time (seconds sinds Smalltalk epoch)
+                Math.floor((stats.mtimeMs - Squeak.Epoch) / 1000),  // Modification time (seconds sinds Smalltalk epoch)
+                stats.isDirectory(),                                // Directory flag
+                stats.isFile() ? stats.size : 0                     // File size
+            ];
+        } catch(e) {
+            // no such entry: answer nil (only a missing PARENT is a primitive failure)
+        }
+        this.popNandPushIfOK(argCount + 1, this.makeStObject(entry));  // entry or nil
+        return true;
+    },
     primitiveDirectoryLookup: function(argCount) {
         var index = this.stackInteger(0),
             dirNameObj = this.stackNonInteger(1);
@@ -72,13 +102,22 @@ Object.extend(Squeak.Primitives.prototype,
             var dirEntries = fs.readdirSync(dirName);
             if (index < 1 || index > dirEntries.length) return false;
             var dirEntry = dirEntries[index - 1];
-            var stats = fs.statSync(dirName + path.sep + dirEntry);
+            var stats;
+            try {
+                stats = fs.statSync(dirName + path.sep + dirEntry);
+            } catch(e) {
+                // an unstattable entry (e.g. a dangling symlink like /.VolumeIcon.icns)
+                // must not end the whole enumeration: to the image a failed lookup means
+                // "no more entries", so one bad file would hide the rest of the directory
+                try { stats = fs.lstatSync(dirName + path.sep + dirEntry); }
+                catch(e2) { stats = null; }
+            }
             entry = [
                 dirEntry,                                           // Name
-                Math.floor((stats.ctimeMs - Squeak.Epoch) / 1000),  // Creation time (seconds sinds Smalltalk epoch)
-                Math.floor((stats.mtimeMs - Squeak.Epoch) / 1000),  // Modification time (seconds sinds Smalltalk epoch)
-                stats.isDirectory(),                                // Directory flag
-                stats.isFile() ? stats.size : 0                     // File size
+                stats ? Math.floor((stats.ctimeMs - Squeak.Epoch) / 1000) : 0,  // Creation time (seconds sinds Smalltalk epoch)
+                stats ? Math.floor((stats.mtimeMs - Squeak.Epoch) / 1000) : 0,  // Modification time (seconds sinds Smalltalk epoch)
+                stats ? stats.isDirectory() : false,                // Directory flag
+                stats && stats.isFile() ? stats.size : 0            // File size
             ];
         } catch(e) {
             if (e.errno !== -20) {

@@ -46,6 +46,9 @@ if (!fullName) {
     console.log("Usage (simplified): " + path.basename(process.argv0) + path.basename(process.argv[1]) + " [-ignoreQuit] <image filename>");
     process.exit(1);
 }
+// resolve to an absolute path: the image derives its directory from this name, and a
+// relative one (dirname ".") makes some images (e.g. Cuis) look for their files in "/"
+fullName = path.resolve(fullName);
 var root = path.dirname(fullName) + path.sep;
 var imageName = path.basename(fullName, ".image");
 
