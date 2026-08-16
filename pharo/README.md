@@ -142,11 +142,16 @@ resets `Author`, not the opener.
 
 ### Known limitation, and it is not the snapshot's
 
-Morphic runs a burst of cycles whenever an input event arrives and stands still in between,
-so the bubbles drift only while you are touching them. **The boot-built bundle behaves exactly
+The bubbles drift only while you are touching them. **The boot-built bundle behaves exactly
 the same** — two screenshots two seconds apart are byte-identical for both, and from inside
-the resumed image a bubble's `position` is unchanged 1.2 seconds later. So this is a property
-of Morphic stepping under SqueakJS, not something snapshotting introduced.
+the resumed image a bubble's `position` is unchanged 1.2 seconds later. So whatever this is,
+snapshotting did not introduce it.
+
+It is *not* that Morphic stands still between events, which is what this section used to
+claim. Probing the running app disproved that: with the screen frozen the VM is still
+executing about a million sends per second, because this demo marks its damage
+unconditionally and Morphic keeps cycling over it. The world is busy; it is the bubble
+positions that do not advance.
 
 Ruled out along the way, each by measurement rather than reasoning: stale step-list clock
 times (re-registering all 18 steppers changes nothing, and `WorldState>>adjustWakeupTimesIfNecessary`

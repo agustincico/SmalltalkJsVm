@@ -6165,10 +6165,10 @@ Object.subclass('Squeak.Primitives',
             case 571: return this.primitiveUnloadModule(argCount);
             case 572: return this.primitiveListBuiltinModule(argCount);
             case 573: return this.primitiveListLoadedModule(argCount);
-            case 575: this.vm.warnOnce("missing primitive: 575 (primitiveHighBit)"); return false;
+            case 575: return this.primitiveHighBit(argCount);
             // this is not really a primitive, see findSelectorInClass()
             case 576: return this.vm.primitiveInvokeObjectAsMethod(argCount, primMethod);
-            case 578: this.vm.warnOnce("missing primitive: 578 (primitiveSuspendAndBackupPC)"); return false; // see bit 5 of vmParameterAt: 65
+            case 578: return this.primitiveSuspendAndBackupPC(); // advertised by bit 5 of vmParameterAt: 65
         }
         console.error("primitive " + index + " not implemented yet");
         return false;
@@ -7286,6 +7286,14 @@ Object.subclass('Squeak.Primitives',
         var bytes = this.vm.image.bytesLeft() - youngSpaceBytes;
         return this.popNandPushIfOK(argCount+1, this.makeLargeIfNeeded(bytes));
     },
+    primitiveHighBit: function(argCount) {
+        // primitive 575: index (1-based) of the receiver's highest set bit; 0 highBit = 0
+        var rcvr = this.stackSigned53BitInt(argCount);
+        if (!this.success || rcvr < 0) return false;
+        var high = Math.floor(rcvr / 0x100000000),
+            highBit = high ? 64 - Math.clz32(high) : 32 - Math.clz32(rcvr);
+        return this.popNandPushIfOK(argCount + 1, highBit);
+    },
     primitiveMakePoint: function(argCount, checkNumbers) {
         var x = this.vm.stackValue(1);
         var y = this.vm.stackValue(0);
@@ -7835,6 +7843,78 @@ Object.subclass('Squeak.Primitives',
         }
         return true;
     },
+    primitiveSuspendAndBackupPC: function() {
+        // primitive 578: like primitiveSuspend (88), but if the process is blocked on a
+        // condition variable (its list is not one of the scheduler's run queues), back
+        // its pc up to the send that invoked the wait, so that when resumed it re-enters
+        // the wait instead of proceeding as if the wait had returned. The debugger and
+        // Process>>terminate rely on this to suspend other processes without corrupting
+        // them; images test bit 5 of vmParameterAt: 65 for it, Cuis just calls it with
+        // a fallback to 88 whose comment warns "some methods may not work as expected".
+        // Answers the list for a runnable process, nil for a blocked or active one.
+        var process = this.vm.top();
+        if (process === this.activeProcess()) {
+            this.vm.popNandPush(1, this.vm.nilObj);
+            this.transferTo(this.wakeHighestPriority());
+            return true;
+        }
+        var oldList = process.pointers[Squeak.Proc_myList];
+        if (oldList.isNil || !oldList.pointers) return false;
+        var priority = process.pointers[Squeak.Proc_priority],
+            processLists = this.getScheduler().pointers[Squeak.ProcSched_processLists],
+            onRunQueue = typeof priority === "number" &&
+                priority <= processLists.pointersSize() &&
+                oldList === processLists.pointers[priority - 1];
+        if (!onRunQueue) {
+            var context = process.pointers[Squeak.Proc_suspendedContext],
+                method = context.pointers && context.pointers[Squeak.Context_method],
+                pcObj = context.pointers && context.pointers[Squeak.Context_instructionPointer];
+            if (!method || !method.bytes || typeof pcObj !== "number") return false;
+            var sendPC = this.startOfPrecedingSend(method, this.vm.decodeSqueakPC(pcObj, method));
+            if (sendPC < 0) return false;   // odd state: let the image's fallback deal with it
+            context.pointers[Squeak.Context_instructionPointer] = this.vm.encodeSqueakPC(sendPC, method);
+            context.dirty = true;
+        }
+        this.removeProcessFromList(process, oldList);
+        if (!this.success) return false;
+        process.pointers[Squeak.Proc_myList] = this.vm.nilObj;
+        process.dirty = true;
+        this.vm.popNandPush(1, onRunQueue ? oldList : this.vm.nilObj);
+        return true;
+    },
+    startOfPrecedingSend: function(method, targetPC) {
+        // walk the bytecodes from the start and answer the position of the send
+        // instruction that ends exactly at targetPC (in Sista, its extension prefixes
+        // count as part of it), or -1 if that spot is not right after a send
+        var bytes = method.bytes, sista = method.methodSignFlag(),
+            pc = 0, start = -1, op = -1;
+        while (pc < targetPC) {
+            start = pc;
+            var b = bytes[pc];
+            if (sista) {
+                while (b === 0xE0 || b === 0xE1) { pc += 2; b = bytes[pc]; } // extA/extB prefixes
+                pc += b < 0xE0 ? 1 : b < 0xF8 ? 2 : 3;
+            } else {
+                pc += b < 0x80 ? 1              // pushes, stores, returns
+                    : b <= 0x83 ? 2             // extended push/store/storePop/send
+                    : b === 0x84 ? 3            // doubleExtendedDoAnything
+                    : b <= 0x86 ? 2             // extended send super / second extended send
+                    : b <= 0x89 ? 1             // pop, dup, thisContext
+                    : b === 0x8A ? 2            // pushNewArray
+                    : b <= 0x8E ? 3             // callPrimitive, remote temps
+                    : b === 0x8F ? 4            // pushClosure
+                    : b <= 0x9F ? 1             // short jumps
+                    : b <= 0xAF ? 2             // long jumps
+                    : 1;                        // special and short sends
+            }
+            op = b;
+        }
+        if (pc !== targetPC) return -1;         // not an instruction boundary
+        var isSend = sista
+            ? (op >= 0x60 && op <= 0xAF) || op === 0xEA || op === 0xEB
+            : op >= 0xB0 || (op >= 0x83 && op <= 0x86);
+        return isSend ? start : -1;
+    },
     getScheduler: function() {
         var assn = this.vm.specialObjects[Squeak.splOb_SchedulerAssociation];
         return assn.pointers[Squeak.Assn_value];
@@ -8221,7 +8301,7 @@ Object.subclass('Squeak.Primitives',
             //      if non-zero bit 4 implies the VM can catch exceptions in FFI calls and answer them as primitive failures
             //      if non-zero bit 5 implies the VM's suspend primitive backs up the process to before the wait if it was waiting on a condition variable
             //      (read-only; Cog VMs only; nil in older Cog VMs, a boolean answering multiple bytecode support in not so old Cog VMs)
-            case 65: return 0;
+            case 65: return 32; // bit 5: primitiveSuspendAndBackupPC (578)
             // 66   the byte size of a stack page in the stack zone  (read-only; Cog VMs only)
             // 67   the maximum allowed size of old space in bytes, 0 implies no internal limit (Spur VMs only).
             case 67: return this.vm.image.totalMemory;
