@@ -1717,7 +1717,7 @@ Object.subclass('Squeak.Primitives',
         return true;
     },
     primitiveNewMethod: function(argCount) {
-        var header = this.stackInteger(0);
+        var header = this.methodHeaderFromStack(0);
         var bytecodeCount = this.stackInteger(1);
         if (!this.success) return 0;
         var method = this.vm.instantiateClass(this.vm.stackValue(2), bytecodeCount);
@@ -1729,6 +1729,34 @@ Object.subclass('Squeak.Primitives',
         if (this.vm.breakOnNewMethod)               // break on doit
             this.vm.breakOnMethod = method;
         return true;
+    },
+    methodHeaderFromStack: function(nDeep) {
+        // A method header as the image computes it, turned into the form this VM keeps
+        // in pointers[0]: the low bits of the layout, plus bit 31 for the alternate
+        // (Sista) bytecode set — the same shape readFromBuffer builds when it loads a
+        // method out of an image.
+        //
+        // In a 64-bit image the flag is the sign of a 61-bit SmallInteger, so a Sista
+        // method's header is a number near -2^60, past what a JS number holds exactly:
+        // the image hands it over as a LargeNegativeInteger. Reading it with
+        // stackInteger failed the primitive, and since every method the compiler builds
+        // goes through here, nothing could be compiled at all — in Cuis 7.8 (64-bit,
+        // Sista) any DoIt died with "newMethod:header: failed" and no code could be
+        // evaluated or edited. A 32-bit image never hit it: there the whole header fits
+        // in a SmallInteger.
+        var value = this.vm.stackValue(nDeep);
+        if (typeof value === "number") return value;         // 32-bit image: as it comes
+        if (!value.bytes) { this.success = false; return 0; }
+        var negative = this.isA(value, Squeak.splOb_ClassLargeNegativeInteger);
+        if (!negative && !this.isA(value, Squeak.splOb_ClassLargePositiveInteger)) {
+            this.success = false;
+            return 0;
+        }
+        var bytes = value.bytes, low = 0;
+        for (var i = Math.min(4, bytes.length) - 1; i >= 0; i--) low = low * 256 + bytes[i];
+        low = low >>> 0;
+        if (negative) low = (-low) >>> 0;                    // two's complement, low word
+        return negative ? (low & 0x7FFFFFFF) | 0x80000000 : low & 0x7FFFFFFF;
     },
     primitiveExecuteMethodArgsArray: function(argCount) {
         // receiver, argsArray, then method are on top of stack.  Execute method with
