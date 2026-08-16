@@ -7844,13 +7844,13 @@ Object.subclass('Squeak.Primitives',
         return true;
     },
     primitiveSuspendAndBackupPC: function() {
-        // primitive 578: like primitiveSuspend (88), but if the process is blocked on a
-        // condition variable (its list is not one of the scheduler's run queues), back
-        // its pc up to the send that invoked the wait, so that when resumed it re-enters
-        // the wait instead of proceeding as if the wait had returned. The debugger and
-        // Process>>terminate rely on this to suspend other processes without corrupting
-        // them; images test bit 5 of vmParameterAt: 65 for it, Cuis just calls it with
-        // a fallback to 88 whose comment warns "some methods may not work as expected".
+        // primitive 578: like primitiveSuspend (88), but a process that is blocked on a
+        // condition variable rather than merely ready to run is rewound to just before
+        // the send that blocked it, so that resuming it re-enters the wait instead of
+        // proceeding as if the wait had returned. The debugger and Process>>terminate
+        // rely on this to suspend other processes without corrupting them; images test
+        // bit 5 of vmParameterAt: 65 for it, and Cuis calls it with a fallback to 88
+        // whose own comment warns "some methods may not work as expected".
         // Answers the list for a runnable process, nil for a blocked or active one.
         var process = this.vm.top();
         if (process === this.activeProcess()) {
@@ -7860,21 +7860,8 @@ Object.subclass('Squeak.Primitives',
         }
         var oldList = process.pointers[Squeak.Proc_myList];
         if (oldList.isNil || !oldList.pointers) return false;
-        var priority = process.pointers[Squeak.Proc_priority],
-            processLists = this.getScheduler().pointers[Squeak.ProcSched_processLists],
-            onRunQueue = typeof priority === "number" &&
-                priority <= processLists.pointersSize() &&
-                oldList === processLists.pointers[priority - 1];
-        if (!onRunQueue) {
-            var context = process.pointers[Squeak.Proc_suspendedContext],
-                method = context.pointers && context.pointers[Squeak.Context_method],
-                pcObj = context.pointers && context.pointers[Squeak.Context_instructionPointer];
-            if (!method || !method.bytes || typeof pcObj !== "number") return false;
-            var sendPC = this.startOfPrecedingSend(method, this.vm.decodeSqueakPC(pcObj, method));
-            if (sendPC < 0) return false;   // odd state: let the image's fallback deal with it
-            context.pointers[Squeak.Context_instructionPointer] = this.vm.encodeSqueakPC(sendPC, method);
-            context.dirty = true;
-        }
+        var onRunQueue = this.isRunQueue(oldList);
+        if (!onRunQueue && !this.backupToBlockingSend(process, oldList)) return false;
         this.removeProcessFromList(process, oldList);
         if (!this.success) return false;
         process.pointers[Squeak.Proc_myList] = this.vm.nilObj;
@@ -7882,38 +7869,89 @@ Object.subclass('Squeak.Primitives',
         this.vm.popNandPush(1, onRunQueue ? oldList : this.vm.nilObj);
         return true;
     },
+    isRunQueue: function(aList) {
+        // Is the process merely ready to run rather than blocked on a condition? The
+        // reference VM answers that by class: a plain LinkedList is a scheduler queue,
+        // anything else (Semaphore, Mutex, an image's own condition variable) is what a
+        // process waits *on*. Asking the class rather than comparing against the queue
+        // for the process's priority matters, because Process>>priority: is a plain
+        // assignment in Squeak, Pharo and Cuis: a runnable process can sit in a queue
+        // that no longer matches its priority field, and reading that as "blocked" would
+        // back up the pc of a process that never blocked. The LinkedList class is taken
+        // from a queue the scheduler owns, so no special-object index is needed.
+        var processLists = this.getScheduler().pointers[Squeak.ProcSched_processLists],
+            aQueue = processLists.pointers[0];
+        return !!aQueue && aList.sqClass === aQueue.sqClass;
+    },
+    backupToBlockingSend: function(process, conditionVariable) {
+        // Rewind a process blocked on a condition variable to just before the send that
+        // blocked it, so that resuming it re-enters the wait instead of proceeding as if
+        // the wait had returned. Two things have to move, as in the reference VM's
+        // backupContext:toBlockingSendTo: — the pc, and the top of the stack.
+        //
+        // The stack matters because the blocking primitives do not agree on what they
+        // leave there. primitiveWait links the process to the semaphore without touching
+        // the stack, so the receiver of `wait` is still on top; primitiveEnterCriticalSection
+        // pops receiver and args and pushes false *before* blocking, so the top holds
+        // false where the mutex used to be, and re-running the send would send it to
+        // false. Writing the condition variable into the top slot fixes the second case
+        // and is a no-op for the first, since there the top already is that object.
+        var context = process.pointers[Squeak.Proc_suspendedContext];
+        if (!context || !context.pointers) return false;
+        var method = context.pointers[Squeak.Context_method],
+            pcObj = context.pointers[Squeak.Context_instructionPointer],
+            spObj = context.pointers[Squeak.Context_stackPointer];
+        if (!method || !method.bytes || typeof pcObj !== "number" || typeof spObj !== "number") return false;
+        var sendPC = this.startOfPrecedingSend(method, this.vm.decodeSqueakPC(pcObj, method));
+        if (sendPC < 0) return false;       // odd state: let the image's fallback deal with it
+        var top = this.vm.decodeSqueakSP(spObj);
+        if (top < Squeak.Context_tempFrameStart || top >= context.pointers.length) return false;
+        context.pointers[Squeak.Context_instructionPointer] = this.vm.encodeSqueakPC(sendPC, method);
+        context.pointers[top] = conditionVariable;
+        context.dirty = true;
+        return true;
+    },
     startOfPrecedingSend: function(method, targetPC) {
-        // walk the bytecodes from the start and answer the position of the send
-        // instruction that ends exactly at targetPC (in Sista, its extension prefixes
-        // count as part of it), or -1 if that spot is not right after a send
-        var bytes = method.bytes, sista = method.methodSignFlag(),
-            pc = 0, start = -1, op = -1;
-        while (pc < targetPC) {
-            start = pc;
-            var b = bytes[pc];
-            if (sista) {
-                while (b === 0xE0 || b === 0xE1) { pc += 2; b = bytes[pc]; } // extA/extB prefixes
-                pc += b < 0xE0 ? 1 : b < 0xF8 ? 2 : 3;
-            } else {
-                pc += b < 0x80 ? 1              // pushes, stores, returns
-                    : b <= 0x83 ? 2             // extended push/store/storePop/send
-                    : b === 0x84 ? 3            // doubleExtendedDoAnything
-                    : b <= 0x86 ? 2             // extended send super / second extended send
-                    : b <= 0x89 ? 1             // pop, dup, thisContext
-                    : b === 0x8A ? 2            // pushNewArray
-                    : b <= 0x8E ? 3             // callPrimitive, remote temps
-                    : b === 0x8F ? 4            // pushClosure
-                    : b <= 0x9F ? 1             // short jumps
-                    : b <= 0xAF ? 2             // long jumps
-                    : 1;                        // special and short sends
-            }
-            op = b;
+        // Walk the method from its first bytecode and answer the position of the send
+        // that ends exactly at targetPC, or -1 if that spot is not right after a send.
+        // The walking is done by the VM's own decoder rather than by a second size
+        // table here: a table has to be kept in step with two bytecode sets forever,
+        // and it does not know that a bytecode like doubleExtendedDoAnything is a send
+        // in two of its eight cases and a push or a store in the other six.
+        var Stream = method.methodSignFlag() ? Squeak.InstructionStreamSista : Squeak.InstructionStream;
+        if (!Stream) return -1;                     // decoder not loaded in this build
+        var spotter = this.sendSpotter || (this.sendSpotter = this.makeSendSpotter()),
+            stream = new Stream(method, this.vm),
+            start = -1, wasSend = false;
+        while (stream.pc < targetPC) {
+            start = stream.pc;
+            spotter.sawSend = false;
+            try { stream.interpretNextInstructionFor(spotter); }
+            catch (e) { return -1; }                // undecodable: leave it to the image
+            if (stream.pc <= start) return -1;      // no progress: refuse to guess
+            wasSend = spotter.sawSend;
         }
-        if (pc !== targetPC) return -1;         // not an instruction boundary
-        var isSend = sista
-            ? (op >= 0x60 && op <= 0xAF) || op === 0xEA || op === 0xEB
-            : op >= 0xB0 || (op >= 0x83 && op <= 0x86);
-        return isSend ? start : -1;
+        return stream.pc === targetPC && wasSend ? start : -1;
+    },
+    makeSendSpotter: function() {
+        // A decoder client that ignores every instruction except sends. It has to
+        // answer all of them: an unimplemented one would throw and be read as
+        // "undecodable" (see the catch above), quietly disabling the backup.
+        var spotter = { sawSend: false },
+            sawSend = function() { spotter.sawSend = true; },
+            ignore = function() {},
+            selectors = ["blockReturnConstant", "blockReturnTop", "callPrimitive", "doDup",
+                "doPop", "jump", "jumpIf", "methodReturnConstant", "methodReturnReceiver",
+                "methodReturnTop", "nop", "popIntoLiteralVariable", "popIntoNewArray",
+                "popIntoReceiverVariable", "popIntoRemoteTemp", "popIntoTemporaryVariable",
+                "pushActiveContext", "pushClosureCopy", "pushConstant", "pushFullClosure",
+                "pushLiteralVariable", "pushNewArray", "pushReceiver", "pushReceiverVariable",
+                "pushRemoteTemp", "pushTemporaryVariable", "storeIntoLiteralVariable",
+                "storeIntoReceiverVariable", "storeIntoRemoteTemp", "storeIntoTemporaryVariable"];
+        for (var i = 0; i < selectors.length; i++) spotter[selectors[i]] = ignore;
+        spotter.send = sawSend;
+        spotter.sendSuperDirected = sawSend;
+        return spotter;
     },
     getScheduler: function() {
         var assn = this.vm.specialObjects[Squeak.splOb_SchedulerAssociation];
