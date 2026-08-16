@@ -7079,6 +7079,17 @@
             var objToPut = this.vm.stackValue(0);
             if (includeInstVars)  {// pointers...   instVarAtPut and objectAtPut
                 array.dirty = true;
+                if (index === 1 && array.isMethod()) {
+                    // A method's slot 1 is its header, and this VM keeps it in its own shape
+                    // (see methodHeaderFromStack). The compiler writes the header back here
+                    // after building a method, so storing the image's number as it comes
+                    // would undo the translation: in a 64-bit image it is a
+                    // LargeNegativeInteger, and leaving that object in pointers[0] makes
+                    // methodSignFlag answer false, so a Sista method gets run through the V3
+                    // dispatch and reads literals that are not there.
+                    array.pointers[0] = this.methodHeaderFromStack(0);
+                    return objToPut;
+                }
                 return array.pointers[index-1] = objToPut; //eg, objectAt:
             }
             if (array.isPointers())  {// pointers...   normal atPut
