@@ -45,6 +45,7 @@ import "./plugins/B2DPlugin.js";
 import "./plugins/Matrix2x3Plugin.js";
 import "./plugins/ZipPlugin.js";
 import "./plugins/SocketPlugin.js"; // Pharo checks NetNameResolver status at startup (WebSocket-backed; works in a worker)
+import "./plugins/VectorEnginePlugin.js"; // Cuis vector rasterizer (inert until its API is complete: see the guard in the plugin)
 import "./vm.plugins.jpeg2.browser.js"; // defines the jpeg2_* functions (module is builtin but empty without this)
 
 var display = null, ctx = null, vm = null, downloadOnSave = false;
@@ -249,6 +250,7 @@ self.onmessage = function(e) {
             console.log("squeak_worker: seeded FS with " + Object.keys(Squeak.Settings).filter(function(k){ return k.indexOf("squeak:") === 0; }).length + " directory entries from host");
         }
         downloadOnSave = !!msg.downloadOnSave;
+        if (msg.vectorPlugin) Squeak.enableVectorEnginePlugin = true;   // A/B testing of the vector plugin
         boot(msg);
     } else if (msg.type === "event") {
         var ev = msg.ev;

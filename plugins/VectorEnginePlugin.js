@@ -447,14 +447,4118 @@ var primBlendStrokeAndFill = notYetTranslated;
 var primBlendStrokeAndFillWP = notYetTranslated;
 var primBlendStrokeOnly = notYetTranslated;
 var primBlendStrokeOnlyWP = notYetTranslated;
-var primDisplayByteString = notYetTranslated;
-var primDisplayByteStringWP = notYetTranslated;
-var primDisplayUtf32 = notYetTranslated;
-var primDisplayUtf32WP = notYetTranslated;
-var primDisplayUtf8 = notYetTranslated;
-var primDisplayUtf8WP = notYetTranslated;
 var primPathSequence = notYetTranslated;
 var primPathSequenceWP = notYetTranslated;
+
+/* ===== grupo geometria (traducido de utils/VectorEnginePlugin.ref/VectorEnginePlugin.c) ===== */
+
+/* grupo geometria: primArc/primArcWP, pvt_line/quadratic/cubic (y WP),
+ * updateContourForXy, updateEdgeCountAtXy, updateEdgeCountWPAtXy,
+ * updateContourLastLine. Traducido 1:1 del C (ver TRADUCCION.md). */
+
+/* VectorEnginePlugin>>#arcCenterX:centerY:radiusX:radiusY:start:sweep:rotationCos:rotationSin: */
+primArc = function(argCount) {
+    var angle;
+    var centerX;
+    var centerY;
+    var d;
+    var h;
+    var hops;
+    var radiusPointX;
+    var radiusPointY;
+    var scale;
+    var startAngle;
+    var sweepAngle;
+    var tcx;
+    var tcy;
+    var trx;
+    var try_;   // "try" in the C; renamed, reserved word in JS
+    var tthetaCos;
+    var tthetaSin;
+    var x;
+    var xp;
+    var y;
+    var yp;
+
+    if (!(isFloatObject(stackValue(7)) && isFloatObject(stackValue(6))
+        && isFloatObject(stackValue(5)) && isFloatObject(stackValue(4))
+        && isFloatObject(stackValue(3)) && isFloatObject(stackValue(2))
+        && isFloatObject(stackValue(1)) && isFloatObject(stackValue(0)))) {
+        primitiveFailFor(PrimErrBadArgument); return false;
+    }
+    centerX = stackFloatValue(7);
+    centerY = stackFloatValue(6);
+    radiusPointX = stackFloatValue(5);
+    radiusPointY = stackFloatValue(4);
+    startAngle = stackFloatValue(3);
+    sweepAngle = stackFloatValue(2);
+    tthetaCos = stackFloatValue(1);
+    tthetaSin = stackFloatValue(0);
+    trajectoryLength = 0.0;
+    needsFullAlphaCircle = 1;
+    tcx = ((centerX * txA11) + (centerY * txA12)) + txA13;
+    tcy = ((centerX * txA21) + (centerY * txA22)) + txA23;
+    scale = Math.sqrt(((txA11 * txA11)) + ((txA21 * txA21)));
+    trx = radiusPointX * scale;
+    try_ = radiusPointY * scale;
+    hops = (Math.trunc(((((trx < try_) ? try_ : trx)) * (Math.abs(sweepAngle))) / hop)) + 2;
+    d = hops;
+    for (h = 0; h <= hops; h += 1) {
+        angle = ((h / d) * sweepAngle) + startAngle;
+        xp = (Math.cos(angle)) * trx;
+        yp = (Math.sin(angle)) * try_;
+        x = ((tthetaCos * xp) - (tthetaSin * yp)) + tcx;
+        y = ((tthetaSin * xp) + (tthetaCos * yp)) + tcy;
+        spanLeft = ((spanLeft < x) ? spanLeft : x);
+        spanTop = ((spanTop < y) ? spanTop : y);
+        spanRight = ((spanRight < x) ? x : spanRight);
+        spanBottom = ((spanBottom < y) ? y : spanBottom);
+        updateAlphasForXy(x, y);
+        if (!(fillA == 0.0)) {
+            updateEdgeCountAtXy(x, y);
+        }
+        updateContourForXy(x, y);
+    }
+    if (!failed()) pop(8);
+    return !failed();
+};
+
+/* VectorEnginePlugin>>#arcWPCenterX:centerY:radiusX:radiusY:start:sweep:rotationCos:rotationSin: */
+primArcWP = function(argCount) {
+    var angle;
+    var centerX;
+    var centerY;
+    var d;
+    var h;
+    var hops;
+    var radiusPointX;
+    var radiusPointY;
+    var scale;
+    var startAngle;
+    var sweepAngle;
+    var tcx;
+    var tcy;
+    var trx;
+    var try_;   // "try" in the C; renamed, reserved word in JS
+    var tthetaCos;
+    var tthetaSin;
+    var x;
+    var xp;
+    var y;
+    var yp;
+
+    if (!(isFloatObject(stackValue(7)) && isFloatObject(stackValue(6))
+        && isFloatObject(stackValue(5)) && isFloatObject(stackValue(4))
+        && isFloatObject(stackValue(3)) && isFloatObject(stackValue(2))
+        && isFloatObject(stackValue(1)) && isFloatObject(stackValue(0)))) {
+        primitiveFailFor(PrimErrBadArgument); return false;
+    }
+    centerX = stackFloatValue(7);
+    centerY = stackFloatValue(6);
+    radiusPointX = stackFloatValue(5);
+    radiusPointY = stackFloatValue(4);
+    startAngle = stackFloatValue(3);
+    sweepAngle = stackFloatValue(2);
+    tthetaCos = stackFloatValue(1);
+    tthetaSin = stackFloatValue(0);
+    trajectoryLength = 0.0;
+    needsFullAlphaCircle = 1;
+    tcx = ((centerX * txA11) + (centerY * txA12)) + txA13;
+    tcy = ((centerX * txA21) + (centerY * txA22)) + txA23;
+    scale = Math.sqrt(((txA11 * txA11)) + ((txA21 * txA21)));
+    trx = radiusPointX * scale;
+    try_ = radiusPointY * scale;
+    hops = (Math.trunc(((((trx < try_) ? try_ : trx)) * (Math.abs(sweepAngle))) / hop)) + 2;
+    d = hops;
+    for (h = 0; h <= hops; h += 1) {
+        angle = ((h / d) * sweepAngle) + startAngle;
+        xp = (Math.cos(angle)) * trx;
+        yp = (Math.sin(angle)) * try_;
+        x = ((tthetaCos * xp) - (tthetaSin * yp)) + tcx;
+        y = ((tthetaSin * xp) + (tthetaCos * yp)) + tcy;
+        spanLeft = ((spanLeft < x) ? spanLeft : x);
+        spanTop = ((spanTop < y) ? spanTop : y);
+        spanRight = ((spanRight < x) ? x : spanRight);
+        spanBottom = ((spanBottom < y) ? y : spanBottom);
+        updateAlphasWPForXy(x, y);
+        if (!(fillA == 0.0)) {
+            updateEdgeCountWPAtXy(x, y);
+        }
+        updateContourForXy(x, y);
+    }
+    if (!failed()) pop(8);
+    return !failed();
+};
+
+/* VectorEnginePlugin>>#pvt_cubicBezierFromX:y:toX:y:control1X:y:control2X:y: */
+pvt_cubicBezierFromXytoXycontrol1Xycontrol2Xy = function(xFrom, yFrom, xTo, yTo, xControl1, yControl1, xControl2, yControl2) {
+    var correction;
+    var dx;
+    var dy;
+    var f1;
+    var f2;
+    var f23;
+    var f3;
+    var f4;
+    var increment;
+    var length;
+    var oneLessT;
+    var t;
+    var t0;
+    var txControl1;
+    var txControl2;
+    var txFrom;
+    var txTo;
+    var tyControl1;
+    var tyControl2;
+    var tyFrom;
+    var tyTo;
+    var x;
+    var x0;
+    var xMaxEnd;
+    var xMinEnd;
+    var y;
+    var y0;
+    var yMaxEnd;
+    var yMinEnd;
+
+    trajectoryLength = 0.0;
+    needsFullAlphaCircle = 1;
+    txFrom = ((xFrom * txA11) + (yFrom * txA12)) + txA13;
+    tyFrom = ((xFrom * txA21) + (yFrom * txA22)) + txA23;
+    txTo = ((xTo * txA11) + (yTo * txA12)) + txA13;
+    tyTo = ((xTo * txA21) + (yTo * txA22)) + txA23;
+    txControl1 = ((xControl1 * txA11) + (yControl1 * txA12)) + txA13;
+    tyControl1 = ((xControl1 * txA21) + (yControl1 * txA22)) + txA23;
+    txControl2 = ((xControl2 * txA11) + (yControl2 * txA12)) + txA13;
+    tyControl2 = ((xControl2 * txA21) + (yControl2 * txA22)) + txA23;
+
+    /* This computed span of the Bezier curve is a bit pessimistic (larger than strict bounds), but safe. */
+    xMinEnd = ((txFrom < txTo) ? txFrom : txTo);
+    xMaxEnd = ((txFrom < txTo) ? txTo : txFrom);
+    yMinEnd = ((tyFrom < tyTo) ? tyFrom : tyTo);
+    yMaxEnd = ((tyFrom < tyTo) ? tyTo : tyFrom);
+    spanLeft = ((spanLeft < (((xMinEnd < ((xMinEnd * 0.25) + ((((txControl1 < txControl2) ? txControl1 : txControl2)) * 0.75))) ? xMinEnd : ((xMinEnd * 0.25) + ((((txControl1 < txControl2) ? txControl1 : txControl2)) * 0.75))))) ? spanLeft : (((xMinEnd < ((xMinEnd * 0.25) + ((((txControl1 < txControl2) ? txControl1 : txControl2)) * 0.75))) ? xMinEnd : ((xMinEnd * 0.25) + ((((txControl1 < txControl2) ? txControl1 : txControl2)) * 0.75)))));
+    spanRight = ((spanRight < (((xMaxEnd < ((xMaxEnd * 0.25) + ((((txControl1 < txControl2) ? txControl2 : txControl1)) * 0.75))) ? ((xMaxEnd * 0.25) + ((((txControl1 < txControl2) ? txControl2 : txControl1)) * 0.75)) : xMaxEnd))) ? (((xMaxEnd < ((xMaxEnd * 0.25) + ((((txControl1 < txControl2) ? txControl2 : txControl1)) * 0.75))) ? ((xMaxEnd * 0.25) + ((((txControl1 < txControl2) ? txControl2 : txControl1)) * 0.75)) : xMaxEnd)) : spanRight);
+    spanTop = ((spanTop < (((yMinEnd < ((yMinEnd * 0.25) + ((((tyControl1 < tyControl2) ? tyControl1 : tyControl2)) * 0.75))) ? yMinEnd : ((yMinEnd * 0.25) + ((((tyControl1 < tyControl2) ? tyControl1 : tyControl2)) * 0.75))))) ? spanTop : (((yMinEnd < ((yMinEnd * 0.25) + ((((tyControl1 < tyControl2) ? tyControl1 : tyControl2)) * 0.75))) ? yMinEnd : ((yMinEnd * 0.25) + ((((tyControl1 < tyControl2) ? tyControl1 : tyControl2)) * 0.75)))));
+    spanBottom = ((spanBottom < (((yMaxEnd < ((yMaxEnd * 0.25) + ((((tyControl1 < tyControl2) ? tyControl2 : tyControl1)) * 0.75))) ? ((yMaxEnd * 0.25) + ((((tyControl1 < tyControl2) ? tyControl2 : tyControl1)) * 0.75)) : yMaxEnd))) ? (((yMaxEnd < ((yMaxEnd * 0.25) + ((((tyControl1 < tyControl2) ? tyControl2 : tyControl1)) * 0.75))) ? ((yMaxEnd * 0.25) + ((((tyControl1 < tyControl2) ? tyControl2 : tyControl1)) * 0.75)) : yMaxEnd)) : spanBottom);
+
+    /* Case t = 0.0 */
+    x = txFrom;
+    y = tyFrom;
+    updateAlphasForXy(x, y);
+    if (!(fillA == 0.0)) {
+        updateEdgeCountAtXy(x, y);
+    }
+    updateContourForXy(x, y);
+    dx = Math.abs(txTo - txFrom);
+    dy = Math.abs(tyTo - tyFrom);
+
+    /* Will be corrected for each hop. This, being close to pointFrom, is a good initial guess for first correction. */
+    increment = (((0.5 / (((dx < dy) ? dy : dx))) < 0.5) ? (0.5 / (((dx < dy) ? dy : dx))) : 0.5);
+    t = 0.0;
+    while (1) {
+        t0 = t;
+        x0 = x;
+        y0 = y;
+
+        /* Compute next point */
+        t = t0 + increment;
+        oneLessT = 1.0 - t;
+        f1 = (oneLessT * oneLessT) * oneLessT;
+        f23 = (3.0 * oneLessT) * t;
+        f2 = f23 * oneLessT;
+        f3 = f23 * t;
+        f4 = (t * t) * t;
+        x = (((f1 * txFrom) + (f2 * txControl1)) + (f3 * txControl2)) + (f4 * txTo);
+        y = (((f1 * tyFrom) + (f2 * tyControl1)) + (f3 * tyControl2)) + (f4 * tyTo);
+
+        /* Now adjust the increment to aim at the required hop length, and recompute next point. */
+        dx = x - x0;
+        dy = y - y0;
+        length = Math.sqrt((dx * dx) + (dy * dy));
+
+        /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+        correction = hop / (((length < 0.1) ? 0.1 : length));
+        do {
+            increment = increment * correction;
+            t = t0 + increment;
+            oneLessT = 1.0 - t;
+            f1 = (oneLessT * oneLessT) * oneLessT;
+            f23 = (3.0 * oneLessT) * t;
+            f2 = f23 * oneLessT;
+            f3 = f23 * t;
+            f4 = (t * t) * t;
+            x = (((f1 * txFrom) + (f2 * txControl1)) + (f3 * txControl2)) + (f4 * txTo);
+            y = (((f1 * tyFrom) + (f2 * tyControl1)) + (f3 * tyControl2)) + (f4 * tyTo);
+            dx = x - x0;
+            dy = y - y0;
+            length = Math.sqrt((dx * dx) + (dy * dy));
+
+            /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+            correction = hop / (((length < 0.1) ? 0.1 : length));
+        } while (correction < 0.99);
+        if (!(t < 1.0)) break;
+        updateAlphasForXy(x, y);
+        if (!(fillA == 0.0)) {
+            updateEdgeCountAtXy(x, y);
+        }
+        updateContourForXy(x, y);
+    }
+
+    /* Case t= 1.0 */
+    updateAlphasForXy(txTo, tyTo);
+    if (!(fillA == 0.0)) {
+        updateEdgeCountAtXy(txTo, tyTo);
+    }
+    updateContourForXy(txTo, tyTo);
+    return 0;
+};
+
+/* VectorEnginePlugin>>#pvt_cubicBezierWPFromX:y:toX:y:control1X:y:control2X:y: */
+pvt_cubicBezierWPFromXytoXycontrol1Xycontrol2Xy = function(xFrom, yFrom, xTo, yTo, xControl1, yControl1, xControl2, yControl2) {
+    var correction;
+    var dx;
+    var dy;
+    var f1;
+    var f2;
+    var f23;
+    var f3;
+    var f4;
+    var increment;
+    var length;
+    var oneLessT;
+    var t;
+    var t0;
+    var txControl1;
+    var txControl2;
+    var txFrom;
+    var txTo;
+    var tyControl1;
+    var tyControl2;
+    var tyFrom;
+    var tyTo;
+    var x;
+    var x0;
+    var xMaxEnd;
+    var xMinEnd;
+    var y;
+    var y0;
+    var yMaxEnd;
+    var yMinEnd;
+
+    trajectoryLength = 0.0;
+    needsFullAlphaCircle = 1;
+    txFrom = ((xFrom * txA11) + (yFrom * txA12)) + txA13;
+    tyFrom = ((xFrom * txA21) + (yFrom * txA22)) + txA23;
+    txTo = ((xTo * txA11) + (yTo * txA12)) + txA13;
+    tyTo = ((xTo * txA21) + (yTo * txA22)) + txA23;
+    txControl1 = ((xControl1 * txA11) + (yControl1 * txA12)) + txA13;
+    tyControl1 = ((xControl1 * txA21) + (yControl1 * txA22)) + txA23;
+    txControl2 = ((xControl2 * txA11) + (yControl2 * txA12)) + txA13;
+    tyControl2 = ((xControl2 * txA21) + (yControl2 * txA22)) + txA23;
+
+    /* This computed span of the Bezier curve is a bit pessimistic (larger than strict bounds), but safe. */
+    xMinEnd = ((txFrom < txTo) ? txFrom : txTo);
+    xMaxEnd = ((txFrom < txTo) ? txTo : txFrom);
+    yMinEnd = ((tyFrom < tyTo) ? tyFrom : tyTo);
+    yMaxEnd = ((tyFrom < tyTo) ? tyTo : tyFrom);
+    spanLeft = ((spanLeft < (((xMinEnd < ((xMinEnd * 0.25) + ((((txControl1 < txControl2) ? txControl1 : txControl2)) * 0.75))) ? xMinEnd : ((xMinEnd * 0.25) + ((((txControl1 < txControl2) ? txControl1 : txControl2)) * 0.75))))) ? spanLeft : (((xMinEnd < ((xMinEnd * 0.25) + ((((txControl1 < txControl2) ? txControl1 : txControl2)) * 0.75))) ? xMinEnd : ((xMinEnd * 0.25) + ((((txControl1 < txControl2) ? txControl1 : txControl2)) * 0.75)))));
+    spanRight = ((spanRight < (((xMaxEnd < ((xMaxEnd * 0.25) + ((((txControl1 < txControl2) ? txControl2 : txControl1)) * 0.75))) ? ((xMaxEnd * 0.25) + ((((txControl1 < txControl2) ? txControl2 : txControl1)) * 0.75)) : xMaxEnd))) ? (((xMaxEnd < ((xMaxEnd * 0.25) + ((((txControl1 < txControl2) ? txControl2 : txControl1)) * 0.75))) ? ((xMaxEnd * 0.25) + ((((txControl1 < txControl2) ? txControl2 : txControl1)) * 0.75)) : xMaxEnd)) : spanRight);
+    spanTop = ((spanTop < (((yMinEnd < ((yMinEnd * 0.25) + ((((tyControl1 < tyControl2) ? tyControl1 : tyControl2)) * 0.75))) ? yMinEnd : ((yMinEnd * 0.25) + ((((tyControl1 < tyControl2) ? tyControl1 : tyControl2)) * 0.75))))) ? spanTop : (((yMinEnd < ((yMinEnd * 0.25) + ((((tyControl1 < tyControl2) ? tyControl1 : tyControl2)) * 0.75))) ? yMinEnd : ((yMinEnd * 0.25) + ((((tyControl1 < tyControl2) ? tyControl1 : tyControl2)) * 0.75)))));
+    spanBottom = ((spanBottom < (((yMaxEnd < ((yMaxEnd * 0.25) + ((((tyControl1 < tyControl2) ? tyControl2 : tyControl1)) * 0.75))) ? ((yMaxEnd * 0.25) + ((((tyControl1 < tyControl2) ? tyControl2 : tyControl1)) * 0.75)) : yMaxEnd))) ? (((yMaxEnd < ((yMaxEnd * 0.25) + ((((tyControl1 < tyControl2) ? tyControl2 : tyControl1)) * 0.75))) ? ((yMaxEnd * 0.25) + ((((tyControl1 < tyControl2) ? tyControl2 : tyControl1)) * 0.75)) : yMaxEnd)) : spanBottom);
+
+    /* Case t = 0.0 */
+    x = txFrom;
+    y = tyFrom;
+    updateAlphasWPForXy(x, y);
+    if (!(fillA == 0.0)) {
+        updateEdgeCountWPAtXy(x, y);
+    }
+    updateContourForXy(x, y);
+    dx = Math.abs(txTo - txFrom);
+    dy = Math.abs(tyTo - tyFrom);
+
+    /* Will be corrected for each hop. This, being close to pointFrom, is a good initial guess for first correction. */
+    increment = (((0.5 / (((dx < dy) ? dy : dx))) < 0.5) ? (0.5 / (((dx < dy) ? dy : dx))) : 0.5);
+    t = 0.0;
+    while (1) {
+        t0 = t;
+        x0 = x;
+        y0 = y;
+
+        /* Compute next point */
+        t = t0 + increment;
+        oneLessT = 1.0 - t;
+        f1 = (oneLessT * oneLessT) * oneLessT;
+        f23 = (3.0 * oneLessT) * t;
+        f2 = f23 * oneLessT;
+        f3 = f23 * t;
+        f4 = (t * t) * t;
+        x = (((f1 * txFrom) + (f2 * txControl1)) + (f3 * txControl2)) + (f4 * txTo);
+        y = (((f1 * tyFrom) + (f2 * tyControl1)) + (f3 * tyControl2)) + (f4 * tyTo);
+
+        /* Now adjust the increment to aim at the required hop length, and recompute next point. */
+        dx = x - x0;
+        dy = y - y0;
+        length = Math.sqrt((dx * dx) + (dy * dy));
+
+        /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+        correction = hop / (((length < 0.1) ? 0.1 : length));
+        do {
+            increment = increment * correction;
+            t = t0 + increment;
+            oneLessT = 1.0 - t;
+            f1 = (oneLessT * oneLessT) * oneLessT;
+            f23 = (3.0 * oneLessT) * t;
+            f2 = f23 * oneLessT;
+            f3 = f23 * t;
+            f4 = (t * t) * t;
+            x = (((f1 * txFrom) + (f2 * txControl1)) + (f3 * txControl2)) + (f4 * txTo);
+            y = (((f1 * tyFrom) + (f2 * tyControl1)) + (f3 * tyControl2)) + (f4 * tyTo);
+            dx = x - x0;
+            dy = y - y0;
+            length = Math.sqrt((dx * dx) + (dy * dy));
+
+            /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+            correction = hop / (((length < 0.1) ? 0.1 : length));
+        } while (correction < 0.99);
+        if (!(t < 1.0)) break;
+        updateAlphasWPForXy(x, y);
+        if (!(fillA == 0.0)) {
+            updateEdgeCountWPAtXy(x, y);
+        }
+        updateContourForXy(x, y);
+    }
+
+    /* Case t= 1.0 */
+    updateAlphasWPForXy(txTo, tyTo);
+    if (!(fillA == 0.0)) {
+        updateEdgeCountWPAtXy(txTo, tyTo);
+    }
+    updateContourForXy(txTo, tyTo);
+    return 0;
+};
+
+/* VectorEnginePlugin>>#pvt_lineFromX:y:toX:y: */
+pvt_lineFromXytoXy = function(xFrom, yFrom, xTo, yTo) {
+    var dx;
+    var dy;
+    var hops;
+    var increment;
+    var oneLessT;
+    var t;
+    var txFrom;
+    var txTo;
+    var tyFrom;
+    var tyTo;
+    var x;
+    var y;
+
+    trajectoryLength = 0.0;
+    needsFullAlphaCircle = 1;
+    txFrom = ((xFrom * txA11) + (yFrom * txA12)) + txA13;
+    tyFrom = ((xFrom * txA21) + (yFrom * txA22)) + txA23;
+    txTo = ((xTo * txA11) + (yTo * txA12)) + txA13;
+    tyTo = ((xTo * txA21) + (yTo * txA22)) + txA23;
+    dx = txTo - txFrom;
+    dy = tyTo - tyFrom;
+    dx = Math.abs(dx);
+    dy = Math.abs(dy);
+    hops = (Math.trunc((((dx < dy) ? dy : dx)) / hop)) + 1;
+    spanLeft = ((spanLeft < (((txFrom < txTo) ? txFrom : txTo))) ? spanLeft : (((txFrom < txTo) ? txFrom : txTo)));
+    spanRight = ((spanRight < (((txFrom < txTo) ? txTo : txFrom))) ? (((txFrom < txTo) ? txTo : txFrom)) : spanRight);
+    spanTop = ((spanTop < (((tyFrom < tyTo) ? tyFrom : tyTo))) ? spanTop : (((tyFrom < tyTo) ? tyFrom : tyTo)));
+    spanBottom = ((spanBottom < (((tyFrom < tyTo) ? tyTo : tyFrom))) ? (((tyFrom < tyTo) ? tyTo : tyFrom)) : spanBottom);
+    t = 0.0;
+    increment = 1.0 / hops;
+    while (t < 1.0) {
+        oneLessT = 1.0 - t;
+        x = (oneLessT * txFrom) + (t * txTo);
+        y = (oneLessT * tyFrom) + (t * tyTo);
+        updateAlphasForXy(x, y);
+        if (!(fillA == 0.0)) {
+            updateEdgeCountAtXy(x, y);
+        }
+        updateContourForXy(x, y);
+        t += increment;
+    }
+    updateAlphasForXy(txTo, tyTo);
+    if (!(fillA == 0.0)) {
+        updateEdgeCountAtXy(txTo, tyTo);
+    }
+    updateContourForXy(txTo, tyTo);
+    return 0;
+};
+
+/* VectorEnginePlugin>>#pvt_lineWPFromX:y:toX:y: */
+pvt_lineWPFromXytoXy = function(xFrom, yFrom, xTo, yTo) {
+    var dx;
+    var dy;
+    var hops;
+    var increment;
+    var oneLessT;
+    var t;
+    var txFrom;
+    var txTo;
+    var tyFrom;
+    var tyTo;
+    var x;
+    var y;
+
+    trajectoryLength = 0.0;
+    needsFullAlphaCircle = 1;
+    txFrom = ((xFrom * txA11) + (yFrom * txA12)) + txA13;
+    tyFrom = ((xFrom * txA21) + (yFrom * txA22)) + txA23;
+    txTo = ((xTo * txA11) + (yTo * txA12)) + txA13;
+    tyTo = ((xTo * txA21) + (yTo * txA22)) + txA23;
+    dx = txTo - txFrom;
+    dy = tyTo - tyFrom;
+    dx = Math.abs(dx);
+    dy = Math.abs(dy);
+    hops = (Math.trunc((((dx < dy) ? dy : dx)) / hop)) + 1;
+    spanLeft = ((spanLeft < (((txFrom < txTo) ? txFrom : txTo))) ? spanLeft : (((txFrom < txTo) ? txFrom : txTo)));
+    spanRight = ((spanRight < (((txFrom < txTo) ? txTo : txFrom))) ? (((txFrom < txTo) ? txTo : txFrom)) : spanRight);
+    spanTop = ((spanTop < (((tyFrom < tyTo) ? tyFrom : tyTo))) ? spanTop : (((tyFrom < tyTo) ? tyFrom : tyTo)));
+    spanBottom = ((spanBottom < (((tyFrom < tyTo) ? tyTo : tyFrom))) ? (((tyFrom < tyTo) ? tyTo : tyFrom)) : spanBottom);
+    t = 0.0;
+    increment = 1.0 / hops;
+    while (t < 1.0) {
+        oneLessT = 1.0 - t;
+        x = (oneLessT * txFrom) + (t * txTo);
+        y = (oneLessT * tyFrom) + (t * tyTo);
+        updateAlphasWPForXy(x, y);
+        if (!(fillA == 0.0)) {
+            updateEdgeCountWPAtXy(x, y);
+        }
+        updateContourForXy(x, y);
+        t += increment;
+    }
+    updateAlphasWPForXy(txTo, tyTo);
+    if (!(fillA == 0.0)) {
+        updateEdgeCountWPAtXy(txTo, tyTo);
+    }
+    updateContourForXy(txTo, tyTo);
+    return 0;
+};
+
+/* VectorEnginePlugin>>#pvt_quadraticBezierFromX:y:toX:y:controlX:y: */
+pvt_quadraticBezierFromXytoXycontrolXy = function(xFrom, yFrom, xTo, yTo, xControl, yControl) {
+    var correction;
+    var dx;
+    var dx2;
+    var dy;
+    var dy2;
+    var f1;
+    var f2;
+    var f3;
+    var increment;
+    var length;
+    var oneLessT;
+    var t;
+    var t0;
+    var txControl;
+    var txFrom;
+    var txTo;
+    var tyControl;
+    var tyFrom;
+    var tyTo;
+    var x;
+    var x0;
+    var xMaxEnd;
+    var xMinEnd;
+    var y;
+    var y0;
+    var yMaxEnd;
+    var yMinEnd;
+
+    /* If control point is bogus, just draw a line */
+    if ((xControl == xTo)
+     && (yControl == yTo)) {
+        return pvt_lineFromXytoXy(xFrom, yFrom, xTo, yTo);
+    }
+    if ((xControl == xFrom)
+     && (yControl == yFrom)) {
+        return pvt_lineFromXytoXy(xFrom, yFrom, xTo, yTo);
+    }
+    trajectoryLength = 0.0;
+    needsFullAlphaCircle = 1;
+    txFrom = ((xFrom * txA11) + (yFrom * txA12)) + txA13;
+    tyFrom = ((xFrom * txA21) + (yFrom * txA22)) + txA23;
+    txTo = ((xTo * txA11) + (yTo * txA12)) + txA13;
+    tyTo = ((xTo * txA21) + (yTo * txA22)) + txA23;
+    txControl = ((xControl * txA11) + (yControl * txA12)) + txA13;
+    tyControl = ((xControl * txA21) + (yControl * txA22)) + txA23;
+    dx = Math.abs(txTo - txFrom);
+    dx2 = Math.abs(txControl - txFrom);
+    dy = Math.abs(tyTo - tyFrom);
+    dy2 = Math.abs(tyControl - tyFrom);
+
+    /* If almost a vertical line, just draw a line. (Ignoring control point) */
+    if ((dx < 1.0)
+     && (dx2 < 1.0)) {
+        return pvt_lineFromXytoXy(xFrom, yFrom, xTo, yTo);
+    }
+
+    /* If almost an horizontal line, just draw a line. (Ignoring control point) */
+    if ((dy < 1.0)
+     && (dy2 < 1.0)) {
+        return pvt_lineFromXytoXy(xFrom, yFrom, xTo, yTo);
+    }
+
+    /* This computed span of the Bezier curve is a bit pessimistic (larger than strict bounds), but safe. */
+    xMinEnd = ((txFrom < txTo) ? txFrom : txTo);
+    xMaxEnd = ((txFrom < txTo) ? txTo : txFrom);
+    yMinEnd = ((tyFrom < tyTo) ? tyFrom : tyTo);
+    yMaxEnd = ((tyFrom < tyTo) ? tyTo : tyFrom);
+    spanLeft = ((spanLeft < (((xMinEnd < ((xMinEnd + txControl) / 2.0)) ? xMinEnd : ((xMinEnd + txControl) / 2.0)))) ? spanLeft : (((xMinEnd < ((xMinEnd + txControl) / 2.0)) ? xMinEnd : ((xMinEnd + txControl) / 2.0))));
+    spanRight = ((spanRight < (((xMaxEnd < ((xMaxEnd + txControl) / 2.0)) ? ((xMaxEnd + txControl) / 2.0) : xMaxEnd))) ? (((xMaxEnd < ((xMaxEnd + txControl) / 2.0)) ? ((xMaxEnd + txControl) / 2.0) : xMaxEnd)) : spanRight);
+    spanTop = ((spanTop < (((yMinEnd < ((yMinEnd + tyControl) / 2.0)) ? yMinEnd : ((yMinEnd + tyControl) / 2.0)))) ? spanTop : (((yMinEnd < ((yMinEnd + tyControl) / 2.0)) ? yMinEnd : ((yMinEnd + tyControl) / 2.0))));
+    spanBottom = ((spanBottom < (((yMaxEnd < ((yMaxEnd + tyControl) / 2.0)) ? ((yMaxEnd + tyControl) / 2.0) : yMaxEnd))) ? (((yMaxEnd < ((yMaxEnd + tyControl) / 2.0)) ? ((yMaxEnd + tyControl) / 2.0) : yMaxEnd)) : spanBottom);
+
+    /* Case t = 0.0 */
+    x = txFrom;
+    y = tyFrom;
+    updateAlphasForXy(x, y);
+    if (!(fillA == 0.0)) {
+        updateEdgeCountAtXy(x, y);
+    }
+    updateContourForXy(x, y);
+
+    /* Will be corrected for each hop. This, being close to pointFrom, is a good initial guess for first correction. */
+    increment = (((0.5 / (((dx < dy) ? dy : dx))) < 0.5) ? (0.5 / (((dx < dy) ? dy : dx))) : 0.5);
+    t = 0.0;
+    while (1) {
+        t0 = t;
+        x0 = x;
+        y0 = y;
+
+        /* Compute next point */
+        t = t0 + increment;
+        oneLessT = 1.0 - t;
+        f1 = oneLessT * oneLessT;
+        f2 = (2.0 * oneLessT) * t;
+        f3 = t * t;
+        x = ((f1 * txFrom) + (f2 * txControl)) + (f3 * txTo);
+        y = ((f1 * tyFrom) + (f2 * tyControl)) + (f3 * tyTo);
+
+        /* Now adjust the increment to aim at the required hop length, and recompute next point. */
+        dx = x - x0;
+        dy = y - y0;
+        length = Math.sqrt((dx * dx) + (dy * dy));
+
+        /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+        correction = hop / (((length < 0.1) ? 0.1 : length));
+        do {
+            increment = increment * correction;
+            t = t0 + increment;
+            oneLessT = 1.0 - t;
+            f1 = oneLessT * oneLessT;
+            f2 = (2.0 * oneLessT) * t;
+            f3 = t * t;
+            x = ((f1 * txFrom) + (f2 * txControl)) + (f3 * txTo);
+            y = ((f1 * tyFrom) + (f2 * tyControl)) + (f3 * tyTo);
+            dx = x - x0;
+            dy = y - y0;
+            length = Math.sqrt((dx * dx) + (dy * dy));
+
+            /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+            correction = hop / (((length < 0.1) ? 0.1 : length));
+        } while (correction < 0.99);
+        if (!(t < 1.0)) break;
+        updateAlphasForXy(x, y);
+        if (!(fillA == 0.0)) {
+            updateEdgeCountAtXy(x, y);
+        }
+        updateContourForXy(x, y);
+    }
+
+    /* Case t= 1.0 */
+    updateAlphasForXy(txTo, tyTo);
+    if (!(fillA == 0.0)) {
+        updateEdgeCountAtXy(txTo, tyTo);
+    }
+    updateContourForXy(txTo, tyTo);
+    return 0;
+};
+
+/* VectorEnginePlugin>>#pvt_quadraticBezierWPFromX:y:toX:y:controlX:y: */
+pvt_quadraticBezierWPFromXytoXycontrolXy = function(xFrom, yFrom, xTo, yTo, xControl, yControl) {
+    var correction;
+    var dx;
+    var dx2;
+    var dy;
+    var dy2;
+    var f1;
+    var f2;
+    var f3;
+    var increment;
+    var length;
+    var oneLessT;
+    var t;
+    var t0;
+    var txControl;
+    var txFrom;
+    var txTo;
+    var tyControl;
+    var tyFrom;
+    var tyTo;
+    var x;
+    var x0;
+    var xMaxEnd;
+    var xMinEnd;
+    var y;
+    var y0;
+    var yMaxEnd;
+    var yMinEnd;
+
+    /* If control point is bogus, just draw a line */
+    if ((xControl == xTo)
+     && (yControl == yTo)) {
+        return pvt_lineWPFromXytoXy(xFrom, yFrom, xTo, yTo);
+    }
+    if ((xControl == xFrom)
+     && (yControl == yFrom)) {
+        return pvt_lineWPFromXytoXy(xFrom, yFrom, xTo, yTo);
+    }
+    trajectoryLength = 0.0;
+    needsFullAlphaCircle = 1;
+    txFrom = ((xFrom * txA11) + (yFrom * txA12)) + txA13;
+    tyFrom = ((xFrom * txA21) + (yFrom * txA22)) + txA23;
+    txTo = ((xTo * txA11) + (yTo * txA12)) + txA13;
+    tyTo = ((xTo * txA21) + (yTo * txA22)) + txA23;
+    txControl = ((xControl * txA11) + (yControl * txA12)) + txA13;
+    tyControl = ((xControl * txA21) + (yControl * txA22)) + txA23;
+    dx = Math.abs(txTo - txFrom);
+    dx2 = Math.abs(txControl - txFrom);
+    dy = Math.abs(tyTo - tyFrom);
+    dy2 = Math.abs(tyControl - tyFrom);
+
+    /* If almost a vertical line, just draw a line. (Ignoring control point) */
+    if ((dx < 1.0)
+     && (dx2 < 1.0)) {
+        return pvt_lineWPFromXytoXy(xFrom, yFrom, xTo, yTo);
+    }
+
+    /* If almost an horizontal line, just draw a line. (Ignoring control point) */
+    if ((dy < 1.0)
+     && (dy2 < 1.0)) {
+        return pvt_lineWPFromXytoXy(xFrom, yFrom, xTo, yTo);
+    }
+
+    /* This computed span of the Bezier curve is a bit pessimistic (larger than strict bounds), but safe. */
+    xMinEnd = ((txFrom < txTo) ? txFrom : txTo);
+    xMaxEnd = ((txFrom < txTo) ? txTo : txFrom);
+    yMinEnd = ((tyFrom < tyTo) ? tyFrom : tyTo);
+    yMaxEnd = ((tyFrom < tyTo) ? tyTo : tyFrom);
+    spanLeft = ((spanLeft < (((xMinEnd < ((xMinEnd + txControl) / 2.0)) ? xMinEnd : ((xMinEnd + txControl) / 2.0)))) ? spanLeft : (((xMinEnd < ((xMinEnd + txControl) / 2.0)) ? xMinEnd : ((xMinEnd + txControl) / 2.0))));
+    spanRight = ((spanRight < (((xMaxEnd < ((xMaxEnd + txControl) / 2.0)) ? ((xMaxEnd + txControl) / 2.0) : xMaxEnd))) ? (((xMaxEnd < ((xMaxEnd + txControl) / 2.0)) ? ((xMaxEnd + txControl) / 2.0) : xMaxEnd)) : spanRight);
+    spanTop = ((spanTop < (((yMinEnd < ((yMinEnd + tyControl) / 2.0)) ? yMinEnd : ((yMinEnd + tyControl) / 2.0)))) ? spanTop : (((yMinEnd < ((yMinEnd + tyControl) / 2.0)) ? yMinEnd : ((yMinEnd + tyControl) / 2.0))));
+    spanBottom = ((spanBottom < (((yMaxEnd < ((yMaxEnd + tyControl) / 2.0)) ? ((yMaxEnd + tyControl) / 2.0) : yMaxEnd))) ? (((yMaxEnd < ((yMaxEnd + tyControl) / 2.0)) ? ((yMaxEnd + tyControl) / 2.0) : yMaxEnd)) : spanBottom);
+
+    /* Case t = 0.0 */
+    x = txFrom;
+    y = tyFrom;
+    updateAlphasWPForXy(x, y);
+    if (!(fillA == 0.0)) {
+        updateEdgeCountWPAtXy(x, y);
+    }
+    updateContourForXy(x, y);
+
+    /* Will be corrected for each hop. This, being close to pointFrom, is a good initial guess for first correction. */
+    increment = (((0.5 / (((dx < dy) ? dy : dx))) < 0.5) ? (0.5 / (((dx < dy) ? dy : dx))) : 0.5);
+    t = 0.0;
+    while (1) {
+        t0 = t;
+        x0 = x;
+        y0 = y;
+
+        /* Compute next point */
+        t = t0 + increment;
+        oneLessT = 1.0 - t;
+        f1 = oneLessT * oneLessT;
+        f2 = (2.0 * oneLessT) * t;
+        f3 = t * t;
+        x = ((f1 * txFrom) + (f2 * txControl)) + (f3 * txTo);
+        y = ((f1 * tyFrom) + (f2 * tyControl)) + (f3 * tyTo);
+
+        /* Now adjust the increment to aim at the required hop length, and recompute next point. */
+        dx = x - x0;
+        dy = y - y0;
+        length = Math.sqrt((dx * dx) + (dy * dy));
+
+        /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+        correction = hop / (((length < 0.1) ? 0.1 : length));
+        do {
+            increment = increment * correction;
+            t = t0 + increment;
+            oneLessT = 1.0 - t;
+            f1 = oneLessT * oneLessT;
+            f2 = (2.0 * oneLessT) * t;
+            f3 = t * t;
+            x = ((f1 * txFrom) + (f2 * txControl)) + (f3 * txTo);
+            y = ((f1 * tyFrom) + (f2 * tyControl)) + (f3 * tyTo);
+            dx = x - x0;
+            dy = y - y0;
+            length = Math.sqrt((dx * dx) + (dy * dy));
+
+            /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+            correction = hop / (((length < 0.1) ? 0.1 : length));
+        } while (correction < 0.99);
+        if (!(t < 1.0)) break;
+        updateAlphasWPForXy(x, y);
+        if (!(fillA == 0.0)) {
+            updateEdgeCountWPAtXy(x, y);
+        }
+        updateContourForXy(x, y);
+    }
+
+    /* Case t= 1.0 */
+    updateAlphasWPForXy(txTo, tyTo);
+    if (!(fillA == 0.0)) {
+        updateEdgeCountWPAtXy(txTo, tyTo);
+    }
+    updateContourForXy(txTo, tyTo);
+    return 0;
+};
+
+/* VectorEnginePlugin>>#updateContourForX:y: */
+function updateContourForXy(x, y) {
+    var thisYRounded;
+
+    thisYRounded = Math.trunc(y + 0.5);
+    if (((thisYRounded >= 0) && (thisYRounded <= (targetHeight - 1)))) {
+        if (!(thisYRounded == prevYRounded)) {
+            if (!(prevYRounded == 0x7FFFFFFF)) {
+                contour[prevYRounded * 2] = leftAtThisY;
+                contour[(prevYRounded * 2) + 1] = rightAtThisY;
+            }
+            leftAtThisY = contour[thisYRounded * 2];
+            rightAtThisY = contour[(thisYRounded * 2) + 1];
+            prevYRounded = thisYRounded;
+        }
+        leftAtThisY = ((leftAtThisY < x) ? leftAtThisY : x);
+        rightAtThisY = ((rightAtThisY < x) ? x : rightAtThisY);
+    }
+    return 0;
+}
+
+/* VectorEnginePlugin>>#updateEdgeCountAtX:y: */
+function updateEdgeCountAtXy(x, y) {
+    var affectedBitsIndex;
+    var affectedBitsIndex2;
+    var blueCount;
+    var blueIncrement;
+    var blueOffset;
+    var bluePixelIndex;
+    var countWord;
+    var greenCount;
+    var greenIncrement;
+    var greenOffset;
+    var greenPixelIndex;
+    var pixelIndexBase;
+    var pixelY;
+    var redCount;
+    var redIncrement;
+    var redOffset;
+    var redPixelIndex;
+    var rest;
+    var thisYTruncated;
+
+    /* truncated, both in C and Smalltalk */
+    thisYTruncated = Math.trunc(y);
+    if (thisYTruncated == prevYTruncated) {
+        return 0;
+    }
+    if (!(((thisYTruncated >= (clipTop - 1)) && (thisYTruncated <= clipBottom)))) {
+        return 0;
+    }
+    if (prevYTruncated == 0x7FFFFFFF) {
+        prevYTruncated = thisYTruncated;
+        return 0;
+    }
+    if (thisYTruncated > prevYTruncated) {
+        pixelY = thisYTruncated;
+        redIncrement = 0x10000;
+        greenIncrement = 0x100;
+        blueIncrement = 1;
+    }
+    else {
+        pixelY = prevYTruncated;
+        redIncrement = 0xFF0000;
+        greenIncrement = 0xFF00;
+        blueIncrement = 0xFF;
+    }
+    prevYTruncated = thisYTruncated;
+
+    /* All edge count at the left of the clipRect are added there (at the left of the clipRect).
+       The effect is the same, and we need to clean up less stuff afterwards.
+       More important, it avoids trying to acess pixels outside our form, i.e. invalid array acesses. */
+    pixelIndexBase = pixelY * targetWidth;
+
+    /* take the next red subpixel center to the right of x */
+    redOffset = (((Math.trunc((x + subPixelDelta) + 1)) < clipLeft) ? clipLeft : (Math.trunc((x + subPixelDelta) + 1)));
+
+    /* take the next green subpixel center to the right of x */
+    greenOffset = (((Math.trunc(x + 1)) < clipLeft) ? clipLeft : (Math.trunc(x + 1)));
+
+    /* take the next blue subpixel center to the right of x */
+    blueOffset = (((Math.trunc((x - subPixelDelta) + 1)) < clipLeft) ? clipLeft : (Math.trunc((x - subPixelDelta) + 1)));
+    redPixelIndex = pixelIndexBase + redOffset;
+    greenPixelIndex = pixelIndexBase + greenOffset;
+    bluePixelIndex = pixelIndexBase + blueOffset;
+
+    /* Three possible cases here: RGB in one word (pixel); RG in one, and G in another; R in one, GB in another */
+    if (redPixelIndex == bluePixelIndex) {
+        /* First case: RGB in the same word */
+        if (redOffset <= clipRight) {
+            countWord = edgeCounts[redPixelIndex];
+            redCount = (countWord + redIncrement) & 0xFF0000;
+            greenCount = (countWord + greenIncrement) & 0xFF00;
+            blueCount = (countWord + blueIncrement) & 0xFF;
+            countWord = (redCount | greenCount) | blueCount;
+            edgeCounts[redPixelIndex] = countWord;
+            affectedBitsIndex = redPixelIndex >>> 4;
+            if (!((affectedBits[affectedBitsIndex]) == 1)) {
+                affectedBits[affectedBitsIndex] = 1;
+            }
+        }
+    }
+    else {
+        if (redPixelIndex == greenPixelIndex) {
+            /* Second case: RG in one word, B in previous */
+            if (redOffset <= clipRight) {
+                countWord = edgeCounts[redPixelIndex];
+                redCount = (countWord + redIncrement) & 0xFF0000;
+                greenCount = (countWord + greenIncrement) & 0xFF00;
+                rest = countWord & 0xFF;
+                countWord = (redCount | greenCount) | rest;
+                edgeCounts[redPixelIndex] = countWord;
+            }
+            if (blueOffset <= clipRight) {
+                countWord = edgeCounts[bluePixelIndex];
+                rest = countWord & 0xFFFF00;
+                blueCount = (countWord + blueIncrement) & 0xFF;
+                countWord = rest | blueCount;
+                edgeCounts[bluePixelIndex] = countWord;
+            }
+        }
+        else {
+            /* Third case: R in one word, GB in the previous */
+            if (redOffset <= clipRight) {
+                countWord = edgeCounts[redPixelIndex];
+                redCount = (countWord + redIncrement) & 0xFF0000;
+                rest = countWord & 0xFFFF;
+                countWord = redCount | rest;
+                edgeCounts[redPixelIndex] = countWord;
+            }
+            if (blueOffset <= clipRight) {
+                countWord = edgeCounts[bluePixelIndex];
+                rest = countWord & 0xFF0000;
+                greenCount = (countWord + greenIncrement) & 0xFF00;
+                blueCount = (countWord + blueIncrement) & 0xFF;
+                countWord = (rest | greenCount) | blueCount;
+                edgeCounts[bluePixelIndex] = countWord;
+            }
+        }
+        affectedBitsIndex = redPixelIndex >>> 4;
+        if (!((affectedBits[affectedBitsIndex]) == 1)) {
+            affectedBits[affectedBitsIndex] = 1;
+        }
+        affectedBitsIndex2 = bluePixelIndex >>> 4;
+        if (!(affectedBitsIndex2 == affectedBitsIndex)) {
+            if (!((affectedBits[affectedBitsIndex2]) == 1)) {
+                affectedBits[affectedBitsIndex2] = 1;
+            }
+        }
+    }
+    return 0;
+}
+
+/* VectorEnginePlugin>>#updateEdgeCountWPAtX:y: */
+function updateEdgeCountWPAtXy(x, y) {
+    var affectedBitsIndex;
+    var count;
+    var increment;
+    var pixelIndex;
+    var pixelOffset;
+    var pixelY;
+    var thisYTruncated;
+
+    /* truncated, both in C and Smalltalk */
+    thisYTruncated = Math.trunc(y);
+    if (thisYTruncated == prevYTruncated) {
+        return 0;
+    }
+    if (!(((thisYTruncated >= (clipTop - 1)) && (thisYTruncated <= clipBottom)))) {
+        return 0;
+    }
+    if (prevYTruncated == 0x7FFFFFFF) {
+        prevYTruncated = thisYTruncated;
+        return 0;
+    }
+    if (thisYTruncated > prevYTruncated) {
+        pixelY = thisYTruncated;
+        increment = 1;
+    }
+    else {
+        pixelY = prevYTruncated;
+        increment = 0xFF;
+    }
+    prevYTruncated = thisYTruncated;
+
+    /* All edge count at the left of the clipRect are added there (at the left of the clipRect).
+       The effect is the same, and we need to clean up less stuff afterwards.
+       More important, it avoids trying to acess pixels outside our form, i.e. invalid array acesses. */
+
+    /* take the next pixel center to the right of x */
+    pixelOffset = (((Math.trunc(x + 1)) < clipLeft) ? clipLeft : (Math.trunc(x + 1)));
+    if (pixelOffset <= clipRight) {
+        pixelIndex = (pixelY * targetWidth) + pixelOffset;
+        count = edgeCountsWP[pixelIndex];
+        count = (count + increment) & 0xFF;   // count += increment; on a uint8_t in the C
+        edgeCountsWP[pixelIndex] = count;
+        affectedBitsIndex = pixelIndex >>> 4;
+        if (!((affectedBits[affectedBitsIndex]) == 1)) {
+            affectedBits[affectedBitsIndex] = 1;
+        }
+    }
+    return 0;
+}
+
+/* VectorEnginePlugin>>#updateContourLastLine
+   (in the C this is the body of primUpdateContourLastLine; the skeleton's
+   exported primitive calls this helper) */
+updateContourLastLine = function() {
+    if (!(prevYRounded == 0x7FFFFFFF)) {
+        contour[prevYRounded * 2] = leftAtThisY;
+        contour[(prevYRounded * 2) + 1] = rightAtThisY;
+    }
+    return;
+};
+
+
+/* ===== grupo alphas (traducido de utils/VectorEnginePlugin.ref/VectorEnginePlugin.c) ===== */
+
+/* VectorEnginePlugin>>#updateAlphasForX:y: */
+function updateAlphasForXy(x, y) {
+    var affectedBitsIndex;
+    var alphaWord;
+    var b;
+    var bit;
+    var blueAlpha;
+    var candidateAlpha;
+    var displayX;
+    var displayY;
+    var distanceToAxisSquared;
+    var doUpdate;
+    var dx;
+    var dxp;
+    var dy;
+    var dySquared;
+    var greenAlpha;
+    var l;
+    var lastUpdated;
+    var pixelIndex;
+    var r;
+    var redAlpha;
+    var t;
+
+    /* If dashed strokes, only draw if in a dash, not in a gap. */
+    if (!(dashBitLength === 0.0)) {
+        /* Compute trajectory length. This is not precise. In many cases the actual hop used is smaller than this. */
+        trajectoryLength += hop;
+
+        /* Note: dashBitOffset must be positive. */
+        bit = (Math.trunc(trajectoryLength / dashBitLength) + dashBitOffset) % dashBitCount;
+        if (!(dashedStrokeBits & (1 << ((dashBitCount - bit) - 1)))) {
+            needsFullAlphaCircle = 1;
+            return 0;
+        }
+    }
+
+    /* Compute affected rect. Honor clipRect */
+
+    /* (int(z+1)) works equally well than the more intuitive but slower (int(ceil(z)) */
+    t = Math.trunc((y - auxStrokeWidthDilatedHalf) + 1);
+    if (t < clipTop) {
+        t = clipTop;
+    }
+    b = Math.trunc(y + auxStrokeWidthDilatedHalf);
+    if (b > clipBottom) {
+        b = clipBottom;
+    }
+
+    /* (int(z+1)) works equally well than the more intuitive but slower (int(ceil(z)) */
+    l = Math.trunc(((x - auxStrokeWidthDilatedHalf) - subPixelDelta) + 1);
+    if (l < clipLeft) {
+        l = clipLeft;
+    }
+    r = Math.trunc((x + auxStrokeWidthDilatedHalf) + subPixelDelta);
+    if (r > clipRight) {
+        r = clipRight;
+    }
+    lastUpdated = -1;
+    for (displayY = t; displayY <= b; displayY += 1) {
+        pixelIndex = ((displayY * targetWidth) + l) - 1;
+        dy = displayY - y;
+        dySquared = dy * dy;
+        for (displayX = l; displayX <= r; displayX += 1) {
+            pixelIndex += 1;
+            dx = displayX - x;
+
+            /* Use Green subpixel for this. */
+            distanceToAxisSquared = (dx * dx) + dySquared;
+            if (needsFullAlphaCircle
+             || (distanceToAxisSquared > auxStrokeWidthErodedHalfSquared)) {
+                alphaWord = alphaMask[pixelIndex];
+                if (!(alphaWord === 0x7F7F7F)) {
+                    redAlpha = alphaWord & 0x7F0000;
+                    greenAlpha = alphaWord & 0x7F00;
+                    blueAlpha = alphaWord & 0x7F;
+                    doUpdate = 0;
+
+                    /* Red */
+                    dxp = dx - subPixelDelta;
+                    distanceToAxisSquared = (dxp * dxp) + dySquared;
+                    if (distanceToAxisSquared < auxStrokeWidthDilatedHalfSquared) {
+                        candidateAlpha = Math.trunc((auxStrokeWidthDilatedHalf - Math.sqrt(distanceToAxisSquared)) * auxAntiAliasingWidthScaledInverse) >>> 0;
+                        candidateAlpha = (candidateAlpha << 16) >>> 0;
+                        if (candidateAlpha > redAlpha) {
+                            doUpdate = 1;
+                            redAlpha = (candidateAlpha < 0x7F0000) ? candidateAlpha : 0x7F0000;
+                        }
+                    }
+
+                    /* Green */
+                    distanceToAxisSquared = (dx * dx) + dySquared;
+                    if (distanceToAxisSquared < auxStrokeWidthDilatedHalfSquared) {
+                        candidateAlpha = Math.trunc((auxStrokeWidthDilatedHalf - Math.sqrt(distanceToAxisSquared)) * auxAntiAliasingWidthScaledInverse) >>> 0;
+                        candidateAlpha = (candidateAlpha << 8) >>> 0;
+                        if (candidateAlpha > greenAlpha) {
+                            doUpdate = 1;
+                            greenAlpha = (candidateAlpha < 0x7F00) ? candidateAlpha : 0x7F00;
+                        }
+                    }
+
+                    /* Blue */
+                    dxp = dx + subPixelDelta;
+                    distanceToAxisSquared = (dxp * dxp) + dySquared;
+                    if (distanceToAxisSquared < auxStrokeWidthDilatedHalfSquared) {
+                        candidateAlpha = Math.trunc((auxStrokeWidthDilatedHalf - Math.sqrt(distanceToAxisSquared)) * auxAntiAliasingWidthScaledInverse) >>> 0;
+                        if (candidateAlpha > blueAlpha) {
+                            doUpdate = 1;
+                            blueAlpha = (candidateAlpha < 0x7F) ? candidateAlpha : 0x7F;
+                        }
+                    }
+                    if (doUpdate) {
+                        affectedBitsIndex = pixelIndex >>> 4;
+                        if (!(lastUpdated === affectedBitsIndex)) {
+                            /* Slight optimization */
+                            if (!((affectedBits[affectedBitsIndex]) === 1)) {
+                                affectedBits[affectedBitsIndex] = 1;
+                                lastUpdated = affectedBitsIndex;
+                            }
+                        }
+                        alphaWord = (redAlpha | greenAlpha) | blueAlpha;
+                        alphaMask[pixelIndex] = alphaWord;
+                    }
+                }
+            }
+        }
+    }
+    needsFullAlphaCircle = 0;
+    return 0;
+}
+
+/* VectorEnginePlugin>>#updateAlphasWPForX:y: */
+function updateAlphasWPForXy(x, y) {
+    var affectedBitsIndex;
+    var alphaByte;
+    var aux1;
+    var b;
+    var bit;
+    var candidateAlpha;
+    var displayX;
+    var displayY;
+    var distanceToAxisSquared;
+    var dx;
+    var dy;
+    var dySquared;
+    var l;
+    var lastUpdated;
+    var pixelIndex;
+    var r;
+    var t;
+
+    /* Use this optimized varsion if possible. */
+    if ((strokeWidth === 0.0)
+     && ((Math.abs(antiAliasingWidth - 1.6)) < 1.0e-6)) {
+        return updateAlphasWPZeroStrokeForXy(x, y);
+    }
+
+    /* If dashed strokes, only draw if in a dash, not in a gap. */
+    if (!(dashBitLength === 0.0)) {
+        /* Compute trajectory length. This is not precise. In many cases the actual hop used is smaller than this. */
+        trajectoryLength += hop;
+
+        /* Note: dashBitOffset must be positive. */
+        bit = (Math.trunc(trajectoryLength / dashBitLength) + dashBitOffset) % dashBitCount;
+        if (!(dashedStrokeBits & (1 << ((dashBitCount - bit) - 1)))) {
+            needsFullAlphaCircle = 1;
+            return 0;
+        }
+    }
+
+    /* Compute affected rect. Honor clipRect */
+
+    /* (int(z+1)) works equally well than the more intuitive but slower (int(ceil(z)) */
+    t = Math.trunc((y - auxStrokeWidthDilatedHalf) + 1);
+    if (t < clipTop) {
+        t = clipTop;
+    }
+    b = Math.trunc(y + auxStrokeWidthDilatedHalf);
+    if (b > clipBottom) {
+        b = clipBottom;
+    }
+
+    /* (int(z+1)) works equally well than the more intuitive but slower (int(ceil(z)) */
+    l = Math.trunc((x - auxStrokeWidthDilatedHalf) + 1);
+    if (l < clipLeft) {
+        l = clipLeft;
+    }
+    r = Math.trunc(x + auxStrokeWidthDilatedHalf);
+    if (r > clipRight) {
+        r = clipRight;
+    }
+    lastUpdated = -1;
+    for (displayY = t; displayY <= b; displayY += 1) {
+        pixelIndex = ((displayY * targetWidth) + l) - 1;
+        dy = displayY - y;
+        dySquared = dy * dy;
+        for (displayX = l; displayX <= r; displayX += 1) {
+            pixelIndex += 1;
+            dx = displayX - x;
+            distanceToAxisSquared = (dx * dx) + dySquared;
+            if (distanceToAxisSquared < auxStrokeWidthDilatedHalfSquared) {
+                if (needsFullAlphaCircle
+                 || (distanceToAxisSquared > auxStrokeWidthErodedHalfSquared)) {
+                    alphaByte = alphaMaskWP[pixelIndex];
+                    if (!(alphaByte === 0x7F)) {
+                        aux1 = auxStrokeWidthDilatedHalf - Math.sqrt(distanceToAxisSquared);
+                        candidateAlpha = Math.trunc(((aux1 < antiAliasingWidth) ? aux1 : antiAliasingWidth) * auxAntiAliasingWidthScaledInverse) & 0xFF;
+                        if (candidateAlpha > alphaByte) {
+                            affectedBitsIndex = pixelIndex >>> 4;
+                            if (!(lastUpdated === affectedBitsIndex)) {
+                                /* Slight optimization */
+                                if (!((affectedBits[affectedBitsIndex]) === 1)) {
+                                    affectedBits[affectedBitsIndex] = 1;
+                                    lastUpdated = affectedBitsIndex;
+                                }
+                            }
+                            alphaMaskWP[pixelIndex] = candidateAlpha;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    needsFullAlphaCircle = 0;
+    return 0;
+}
+
+/* VectorEnginePlugin>>#updateAlphasWPZeroStrokeForX:y: */
+function updateAlphasWPZeroStrokeForXy(x, y) {
+    var affectedBitsIndex1;
+    var affectedBitsIndex2;
+    var alphaByte;
+    var b;
+    var candidateAlpha;
+    var distanceToAxisSquared;
+    var dx;
+    var dx2;
+    var dx2Squared;
+    var dxSquared;
+    var dy;
+    var dy2;
+    var dy2Squared;
+    var dySquared;
+    var l;
+    var pixelIndex;
+    var r;
+    var t;
+
+    /* Compute affected rect. Honor clipRect */
+    t = Math.trunc(y);
+    b = t + 1;
+    l = Math.trunc(x);
+    r = l + 1;
+    if (t < clipTop) {
+        t = clipTop;
+    }
+    if (b > clipBottom) {
+        b = clipBottom;
+    }
+    if (l < clipLeft) {
+        l = clipLeft;
+    }
+    if (r > clipRight) {
+        r = clipRight;
+    }
+    if (t > b) {
+        return 0;
+    }
+    if (l > r) {
+        return 0;
+    }
+    pixelIndex = (t * targetWidth) + l;
+    affectedBitsIndex1 = -1;
+    dy = t - y;
+    dySquared = dy * dy;
+    dx = l - x;
+    dxSquared = dx * dx;
+    distanceToAxisSquared = dxSquared + dySquared;
+    if (distanceToAxisSquared < 0.64) {
+        alphaByte = alphaMaskWP[pixelIndex];
+        if (!(alphaByte === 0x7F)) {
+            candidateAlpha = Math.trunc((0.8 - Math.sqrt(distanceToAxisSquared)) * 79.375) & 0xFF;
+            if (candidateAlpha > alphaByte) {
+                affectedBitsIndex1 = pixelIndex >>> 4;
+                if (!(affectedBits[affectedBitsIndex1])) {
+                    affectedBits[affectedBitsIndex1] = 1;
+                }
+                alphaMaskWP[pixelIndex] = candidateAlpha;
+            }
+        }
+        if (distanceToAxisSquared < 0.36) {
+            return 0;
+        }
+    }
+    if (!(r === l)) {
+        dx2 = dx + 1;
+        dx2Squared = dx2 * dx2;
+        distanceToAxisSquared = dx2Squared + dySquared;
+        if (distanceToAxisSquared < 0.64) {
+            alphaByte = alphaMaskWP[pixelIndex + 1];
+            if (!(alphaByte === 0x7F)) {
+                candidateAlpha = Math.trunc((0.8 - Math.sqrt(distanceToAxisSquared)) * 79.375) & 0xFF;
+                if (candidateAlpha > alphaByte) {
+                    affectedBitsIndex2 = (pixelIndex + 1) >>> 4;
+                    if (!(affectedBitsIndex2 === affectedBitsIndex1)) {
+                        if (!(affectedBits[affectedBitsIndex2])) {
+                            affectedBits[affectedBitsIndex2] = 1;
+                        }
+                    }
+                    alphaMaskWP[pixelIndex + 1] = candidateAlpha;
+                }
+            }
+            if (distanceToAxisSquared < 0.36) {
+                return 0;
+            }
+        }
+    }
+    if (t === b) {
+        return 0;
+    }
+    pixelIndex = (b * targetWidth) + l;
+    affectedBitsIndex1 = -1;
+    dy2 = dy + 1;
+    dy2Squared = dy2 * dy2;
+    distanceToAxisSquared = dxSquared + dy2Squared;
+    if (distanceToAxisSquared < 0.64) {
+        alphaByte = alphaMaskWP[pixelIndex];
+        if (!(alphaByte === 0x7F)) {
+            candidateAlpha = Math.trunc((0.8 - Math.sqrt(distanceToAxisSquared)) * 79.375) & 0xFF;
+            if (candidateAlpha > alphaByte) {
+                affectedBitsIndex1 = pixelIndex >>> 4;
+                if (!(affectedBits[affectedBitsIndex1])) {
+                    affectedBits[affectedBitsIndex1] = 1;
+                }
+                alphaMaskWP[pixelIndex] = candidateAlpha;
+            }
+        }
+        if (distanceToAxisSquared < 0.36) {
+            return 0;
+        }
+    }
+    if (!(r === l)) {
+        distanceToAxisSquared = dx2Squared + dy2Squared;
+        if (distanceToAxisSquared < 0.64) {
+            alphaByte = alphaMaskWP[pixelIndex + 1];
+            if (!(alphaByte === 0x7F)) {
+                candidateAlpha = Math.trunc((0.8 - Math.sqrt(distanceToAxisSquared)) * 79.375) & 0xFF;
+                if (candidateAlpha > alphaByte) {
+                    affectedBitsIndex2 = (pixelIndex + 1) >>> 4;
+                    if (!(affectedBitsIndex2 === affectedBitsIndex1)) {
+                        if (!(affectedBits[affectedBitsIndex2])) {
+                            affectedBits[affectedBitsIndex2] = 1;
+                        }
+                    }
+                    alphaMaskWP[pixelIndex + 1] = candidateAlpha;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+
+/* ===== grupo blend (traducido de utils/VectorEnginePlugin.ref/VectorEnginePlugin.c) ===== */
+
+/* VectorEnginePlugin>>#blendFillOnlyAt:redIsInside:greenIsInside:blueIsInside:antiAliasAlphasWord: */
+function blendFillOnlyAtredIsInsidegreenIsInsideblueIsInsideantiAliasAlphasWord(pixelIndex, isRedInside, isGreenInside, isBlueInside, strokeAntiAliasAlphasWord) {
+    var alphaB, alphaBBits, alphaG, alphaGBits, alphaR, alphaRBits;
+    var resultAlphaB, resultAlphaBits, resultAlphaG, resultAlphaR;
+    var resultB, resultBBits, resultG, resultGBits, resultR, resultRBits;
+    var targetAlpha, targetAlphaBits, targetWord;
+    var unAlphaB, unAlphaG, unAlphaR;
+
+    /* In this method, antiAliasAlphas are not used to blend stroke, but fill. This means that in the inside of the shape, and away from the stroke, they must be 1.0 (not 0.0). */
+    alphaRBits = strokeAntiAliasAlphasWord & 0x7F0000;
+    alphaGBits = strokeAntiAliasAlphasWord & 0x7F00;
+    alphaBBits = strokeAntiAliasAlphasWord & 0x7F;
+    if (isRedInside) {
+        alphaRBits = 0x7F0000 - alphaRBits;
+    }
+    if (isGreenInside) {
+        alphaGBits = 0x7F00 - alphaGBits;
+    }
+    if (isBlueInside) {
+        alphaBBits = 0x7F - alphaBBits;
+    }
+    alphaR = alphaRBits * (1.0 / (8.323072e6));
+    alphaG = alphaGBits * (1.0 / (32512.0));
+    alphaB = alphaBBits * (1.0 / 127.0);
+    alphaR = alphaR * fillA;
+    alphaG = alphaG * fillA;
+    alphaB = alphaB * fillA;
+    targetWord = targetBits[pixelIndex];
+    targetAlphaBits = (targetWord & 0xFF000000) >>> 0;
+    targetAlpha = targetAlphaBits * (1.0 / (4.27819008e9));
+    resultAlphaBits = targetAlphaBits;
+    resultRBits = targetWord & 0xFF0000;
+    resultGBits = targetWord & 0xFF00;
+    resultBBits = targetWord & 0xFF;
+
+    /* These if are not really needed. just ignore them if we use simd instructions. */
+    if (!(alphaR === 0.0)) {
+        unAlphaR = 1.0 - alphaR;
+        resultAlphaR = alphaR + (unAlphaR * targetAlpha);
+        resultR = (alphaR * fillR) + ((unAlphaR * (resultRBits >>> 16)) * targetAlpha);
+        resultRBits = (Math.trunc((resultR / resultAlphaR) + 0.5) << 16) >>> 0;
+    }
+    if (!(alphaG === 0.0)) {
+        unAlphaG = 1.0 - alphaG;
+        resultAlphaG = alphaG + (unAlphaG * targetAlpha);
+        resultG = (alphaG * fillG) + ((unAlphaG * (resultGBits >>> 8)) * targetAlpha);
+        resultGBits = (Math.trunc((resultG / resultAlphaG) + 0.5) << 8) >>> 0;
+        resultAlphaBits = (Math.trunc((resultAlphaG * 255.0) + 0.5) << 24) >>> 0;
+    }
+    if (!(alphaB === 0.0)) {
+        unAlphaB = 1.0 - alphaB;
+        resultAlphaB = alphaB + (unAlphaB * targetAlpha);
+        resultB = (alphaB * fillB) + ((unAlphaB * resultBBits) * targetAlpha);
+        resultBBits = Math.trunc((resultB / resultAlphaB) + 0.5);
+    }
+    targetWord = (((resultAlphaBits | resultRBits) | resultGBits) | resultBBits) >>> 0;
+    targetBits[pixelIndex] = targetWord;
+    morphIds[pixelIndex] = currentMorphId;
+    return 0;
+}
+
+/* VectorEnginePlugin>>#blendFillOnlyWPAt:antiAliasAlphaByte: */
+function blendFillOnlyWPAtantiAliasAlphaByte(pixelIndex, antiAliasAlphaBits) {
+    var alpha;
+    var resultAlpha, resultAlphaBits;
+    var resultB, resultBBits, resultG, resultGBits, resultR, resultRBits;
+    var targetAlpha, targetAlphaBits, targetWord;
+    var unAlpha;
+
+    alpha = antiAliasAlphaBits * (1.0 / 127.0);
+    alpha = alpha * fillA;
+    unAlpha = 1.0 - alpha;
+    targetWord = targetBits[pixelIndex];
+    targetAlphaBits = (targetWord & 0xFF000000) >>> 0;
+    targetAlpha = targetAlphaBits * (1.0 / (4.27819008e9));
+    resultAlpha = alpha + (unAlpha * targetAlpha);
+    resultRBits = targetWord & 0xFF0000;
+    resultGBits = targetWord & 0xFF00;
+    resultBBits = targetWord & 0xFF;
+    resultR = (alpha * fillR) + ((unAlpha * (resultRBits >>> 16)) * targetAlpha);
+    resultG = (alpha * fillG) + ((unAlpha * (resultGBits >>> 8)) * targetAlpha);
+    resultB = (alpha * fillB) + ((unAlpha * resultBBits) * targetAlpha);
+    resultAlphaBits = (Math.trunc((resultAlpha * 0xFF) + 0.5) << 24) >>> 0;
+    resultRBits = (Math.trunc((resultR / resultAlpha) + 0.5) << 16) >>> 0;
+    resultGBits = (Math.trunc((resultG / resultAlpha) + 0.5) << 8) >>> 0;
+    resultBBits = Math.trunc((resultB / resultAlpha) + 0.5);
+    targetWord = (((resultAlphaBits | resultRBits) | resultGBits) | resultBBits) >>> 0;
+    targetBits[pixelIndex] = targetWord;
+    morphIds[pixelIndex] = currentMorphId;
+    return 0;
+}
+
+/* VectorEnginePlugin>>#blendStrokeOnlyAt:antiAliasAlphasWord: */
+function blendStrokeOnlyAtantiAliasAlphasWord(pixelIndex, strokeAntiAliasAlphasWord) {
+    var alphaB, alphaBBits, alphaG, alphaGBits, alphaR, alphaRBits;
+    var resultAlphaB, resultAlphaBits, resultAlphaG, resultAlphaR;
+    var resultB, resultBBits, resultG, resultGBits, resultR, resultRBits;
+    var targetAlpha, targetAlphaBits, targetWord;
+    var unAlphaB, unAlphaG, unAlphaR;
+
+    alphaRBits = strokeAntiAliasAlphasWord & 0x7F0000;
+    alphaGBits = strokeAntiAliasAlphasWord & 0x7F00;
+    alphaBBits = strokeAntiAliasAlphasWord & 0x7F;
+    alphaR = alphaRBits * (1.0 / (8.323072e6));
+    alphaG = alphaGBits * (1.0 / (32512.0));
+    alphaB = alphaBBits * (1.0 / 127.0);
+    alphaR = alphaR * strokeA;
+    alphaG = alphaG * strokeA;
+    alphaB = alphaB * strokeA;
+    targetWord = targetBits[pixelIndex];
+    targetAlphaBits = (targetWord & 0xFF000000) >>> 0;
+    targetAlpha = targetAlphaBits * (1.0 / (4.27819008e9));
+    resultAlphaBits = targetAlphaBits;
+    resultRBits = targetWord & 0xFF0000;
+    resultGBits = targetWord & 0xFF00;
+    resultBBits = targetWord & 0xFF;
+
+    /* These if are not really needed. just ignore them if we use simd instructions. */
+    if (!(alphaR === 0.0)) {
+        unAlphaR = 1.0 - alphaR;
+        resultAlphaR = alphaR + (unAlphaR * targetAlpha);
+        resultR = (alphaR * strokeR) + ((unAlphaR * (resultRBits >>> 16)) * targetAlpha);
+        resultRBits = (Math.trunc((resultR / resultAlphaR) + 0.5) << 16) >>> 0;
+    }
+    if (!(alphaG === 0.0)) {
+        unAlphaG = 1.0 - alphaG;
+        resultAlphaG = alphaG + (unAlphaG * targetAlpha);
+        resultG = (alphaG * strokeG) + ((unAlphaG * (resultGBits >>> 8)) * targetAlpha);
+        resultGBits = (Math.trunc((resultG / resultAlphaG) + 0.5) << 8) >>> 0;
+        resultAlphaBits = (Math.trunc((resultAlphaG * 255.0) + 0.5) << 24) >>> 0;
+    }
+    if (!(alphaB === 0.0)) {
+        unAlphaB = 1.0 - alphaB;
+        resultAlphaB = alphaB + (unAlphaB * targetAlpha);
+        resultB = (alphaB * strokeB) + ((unAlphaB * resultBBits) * targetAlpha);
+        resultBBits = Math.trunc((resultB / resultAlphaB) + 0.5);
+    }
+    targetWord = (((resultAlphaBits | resultRBits) | resultGBits) | resultBBits) >>> 0;
+    targetBits[pixelIndex] = targetWord;
+    morphIds[pixelIndex] = currentMorphId;
+    return 0;
+}
+
+/* VectorEnginePlugin>>#blendStrokeOnlyWPAt:antiAliasAlphaByte: */
+function blendStrokeOnlyWPAtantiAliasAlphaByte(pixelIndex, strokeAntiAliasAlphaBits) {
+    var alpha;
+    var resultAlpha, resultAlphaBits;
+    var resultB, resultBBits, resultG, resultGBits, resultR, resultRBits;
+    var targetAlpha, targetAlphaBits, targetWord;
+    var unAlpha;
+
+    alpha = strokeAntiAliasAlphaBits * (1.0 / 127.0);
+    alpha = alpha * strokeA;
+    unAlpha = 1.0 - alpha;
+    targetWord = targetBits[pixelIndex];
+    targetAlphaBits = (targetWord & 0xFF000000) >>> 0;
+    targetAlpha = targetAlphaBits * (1.0 / (4.27819008e9));
+    resultAlpha = alpha + (unAlpha * targetAlpha);
+    resultRBits = targetWord & 0xFF0000;
+    resultGBits = targetWord & 0xFF00;
+    resultBBits = targetWord & 0xFF;
+    resultR = (alpha * strokeR) + ((unAlpha * (resultRBits >>> 16)) * targetAlpha);
+    resultG = (alpha * strokeG) + ((unAlpha * (resultGBits >>> 8)) * targetAlpha);
+    resultB = (alpha * strokeB) + ((unAlpha * resultBBits) * targetAlpha);
+    resultAlphaBits = (Math.trunc((resultAlpha * 0xFF) + 0.5) << 24) >>> 0;
+    resultRBits = (Math.trunc((resultR / resultAlpha) + 0.5) << 16) >>> 0;
+    resultGBits = (Math.trunc((resultG / resultAlpha) + 0.5) << 8) >>> 0;
+    resultBBits = Math.trunc((resultB / resultAlpha) + 0.5);
+    targetWord = (((resultAlphaBits | resultRBits) | resultGBits) | resultBBits) >>> 0;
+    targetBits[pixelIndex] = targetWord;
+    morphIds[pixelIndex] = currentMorphId;
+    return 0;
+}
+
+/* VectorEnginePlugin>>#blendFillOnlyLeft:top:right:bottom: */
+primBlendFillOnly = function(argCount) {
+    var affectedBitsIndex, alphasOrEdgeCountsInThisSegment;
+    var antiAliasedClippedLeftPixel, antiAliasedClippedRightPixel;
+    var aux1, auxB, auxG, auxR, b;
+    var clippingSpecIndex, clippingSpecL, clippingSpecR;
+    var displayX, displayY;
+    var edgesThisPixelB, edgesThisPixelG, edgesThisPixelR, edgesThisPixelWord;
+    var edgesUpToThisPixelB, edgesUpToThisPixelG, edgesUpToThisPixelR;
+    var idx, isBlueInside, isGreenInside, isRedInside;
+    var l, lastSegmentIndex, mustResetColor, opaqueFillColorWord;
+    var pixelIndex, r, realFillAlpha, realOpaqueFillColorWord;
+    var segmentLength, strokeAntiAliasAlphasWord, t, toDoLimit;
+
+    alphasOrEdgeCountsInThisSegment = 0;
+    realOpaqueFillColorWord = 0;
+    if (!((isIntegerObject((l = stackValue(3))))
+        && ((isIntegerObject((t = stackValue(2))))
+        && ((isIntegerObject((r = stackValue(1))))
+        && (isIntegerObject((b = stackValue(0)))))))) {
+        primitiveFailFor(PrimErrBadArgument); return false;
+    }
+    l = integerValueOf(l);
+    t = integerValueOf(t);
+    r = integerValueOf(r);
+    b = integerValueOf(b);
+    clippingSpecL = 0;
+    clippingSpecR = targetWidth - 1;
+
+    /* targetWidth means effectively no AA for clipping */
+    antiAliasedClippedLeftPixel = targetWidth;
+
+    /* targetWidth means effectively no AA for clipping */
+    antiAliasedClippedRightPixel = targetWidth;
+    clippingSpecIndex = ((t * 2) + 1) - 1;
+    mustResetColor = 0;
+    opaqueFillColorWord = 0;
+    if (targetAssumedOpaque) {
+        if (fillA === 1.0) {
+            auxR = (Math.trunc(fillR + 0.5) << 16) >>> 0;
+            auxG = (Math.trunc(fillG + 0.5) << 8) >>> 0;
+            auxB = Math.trunc(fillB + 0.5);
+            opaqueFillColorWord = (((0xFF000000 | auxR) | auxG) | auxB) >>> 0;
+        }
+    }
+    lastSegmentIndex = -1;
+    for (displayY = t; displayY <= b; displayY += 1) {
+        if (clippingSpec) {
+            clippingSpecL = clippingSpec[clippingSpecIndex];
+            clippingSpecR = clippingSpec[clippingSpecIndex + 1];
+            antiAliasedClippedLeftPixel = (clippingSpecL >= l
+                        ? clippingSpecL
+                        : targetWidth);
+            antiAliasedClippedRightPixel = (clippingSpecR <= r
+                        ? clippingSpecR
+                        : targetWidth);
+        }
+        edgesUpToThisPixelR = 0;
+        edgesUpToThisPixelG = 0;
+        edgesUpToThisPixelB = 0;
+        isRedInside = (isGreenInside = (isBlueInside = 0));
+        pixelIndex = (displayY * targetWidth) + l;
+        displayX = l;
+        while (displayX <= r) {
+            affectedBitsIndex = pixelIndex >>> 4;
+            if (!(lastSegmentIndex === affectedBitsIndex)) {
+                alphasOrEdgeCountsInThisSegment = (affectedBits[affectedBitsIndex]) === 1;
+                lastSegmentIndex = affectedBitsIndex;
+                if (alphasOrEdgeCountsInThisSegment) {
+                    affectedBits[affectedBitsIndex] = 0;
+                }
+            }
+            segmentLength = ((affectedBitsIndex + 1) << 4) - pixelIndex;
+            if (alphasOrEdgeCountsInThisSegment || isGreenInside) {
+                aux1 = (r - displayX) + 1;
+                toDoLimit = ((segmentLength < aux1) ? segmentLength : aux1);
+                for (idx = 1; idx <= toDoLimit; idx += 1) {
+                    strokeAntiAliasAlphasWord = 0;
+                    if (alphasOrEdgeCountsInThisSegment) {
+                        edgesThisPixelWord = edgeCounts[pixelIndex];
+                        if (edgesThisPixelWord) {
+                            edgeCounts[pixelIndex] = 0;
+                            edgesThisPixelR = (edgesThisPixelWord & 0xFF0000) >>> 16;
+                            edgesThisPixelG = (edgesThisPixelWord & 0xFF00) >>> 8;
+                            edgesThisPixelB = edgesThisPixelWord & 0xFF;
+                            edgesUpToThisPixelR = (edgesUpToThisPixelR + edgesThisPixelR) & 0xFF;
+                            edgesUpToThisPixelG = (edgesUpToThisPixelG + edgesThisPixelG) & 0xFF;
+                            edgesUpToThisPixelB = (edgesUpToThisPixelB + edgesThisPixelB) & 0xFF;
+
+                            /* In C, integers already behave like booleans */
+
+                            isRedInside = edgesUpToThisPixelR;
+                            isGreenInside = edgesUpToThisPixelG;
+                            isBlueInside = edgesUpToThisPixelB;
+                        }
+                        strokeAntiAliasAlphasWord = alphaMask[pixelIndex];
+                        if (strokeAntiAliasAlphasWord) {
+                            alphaMask[pixelIndex] = 0;
+                        }
+                    }
+                    if ((displayX >= clippingSpecL)
+                     && (displayX <= clippingSpecR)) {
+                        if ((displayX === antiAliasedClippedLeftPixel)
+                         || (displayX === antiAliasedClippedRightPixel)) {
+                            realFillAlpha = fillA;
+                            fillA = fillA * 0.25;
+                            realOpaqueFillColorWord = opaqueFillColorWord;
+                            opaqueFillColorWord = 0;
+                            mustResetColor = 1;
+                        }
+                        else {
+                            if (((displayX - 1) === antiAliasedClippedLeftPixel)
+                             || ((displayX + 1) === antiAliasedClippedRightPixel)) {
+                                realFillAlpha = fillA;
+                                fillA = fillA * 0.75;
+                                realOpaqueFillColorWord = opaqueFillColorWord;
+                                opaqueFillColorWord = 0;
+                                mustResetColor = 1;
+                            }
+                        }
+                        if ((opaqueFillColorWord !== 0)
+                         && ((strokeAntiAliasAlphasWord === 0)
+                         && (isGreenInside))) {
+                            /* Overwrite with fill color is ok and we are in the fill, far from anti aliasing
+                               If no alpha, and isGreenInside is true, isRedInside and isBlueInside are also true */
+                            targetBits[pixelIndex] = opaqueFillColorWord;
+                            morphIds[pixelIndex] = currentMorphId;
+                        }
+                        else {
+                            /* General case. (strokeAntiAliasAlphasWord = 0 and outside the shape means NOP) */
+                            if ((strokeAntiAliasAlphasWord !== 0)
+                             || (isGreenInside)) {
+                                /* If no alpha, and isGreenInside is true, isRedInside and isBlueInside are also true
+                                   If there is any alpha, isRedInside, isGreenInside, isBlueInside may be different. */
+                                blendFillOnlyAtredIsInsidegreenIsInsideblueIsInsideantiAliasAlphasWord(pixelIndex, isRedInside, isGreenInside, isBlueInside, strokeAntiAliasAlphasWord);
+                            }
+                        }
+                        if (mustResetColor) {
+                            fillA = realFillAlpha;
+                            opaqueFillColorWord = realOpaqueFillColorWord;
+                            mustResetColor = 0;
+                        }
+                    }
+                    displayX += 1;
+                    pixelIndex += 1;
+                }
+            }
+            else {
+                /* All alphas and edgeCounts are zero in this segment of length delta */
+                displayX += segmentLength;
+                pixelIndex += segmentLength;
+            }
+        }
+        clippingSpecIndex += 2;
+    }
+    if (!failed()) pop(4);
+    return !failed();
+};
+
+/* VectorEnginePlugin>>#blendFillOnlyWPLeft:top:right:bottom: */
+primBlendFillOnlyWP = function(argCount) {
+    var affectedBitsIndex, alphasOrEdgeCountsInThisSegment;
+    var antiAliasedClippedLeftPixel, antiAliasedClippedRightPixel;
+    var aux1, auxB, auxG, auxR, b;
+    var clippingSpecIndex, clippingSpecL, clippingSpecR;
+    var displayX, displayY;
+    var edgesThisPixel, edgesUpToThisPixel;
+    var idx, l, lastSegmentIndex, mustResetColor, opaqueFillColorWord;
+    var pixelIndex, r, realFillAlpha, realOpaqueFillColorWord;
+    var segmentLength, strokeAntiAliasAlphaBits, t, toDoLimit;
+
+    alphasOrEdgeCountsInThisSegment = 0;
+    realOpaqueFillColorWord = 0;
+    if (!((isIntegerObject((l = stackValue(3))))
+        && ((isIntegerObject((t = stackValue(2))))
+        && ((isIntegerObject((r = stackValue(1))))
+        && (isIntegerObject((b = stackValue(0)))))))) {
+        primitiveFailFor(PrimErrBadArgument); return false;
+    }
+    l = integerValueOf(l);
+    t = integerValueOf(t);
+    r = integerValueOf(r);
+    b = integerValueOf(b);
+    clippingSpecL = 0;
+    clippingSpecR = targetWidth - 1;
+
+    /* targetWidth means effectively no AA for clipping */
+    antiAliasedClippedLeftPixel = targetWidth;
+
+    /* targetWidth means effectively no AA for clipping */
+    antiAliasedClippedRightPixel = targetWidth;
+    clippingSpecIndex = ((t * 2) + 1) - 1;
+    mustResetColor = 0;
+    opaqueFillColorWord = 0;
+    if (targetAssumedOpaque) {
+        if (fillA === 1.0) {
+            auxR = (Math.trunc(fillR + 0.5) << 16) >>> 0;
+            auxG = (Math.trunc(fillG + 0.5) << 8) >>> 0;
+            auxB = Math.trunc(fillB + 0.5);
+            opaqueFillColorWord = (((0xFF000000 | auxR) | auxG) | auxB) >>> 0;
+        }
+    }
+    lastSegmentIndex = -1;
+    for (displayY = t; displayY <= b; displayY += 1) {
+        if (clippingSpec) {
+            clippingSpecL = clippingSpec[clippingSpecIndex];
+            clippingSpecR = clippingSpec[clippingSpecIndex + 1];
+            antiAliasedClippedLeftPixel = (clippingSpecL >= l
+                        ? clippingSpecL
+                        : targetWidth);
+            antiAliasedClippedRightPixel = (clippingSpecR <= r
+                        ? clippingSpecR
+                        : targetWidth);
+        }
+        edgesUpToThisPixel = 0;
+        pixelIndex = (displayY * targetWidth) + l;
+        displayX = l;
+        while (displayX <= r) {
+            affectedBitsIndex = pixelIndex >>> 4;
+            if (!(lastSegmentIndex === affectedBitsIndex)) {
+                alphasOrEdgeCountsInThisSegment = (affectedBits[affectedBitsIndex]) === 1;
+                lastSegmentIndex = affectedBitsIndex;
+                if (alphasOrEdgeCountsInThisSegment) {
+                    affectedBits[affectedBitsIndex] = 0;
+                }
+            }
+            segmentLength = ((affectedBitsIndex + 1) << 4) - pixelIndex;
+            if (alphasOrEdgeCountsInThisSegment || (edgesUpToThisPixel !== 0)) {
+                aux1 = (r - displayX) + 1;
+                toDoLimit = ((segmentLength < aux1) ? segmentLength : aux1);
+                for (idx = 1; idx <= toDoLimit; idx += 1) {
+                    strokeAntiAliasAlphaBits = 0;
+                    if (alphasOrEdgeCountsInThisSegment) {
+                        edgesThisPixel = edgeCountsWP[pixelIndex];
+                        if (edgesThisPixel) {
+                            edgeCountsWP[pixelIndex] = 0;
+                            edgesUpToThisPixel = (edgesUpToThisPixel + edgesThisPixel) & 0xFF;
+                        }
+                        strokeAntiAliasAlphaBits = alphaMaskWP[pixelIndex];
+                        if (strokeAntiAliasAlphaBits) {
+                            alphaMaskWP[pixelIndex] = 0;
+                        }
+                    }
+                    if ((displayX >= clippingSpecL)
+                     && (displayX <= clippingSpecR)) {
+                        if ((displayX === antiAliasedClippedLeftPixel)
+                         || (displayX === antiAliasedClippedRightPixel)) {
+                            realFillAlpha = fillA;
+                            fillA = fillA * 0.25;
+                            realOpaqueFillColorWord = opaqueFillColorWord;
+                            opaqueFillColorWord = 0;
+                            mustResetColor = 1;
+                        }
+                        else {
+                            if (((displayX - 1) === antiAliasedClippedLeftPixel)
+                             || ((displayX + 1) === antiAliasedClippedRightPixel)) {
+                                realFillAlpha = fillA;
+                                fillA = fillA * 0.75;
+                                realOpaqueFillColorWord = opaqueFillColorWord;
+                                opaqueFillColorWord = 0;
+                                mustResetColor = 1;
+                            }
+                        }
+                        if (edgesUpToThisPixel) {
+                            /* Inside the shape */
+                            if ((opaqueFillColorWord !== 0)
+                             && (strokeAntiAliasAlphaBits === 0)) {
+                                /* Optimize common case: opaque fill, inside fill area, no anti aliasing, no clipping at this point. */
+                                targetBits[pixelIndex] = opaqueFillColorWord;
+                                morphIds[pixelIndex] = currentMorphId;
+                            }
+                            else {
+                                /* Inside the shape. Turn stroke anti aliasing into fill anti aliasing. */
+                                blendFillOnlyWPAtantiAliasAlphaByte(pixelIndex, 0x7F - strokeAntiAliasAlphaBits);
+                            }
+                        }
+                        else {
+                            /* Still in the anti aliasing area, but outside the shape, strictly speaking. */
+                            if (strokeAntiAliasAlphaBits) {
+                                blendFillOnlyWPAtantiAliasAlphaByte(pixelIndex, strokeAntiAliasAlphaBits);
+                            }
+                        }
+                        if (mustResetColor) {
+                            fillA = realFillAlpha;
+                            opaqueFillColorWord = realOpaqueFillColorWord;
+                            mustResetColor = 0;
+                        }
+                    }
+                    displayX += 1;
+                    pixelIndex += 1;
+                }
+            }
+            else {
+                /* All alphas and edgeCounts are zero in this segment of length delta */
+                displayX += segmentLength;
+                pixelIndex += segmentLength;
+            }
+        }
+        clippingSpecIndex += 2;
+    }
+    if (!failed()) pop(4);
+    return !failed();
+};
+
+/* VectorEnginePlugin>>#blendStrokeAndFillLeft:top:right:bottom: */
+primBlendStrokeAndFill = function(argCount) {
+    var affectedBitsIndex, alphaB, alphaG, alphaR, alphasOrEdgeCountsInThisSegment;
+    var antiAliasedClippedLeftPixel, antiAliasedClippedRightPixel;
+    var aux1, auxB, auxG, auxR, b;
+    var clippingSpecIndex, clippingSpecL, clippingSpecR;
+    var displayX, displayY;
+    var edgesThisPixelB, edgesThisPixelG, edgesThisPixelR, edgesThisPixelWord;
+    var edgesUpToThisPixelB, edgesUpToThisPixelG, edgesUpToThisPixelR;
+    var foreB, foreG, foreR;
+    var idx, isBlueInside, isGreenInside, isRedInside;
+    var l, lastSegmentIndex, mustResetColor;
+    var opaqueFillColorWord, opaqueStrokeColorWord, pixelIndex, r;
+    var realFillAlpha, realOpaqueFillColorWord, realOpaqueStrokeColorWord, realStrokeAlpha;
+    var resultAlphaB, resultAlphaBits, resultAlphaG, resultAlphaR;
+    var resultB, resultBBits, resultG, resultGBits, resultR, resultRBits;
+    var segmentLength;
+    var strokeAABlueAlpha, strokeAABlueAlphaBits;
+    var strokeAAGreenAlpha, strokeAAGreenAlphaBits;
+    var strokeAARedAlpha, strokeAARedAlphaBits;
+    var strokeAntiAliasAlphasWord, t;
+    var targetAlpha, targetAlphaBits, targetWord, toDoLimit;
+    var unAlphaB, unAlphaG, unAlphaR;
+
+    alphasOrEdgeCountsInThisSegment = 0;
+    realOpaqueFillColorWord = 0;
+    realOpaqueStrokeColorWord = 0;
+    if (!((isIntegerObject((l = stackValue(3))))
+        && ((isIntegerObject((t = stackValue(2))))
+        && ((isIntegerObject((r = stackValue(1))))
+        && (isIntegerObject((b = stackValue(0)))))))) {
+        primitiveFailFor(PrimErrBadArgument); return false;
+    }
+    l = integerValueOf(l);
+    t = integerValueOf(t);
+    r = integerValueOf(r);
+    b = integerValueOf(b);
+    clippingSpecL = 0;
+    clippingSpecR = targetWidth - 1;
+
+    /* targetWidth means effectively no AA for clipping */
+    antiAliasedClippedLeftPixel = targetWidth;
+
+    /* targetWidth means effectively no AA for clipping */
+    antiAliasedClippedRightPixel = targetWidth;
+    clippingSpecIndex = ((t * 2) + 1) - 1;
+    mustResetColor = 0;
+    opaqueStrokeColorWord = 0;
+    opaqueFillColorWord = 0;
+    if (targetAssumedOpaque) {
+        if ((strokeA * fillA) === 1.0) {
+            auxR = (Math.trunc(strokeR + 0.5) << 16) >>> 0;
+            auxG = (Math.trunc(strokeG + 0.5) << 8) >>> 0;
+            auxB = Math.trunc(strokeB + 0.5);
+            opaqueStrokeColorWord = (((0xFF000000 | auxR) | auxG) | auxB) >>> 0;
+            auxR = (Math.trunc(fillR + 0.5) << 16) >>> 0;
+            auxG = (Math.trunc(fillG + 0.5) << 8) >>> 0;
+            auxB = Math.trunc(fillB + 0.5);
+            opaqueFillColorWord = (((0xFF000000 | auxR) | auxG) | auxB) >>> 0;
+        }
+    }
+    lastSegmentIndex = -1;
+    for (displayY = t; displayY <= b; displayY += 1) {
+        if (clippingSpec) {
+            clippingSpecL = clippingSpec[clippingSpecIndex];
+            clippingSpecR = clippingSpec[clippingSpecIndex + 1];
+            antiAliasedClippedLeftPixel = (clippingSpecL >= l
+                        ? clippingSpecL
+                        : targetWidth);
+            antiAliasedClippedRightPixel = (clippingSpecR <= r
+                        ? clippingSpecR
+                        : targetWidth);
+        }
+        edgesUpToThisPixelR = 0;
+        edgesUpToThisPixelG = 0;
+        edgesUpToThisPixelB = 0;
+        isRedInside = (isGreenInside = (isBlueInside = 0));
+        pixelIndex = (displayY * targetWidth) + l;
+        displayX = l;
+        while (displayX <= r) {
+            affectedBitsIndex = pixelIndex >>> 4;
+            if (!(lastSegmentIndex === affectedBitsIndex)) {
+                alphasOrEdgeCountsInThisSegment = (affectedBits[affectedBitsIndex]) === 1;
+                lastSegmentIndex = affectedBitsIndex;
+                if (alphasOrEdgeCountsInThisSegment) {
+                    affectedBits[affectedBitsIndex] = 0;
+                }
+            }
+            segmentLength = ((affectedBitsIndex + 1) << 4) - pixelIndex;
+            if (alphasOrEdgeCountsInThisSegment || isGreenInside) {
+                aux1 = (r - displayX) + 1;
+                toDoLimit = ((segmentLength < aux1) ? segmentLength : aux1);
+                for (idx = 1; idx <= toDoLimit; idx += 1) {
+                    strokeAntiAliasAlphasWord = 0;
+                    if (alphasOrEdgeCountsInThisSegment) {
+                        edgesThisPixelWord = edgeCounts[pixelIndex];
+                        if (edgesThisPixelWord) {
+                            edgeCounts[pixelIndex] = 0;
+                            edgesThisPixelR = (edgesThisPixelWord & 0xFF0000) >>> 16;
+                            edgesThisPixelG = (edgesThisPixelWord & 0xFF00) >>> 8;
+                            edgesThisPixelB = edgesThisPixelWord & 0xFF;
+                            edgesUpToThisPixelR = (edgesUpToThisPixelR + edgesThisPixelR) & 0xFF;
+                            edgesUpToThisPixelG = (edgesUpToThisPixelG + edgesThisPixelG) & 0xFF;
+                            edgesUpToThisPixelB = (edgesUpToThisPixelB + edgesThisPixelB) & 0xFF;
+
+                            /* In C, integers already behave like booleans */
+
+                            isRedInside = edgesUpToThisPixelR;
+                            isGreenInside = edgesUpToThisPixelG;
+                            isBlueInside = edgesUpToThisPixelB;
+                        }
+                        strokeAntiAliasAlphasWord = alphaMask[pixelIndex];
+                        if (strokeAntiAliasAlphasWord) {
+                            alphaMask[pixelIndex] = 0;
+                        }
+                    }
+                    if ((displayX >= clippingSpecL)
+                     && (displayX <= clippingSpecR)) {
+                        if ((displayX === antiAliasedClippedLeftPixel)
+                         || (displayX === antiAliasedClippedRightPixel)) {
+                            realStrokeAlpha = strokeA;
+                            strokeA = strokeA * 0.25;
+                            realFillAlpha = fillA;
+                            fillA = fillA * 0.25;
+                            realOpaqueStrokeColorWord = opaqueStrokeColorWord;
+                            opaqueStrokeColorWord = 0;
+                            realOpaqueFillColorWord = opaqueFillColorWord;
+                            opaqueFillColorWord = 0;
+                            mustResetColor = 1;
+                        }
+                        else {
+                            if (((displayX - 1) === antiAliasedClippedLeftPixel)
+                             || ((displayX + 1) === antiAliasedClippedRightPixel)) {
+                                realStrokeAlpha = strokeA;
+                                strokeA = strokeA * 0.75;
+                                realFillAlpha = fillA;
+                                fillA = fillA * 0.75;
+                                realOpaqueStrokeColorWord = opaqueStrokeColorWord;
+                                opaqueStrokeColorWord = 0;
+                                realOpaqueFillColorWord = opaqueFillColorWord;
+                                opaqueFillColorWord = 0;
+                                mustResetColor = 1;
+                            }
+                        }
+                        if (strokeAntiAliasAlphasWord) {
+                            /* At least one subpixel in the stroke. */
+                            if (strokeAntiAliasAlphasWord === 0x7F7F7F) {
+                                /* Fully inside the stroke, far from anti aliasing. */
+                                if (opaqueStrokeColorWord) {
+                                    /* Stroke color is opaque. Target is too. Just overwrite with stroke color. */
+                                    targetBits[pixelIndex] = opaqueStrokeColorWord;
+                                    morphIds[pixelIndex] = currentMorphId;
+                                }
+                                else {
+                                    /* Translucent color or target. Do proper blend of stroke over target. */
+                                    blendStrokeOnlyAtantiAliasAlphasWord(pixelIndex, 0x7F7F7F);
+                                }
+                            }
+                            else {
+                                /* In an anti aliased part of the stroke. Either blend stroke over background, or pre-mix stroke and fill. */
+
+                                /* begin blendStrokeAndFillAt:redIsInside:greenIsInside:blueIsInside:antiAliasAlphasWord: */
+                                strokeAARedAlphaBits = strokeAntiAliasAlphasWord & 0x7F0000;
+                                strokeAAGreenAlphaBits = strokeAntiAliasAlphasWord & 0x7F00;
+                                strokeAABlueAlphaBits = strokeAntiAliasAlphasWord & 0x7F;
+                                strokeAARedAlpha = strokeAARedAlphaBits * (1.0 / (8.323072e6));
+                                strokeAAGreenAlpha = strokeAAGreenAlphaBits * (1.0 / (32512.0));
+                                strokeAABlueAlpha = strokeAABlueAlphaBits * (1.0 / 127.0);
+                                if (isRedInside) {
+                                    /* Do gradient between stroke and fill. Blend the result over background */
+                                    alphaR = (strokeAARedAlpha * strokeA) + ((1.0 - strokeAARedAlpha) * fillA);
+                                    foreR = (strokeAARedAlpha * strokeR) + ((1.0 - strokeAARedAlpha) * fillR);
+                                }
+                                else {
+                                    /* Blend stroke over background */
+                                    alphaR = strokeAARedAlpha * strokeA;
+                                    foreR = strokeR;
+                                }
+                                if (isGreenInside) {
+                                    /* Do gradient between stroke and fill. Blend the result over background */
+                                    alphaG = (strokeAAGreenAlpha * strokeA) + ((1.0 - strokeAAGreenAlpha) * fillA);
+                                    foreG = (strokeAAGreenAlpha * strokeG) + ((1.0 - strokeAAGreenAlpha) * fillG);
+                                }
+                                else {
+                                    /* Blend stroke over background */
+                                    alphaG = strokeAAGreenAlpha * strokeA;
+                                    foreG = strokeG;
+                                }
+                                if (isBlueInside) {
+                                    /* Do gradient between stroke and fill. Blend the result over background */
+                                    alphaB = (strokeAABlueAlpha * strokeA) + ((1.0 - strokeAABlueAlpha) * fillA);
+                                    foreB = (strokeAABlueAlpha * strokeB) + ((1.0 - strokeAABlueAlpha) * fillB);
+                                }
+                                else {
+                                    /* Blend stroke over background */
+                                    alphaB = strokeAABlueAlpha * strokeA;
+                                    foreB = strokeB;
+                                }
+                                targetWord = targetBits[pixelIndex];
+                                targetAlphaBits = (targetWord & 0xFF000000) >>> 0;
+                                targetAlpha = targetAlphaBits * (1.0 / (4.27819008e9));
+                                resultAlphaBits = targetAlphaBits;
+                                resultRBits = targetWord & 0xFF0000;
+                                resultGBits = targetWord & 0xFF00;
+                                resultBBits = targetWord & 0xFF;
+
+                                /* These if are not really needed. just ignore them if we use simd instructions. */
+                                if (!(alphaR === 0.0)) {
+                                    unAlphaR = 1.0 - alphaR;
+                                    resultAlphaR = alphaR + (unAlphaR * targetAlpha);
+                                    resultR = (alphaR * foreR) + ((unAlphaR * (resultRBits >>> 16)) * targetAlpha);
+                                    resultRBits = (Math.trunc((resultR / resultAlphaR) + 0.5) << 16) >>> 0;
+                                }
+                                if (!(alphaG === 0.0)) {
+                                    unAlphaG = 1.0 - alphaG;
+                                    resultAlphaG = alphaG + (unAlphaG * targetAlpha);
+                                    resultG = (alphaG * foreG) + ((unAlphaG * (resultGBits >>> 8)) * targetAlpha);
+                                    resultGBits = (Math.trunc((resultG / resultAlphaG) + 0.5) << 8) >>> 0;
+                                    resultAlphaBits = (Math.trunc((resultAlphaG * 255.0) + 0.5) << 24) >>> 0;
+                                }
+                                if (!(alphaB === 0.0)) {
+                                    unAlphaB = 1.0 - alphaB;
+                                    resultAlphaB = alphaB + (unAlphaB * targetAlpha);
+                                    resultB = (alphaB * foreB) + ((unAlphaB * resultBBits) * targetAlpha);
+                                    resultBBits = Math.trunc((resultB / resultAlphaB) + 0.5);
+                                }
+                                targetWord = (((resultAlphaBits | resultRBits) | resultGBits) | resultBBits) >>> 0;
+                                targetBits[pixelIndex] = targetWord;
+                                morphIds[pixelIndex] = currentMorphId;
+                            }
+                        }
+                        else {
+                            /* Not in the stroke at all. Either fully in the fill, or outside the shape (pixel is unaffected). */
+                            if (isGreenInside) {
+                                /* Fully inside the fill, far from anti aliasing. (Here isGreenInside also implies isRedInside and isBlueInside) */
+                                if (opaqueFillColorWord) {
+                                    /* Fill color is opaque. Target is too. Just overwrite with fill color. */
+                                    targetBits[pixelIndex] = opaqueFillColorWord;
+                                    morphIds[pixelIndex] = currentMorphId;
+                                }
+                                else {
+                                    /* Translucent color or target. Do proper blend of fill over target. */
+                                    blendFillOnlyAtredIsInsidegreenIsInsideblueIsInsideantiAliasAlphasWord(pixelIndex, isRedInside, isGreenInside, isBlueInside, strokeAntiAliasAlphasWord);
+                                }
+                            }
+                        }
+                        if (mustResetColor) {
+                            strokeA = realStrokeAlpha;
+                            fillA = realFillAlpha;
+                            opaqueStrokeColorWord = realOpaqueStrokeColorWord;
+                            opaqueFillColorWord = realOpaqueFillColorWord;
+                            mustResetColor = 0;
+                        }
+                    }
+                    displayX += 1;
+                    pixelIndex += 1;
+                }
+            }
+            else {
+                /* All alphas and edgeCounts are zero in this segment of length delta */
+                displayX += segmentLength;
+                pixelIndex += segmentLength;
+            }
+        }
+        clippingSpecIndex += 2;
+    }
+    if (!failed()) pop(4);
+    return !failed();
+};
+
+/* VectorEnginePlugin>>#blendStrokeAndFillWPLeft:top:right:bottom: */
+primBlendStrokeAndFillWP = function(argCount) {
+    var affectedBitsIndex, alpha, alphasOrEdgeCountsInThisSegment;
+    var antiAliasedClippedLeftPixel, antiAliasedClippedRightPixel;
+    var aux1, auxB, auxG, auxR, b;
+    var clippingSpecIndex, clippingSpecL, clippingSpecR;
+    var displayX, displayY;
+    var edgesThisPixel, edgesUpToThisPixel;
+    var foreB, foreG, foreR;
+    var idx, l, lastSegmentIndex, mustResetColor;
+    var opaqueFillColorWord, opaqueStrokeColorWord, pixelIndex, r;
+    var realFillAlpha, realOpaqueFillColorWord, realOpaqueStrokeColorWord, realStrokeAlpha;
+    var resultAlpha, resultAlphaBits;
+    var resultB, resultBBits, resultG, resultGBits, resultR, resultRBits;
+    var segmentLength, strokeAAAlpha, strokeAAUnAlpha, strokeAntiAliasAlphaBits, t;
+    var targetAlpha, targetAlphaBits, targetWord, toDoLimit, unAlpha;
+
+    alphasOrEdgeCountsInThisSegment = 0;
+    realOpaqueFillColorWord = 0;
+    realOpaqueStrokeColorWord = 0;
+    if (!((isIntegerObject((l = stackValue(3))))
+        && ((isIntegerObject((t = stackValue(2))))
+        && ((isIntegerObject((r = stackValue(1))))
+        && (isIntegerObject((b = stackValue(0)))))))) {
+        primitiveFailFor(PrimErrBadArgument); return false;
+    }
+    l = integerValueOf(l);
+    t = integerValueOf(t);
+    r = integerValueOf(r);
+    b = integerValueOf(b);
+    clippingSpecL = 0;
+    clippingSpecR = targetWidth - 1;
+
+    /* targetWidth means effectively no AA for clipping */
+    antiAliasedClippedLeftPixel = targetWidth;
+
+    /* targetWidth means effectively no AA for clipping */
+    antiAliasedClippedRightPixel = targetWidth;
+    clippingSpecIndex = ((t * 2) + 1) - 1;
+    mustResetColor = 0;
+    opaqueStrokeColorWord = 0;
+    opaqueFillColorWord = 0;
+    if (targetAssumedOpaque) {
+        if ((strokeA * fillA) === 1.0) {
+            auxR = (Math.trunc(strokeR + 0.5) << 16) >>> 0;
+            auxG = (Math.trunc(strokeG + 0.5) << 8) >>> 0;
+            auxB = Math.trunc(strokeB + 0.5);
+            opaqueStrokeColorWord = (((0xFF000000 | auxR) | auxG) | auxB) >>> 0;
+            auxR = (Math.trunc(fillR + 0.5) << 16) >>> 0;
+            auxG = (Math.trunc(fillG + 0.5) << 8) >>> 0;
+            auxB = Math.trunc(fillB + 0.5);
+            opaqueFillColorWord = (((0xFF000000 | auxR) | auxG) | auxB) >>> 0;
+        }
+    }
+    lastSegmentIndex = -1;
+    for (displayY = t; displayY <= b; displayY += 1) {
+        if (clippingSpec) {
+            clippingSpecL = clippingSpec[clippingSpecIndex];
+            clippingSpecR = clippingSpec[clippingSpecIndex + 1];
+            antiAliasedClippedLeftPixel = (clippingSpecL >= l
+                        ? clippingSpecL
+                        : targetWidth);
+            antiAliasedClippedRightPixel = (clippingSpecR <= r
+                        ? clippingSpecR
+                        : targetWidth);
+        }
+        edgesUpToThisPixel = 0;
+        pixelIndex = (displayY * targetWidth) + l;
+        displayX = l;
+        while (displayX <= r) {
+            affectedBitsIndex = pixelIndex >>> 4;
+            if (!(lastSegmentIndex === affectedBitsIndex)) {
+                alphasOrEdgeCountsInThisSegment = (affectedBits[affectedBitsIndex]) === 1;
+                lastSegmentIndex = affectedBitsIndex;
+                if (alphasOrEdgeCountsInThisSegment) {
+                    affectedBits[affectedBitsIndex] = 0;
+                }
+            }
+            segmentLength = ((affectedBitsIndex + 1) << 4) - pixelIndex;
+            if (alphasOrEdgeCountsInThisSegment || (edgesUpToThisPixel !== 0)) {
+                aux1 = (r - displayX) + 1;
+                toDoLimit = ((segmentLength < aux1) ? segmentLength : aux1);
+                for (idx = 1; idx <= toDoLimit; idx += 1) {
+                    strokeAntiAliasAlphaBits = 0;
+                    if (alphasOrEdgeCountsInThisSegment) {
+                        edgesThisPixel = edgeCountsWP[pixelIndex];
+                        if (edgesThisPixel) {
+                            edgeCountsWP[pixelIndex] = 0;
+                            edgesUpToThisPixel = (edgesUpToThisPixel + edgesThisPixel) & 0xFF;
+                        }
+                        strokeAntiAliasAlphaBits = alphaMaskWP[pixelIndex];
+                        if (strokeAntiAliasAlphaBits) {
+                            alphaMaskWP[pixelIndex] = 0;
+                        }
+                    }
+                    if ((displayX >= clippingSpecL)
+                     && (displayX <= clippingSpecR)) {
+                        if ((displayX === antiAliasedClippedLeftPixel)
+                         || (displayX === antiAliasedClippedRightPixel)) {
+                            realStrokeAlpha = strokeA;
+                            strokeA = strokeA * 0.25;
+                            realFillAlpha = fillA;
+                            fillA = fillA * 0.25;
+                            realOpaqueStrokeColorWord = opaqueStrokeColorWord;
+                            opaqueStrokeColorWord = 0;
+                            realOpaqueFillColorWord = opaqueFillColorWord;
+                            opaqueFillColorWord = 0;
+                            mustResetColor = 1;
+                        }
+                        else {
+                            if (((displayX - 1) === antiAliasedClippedLeftPixel)
+                             || ((displayX + 1) === antiAliasedClippedRightPixel)) {
+                                realStrokeAlpha = strokeA;
+                                strokeA = strokeA * 0.75;
+                                realFillAlpha = fillA;
+                                fillA = fillA * 0.75;
+                                realOpaqueStrokeColorWord = opaqueStrokeColorWord;
+                                opaqueStrokeColorWord = 0;
+                                realOpaqueFillColorWord = opaqueFillColorWord;
+                                opaqueFillColorWord = 0;
+                                mustResetColor = 1;
+                            }
+                        }
+                        if (strokeAntiAliasAlphaBits) {
+                            /* At least partially in the stroke. */
+                            if (strokeAntiAliasAlphaBits === 0x7F) {
+                                /* Fully inside the stroke, far from anti aliasing. */
+                                if (opaqueStrokeColorWord) {
+                                    /* Stroke color is opaque. Target is too. Just overwrite with stroke color. */
+                                    targetBits[pixelIndex] = opaqueStrokeColorWord;
+                                    morphIds[pixelIndex] = currentMorphId;
+                                }
+                                else {
+                                    /* Translucent color or target. Do proper blend of stroke over target. */
+                                    blendStrokeOnlyWPAtantiAliasAlphaByte(pixelIndex, 0x7F);
+                                }
+                            }
+                            else {
+                                /* In an anti aliased part of the stroke. Either blend stroke over background, or pre-mix stroke and fill. */
+                                if (edgesUpToThisPixel) {
+                                    /* Inside the shape. Blend stroke and fill, blend result over target. */
+
+                                    /* begin blendStrokeAndFillWPAt:antiAliasAlphaByte: */
+                                    strokeAAAlpha = strokeAntiAliasAlphaBits * (1.0 / 127.0);
+                                    strokeAAUnAlpha = 1.0 - strokeAAAlpha;
+                                    foreR = (strokeAAAlpha * strokeR) + (strokeAAUnAlpha * fillR);
+                                    foreG = (strokeAAAlpha * strokeG) + (strokeAAUnAlpha * fillG);
+                                    foreB = (strokeAAAlpha * strokeB) + (strokeAAUnAlpha * fillB);
+                                    alpha = (strokeAAAlpha * strokeA) + (strokeAAUnAlpha * fillA);
+                                    unAlpha = 1.0 - alpha;
+                                    targetWord = targetBits[pixelIndex];
+                                    targetAlphaBits = (targetWord & 0xFF000000) >>> 0;
+                                    targetAlpha = targetAlphaBits * (1.0 / (4.27819008e9));
+                                    resultAlpha = alpha + (unAlpha * targetAlpha);
+                                    resultRBits = targetWord & 0xFF0000;
+                                    resultGBits = targetWord & 0xFF00;
+                                    resultBBits = targetWord & 0xFF;
+                                    resultR = (alpha * foreR) + ((unAlpha * (resultRBits >>> 16)) * targetAlpha);
+                                    resultG = (alpha * foreG) + ((unAlpha * (resultGBits >>> 8)) * targetAlpha);
+                                    resultB = (alpha * foreB) + ((unAlpha * resultBBits) * targetAlpha);
+                                    resultAlphaBits = (Math.trunc((resultAlpha * 0xFF) + 0.5) << 24) >>> 0;
+                                    resultRBits = (Math.trunc((resultR / resultAlpha) + 0.5) << 16) >>> 0;
+                                    resultGBits = (Math.trunc((resultG / resultAlpha) + 0.5) << 8) >>> 0;
+                                    resultBBits = Math.trunc((resultB / resultAlpha) + 0.5);
+                                    targetWord = (((resultAlphaBits | resultRBits) | resultGBits) | resultBBits) >>> 0;
+                                    targetBits[pixelIndex] = targetWord;
+                                    morphIds[pixelIndex] = currentMorphId;
+                                }
+                                else {
+                                    /* In the outer anti aliasing area of the stroke. Blend stroke over background. */
+                                    blendStrokeOnlyWPAtantiAliasAlphaByte(pixelIndex, strokeAntiAliasAlphaBits);
+                                }
+                            }
+                        }
+                        else {
+                            /* Not in the stroke at all. Either fully in the fill, or outside the shape (pixel is unaffected). */
+                            if (edgesUpToThisPixel) {
+                                /* Fully inside the fill, far from anti aliasing. */
+                                if (opaqueFillColorWord) {
+                                    /* Fill color is opaque. Target is too. Just overwrite with fill color. */
+                                    targetBits[pixelIndex] = opaqueFillColorWord;
+                                    morphIds[pixelIndex] = currentMorphId;
+                                }
+                                else {
+                                    /* Translucent color or target. Do proper blend of fill over target. */
+                                    blendFillOnlyWPAtantiAliasAlphaByte(pixelIndex, 0x7F);
+                                }
+                            }
+                        }
+                        if (mustResetColor) {
+                            strokeA = realStrokeAlpha;
+                            fillA = realFillAlpha;
+                            opaqueStrokeColorWord = realOpaqueStrokeColorWord;
+                            opaqueFillColorWord = realOpaqueFillColorWord;
+                            mustResetColor = 0;
+                        }
+                    }
+                    displayX += 1;
+                    pixelIndex += 1;
+                }
+            }
+            else {
+                /* All alphas and edgeCounts are zero in this segment of length delta */
+                displayX += segmentLength;
+                pixelIndex += segmentLength;
+            }
+        }
+        clippingSpecIndex += 2;
+    }
+    if (!failed()) pop(4);
+    return !failed();
+};
+
+/* VectorEnginePlugin>>#blendStrokeOnlyLeft:top:right:bottom: */
+primBlendStrokeOnly = function(argCount) {
+    var affectedBitsIndex, alphasOrEdgeCountsInThisSegment;
+    var antiAliasedClippedLeftPixel, antiAliasedClippedRightPixel;
+    var aux1, auxB, auxG, auxR, b;
+    var clippingSpecIndex, clippingSpecL, clippingSpecR;
+    var displayX, displayY;
+    var idx, l, lastSegmentIndex, mustResetColor, opaqueStrokeColorWord;
+    var pixelIndex, r, realOpaqueStrokeColorWord, realStrokeAlpha;
+    var segmentLength, strokeAntiAliasAlphasWord, t, toDoLimit;
+
+    alphasOrEdgeCountsInThisSegment = 0;
+    realOpaqueStrokeColorWord = 0;
+    if (!((isIntegerObject((l = stackValue(3))))
+        && ((isIntegerObject((t = stackValue(2))))
+        && ((isIntegerObject((r = stackValue(1))))
+        && (isIntegerObject((b = stackValue(0)))))))) {
+        primitiveFailFor(PrimErrBadArgument); return false;
+    }
+    l = integerValueOf(l);
+    t = integerValueOf(t);
+    r = integerValueOf(r);
+    b = integerValueOf(b);
+    clippingSpecL = 0;
+    clippingSpecR = targetWidth - 1;
+
+    /* targetWidth means effectively no AA for clipping */
+    antiAliasedClippedLeftPixel = targetWidth;
+
+    /* targetWidth means effectively no AA for clipping */
+    antiAliasedClippedRightPixel = targetWidth;
+    clippingSpecIndex = ((t * 2) + 1) - 1;
+    mustResetColor = 0;
+    opaqueStrokeColorWord = 0;
+    if (targetAssumedOpaque) {
+        if (strokeA === 1.0) {
+            auxR = (Math.trunc(strokeR + 0.5) << 16) >>> 0;
+            auxG = (Math.trunc(strokeG + 0.5) << 8) >>> 0;
+            auxB = Math.trunc(strokeB + 0.5);
+            opaqueStrokeColorWord = (((0xFF000000 | auxR) | auxG) | auxB) >>> 0;
+        }
+    }
+    lastSegmentIndex = -1;
+    for (displayY = t; displayY <= b; displayY += 1) {
+        if (clippingSpec) {
+            clippingSpecL = clippingSpec[clippingSpecIndex];
+            clippingSpecR = clippingSpec[clippingSpecIndex + 1];
+            antiAliasedClippedLeftPixel = (clippingSpecL >= l
+                        ? clippingSpecL
+                        : targetWidth);
+            antiAliasedClippedRightPixel = (clippingSpecR <= r
+                        ? clippingSpecR
+                        : targetWidth);
+        }
+        pixelIndex = (displayY * targetWidth) + l;
+        displayX = l;
+        while (displayX <= r) {
+            affectedBitsIndex = pixelIndex >>> 4;
+            if (!(lastSegmentIndex === affectedBitsIndex)) {
+                alphasOrEdgeCountsInThisSegment = (affectedBits[affectedBitsIndex]) === 1;
+                lastSegmentIndex = affectedBitsIndex;
+                if (alphasOrEdgeCountsInThisSegment) {
+                    affectedBits[affectedBitsIndex] = 0;
+                }
+            }
+            segmentLength = ((affectedBitsIndex + 1) << 4) - pixelIndex;
+            if (alphasOrEdgeCountsInThisSegment) {
+                aux1 = (r - displayX) + 1;
+                toDoLimit = ((segmentLength < aux1) ? segmentLength : aux1);
+                for (idx = 1; idx <= toDoLimit; idx += 1) {
+                    strokeAntiAliasAlphasWord = alphaMask[pixelIndex];
+                    if (strokeAntiAliasAlphasWord) {
+                        alphaMask[pixelIndex] = 0;
+                        if ((displayX >= clippingSpecL)
+                         && (displayX <= clippingSpecR)) {
+                            if ((displayX === antiAliasedClippedLeftPixel)
+                             || (displayX === antiAliasedClippedRightPixel)) {
+                                realStrokeAlpha = strokeA;
+                                strokeA = strokeA * 0.25;
+                                realOpaqueStrokeColorWord = opaqueStrokeColorWord;
+                                opaqueStrokeColorWord = 0;
+                                mustResetColor = 1;
+                            }
+                            else {
+                                if (((displayX - 1) === antiAliasedClippedLeftPixel)
+                                 || ((displayX + 1) === antiAliasedClippedRightPixel)) {
+                                    realStrokeAlpha = strokeA;
+                                    strokeA = strokeA * 0.75;
+                                    realOpaqueStrokeColorWord = opaqueStrokeColorWord;
+                                    opaqueStrokeColorWord = 0;
+                                    mustResetColor = 1;
+                                }
+                            }
+                            if ((opaqueStrokeColorWord !== 0)
+                             && (strokeAntiAliasAlphasWord === 0x7F7F7F)) {
+                                /* Fully inside the stroke, far from anti aliasing. Color is opaque. Target is too. Just overwrite with stroke color. */
+                                targetBits[pixelIndex] = opaqueStrokeColorWord;
+                                morphIds[pixelIndex] = currentMorphId;
+                            }
+                            else {
+                                /* At least one subpixel in the anti aliasing area of the stroke, or color is translucent, or target translucency is desired. */
+                                blendStrokeOnlyAtantiAliasAlphasWord(pixelIndex, strokeAntiAliasAlphasWord);
+                            }
+                        }
+                        if (mustResetColor) {
+                            strokeA = realStrokeAlpha;
+                            opaqueStrokeColorWord = realOpaqueStrokeColorWord;
+                            mustResetColor = 0;
+                        }
+                    }
+                    displayX += 1;
+                    pixelIndex += 1;
+                }
+            }
+            else {
+                /* All alphas and edgeCounts are zero in this segment of length delta */
+                displayX += segmentLength;
+                pixelIndex += segmentLength;
+            }
+        }
+        clippingSpecIndex += 2;
+    }
+    if (!failed()) pop(4);
+    return !failed();
+};
+
+/* VectorEnginePlugin>>#blendStrokeOnlyWPLeft:top:right:bottom: */
+primBlendStrokeOnlyWP = function(argCount) {
+    var affectedBitsIndex, alphasOrEdgeCountsInThisSegment;
+    var antiAliasedClippedLeftPixel, antiAliasedClippedRightPixel;
+    var aux1, auxB, auxG, auxR, b;
+    var clippingSpecIndex, clippingSpecL, clippingSpecR;
+    var displayX, displayY;
+    var idx, l, lastSegmentIndex, mustResetColor, opaqueStrokeColorWord;
+    var pixelIndex, r, realOpaqueStrokeColorWord, realStrokeAlpha;
+    var segmentLength, strokeAntiAliasAlphaBits, t, toDoLimit;
+
+    alphasOrEdgeCountsInThisSegment = 0;
+    realOpaqueStrokeColorWord = 0;
+    if (!((isIntegerObject((l = stackValue(3))))
+        && ((isIntegerObject((t = stackValue(2))))
+        && ((isIntegerObject((r = stackValue(1))))
+        && (isIntegerObject((b = stackValue(0)))))))) {
+        primitiveFailFor(PrimErrBadArgument); return false;
+    }
+    l = integerValueOf(l);
+    t = integerValueOf(t);
+    r = integerValueOf(r);
+    b = integerValueOf(b);
+    clippingSpecL = 0;
+    clippingSpecR = targetWidth - 1;
+
+    /* targetWidth means effectively no AA for clipping */
+    antiAliasedClippedLeftPixel = targetWidth;
+
+    /* targetWidth means effectively no AA for clipping */
+    antiAliasedClippedRightPixel = targetWidth;
+    clippingSpecIndex = ((t * 2) + 1) - 1;
+    mustResetColor = 0;
+    opaqueStrokeColorWord = 0;
+    if (targetAssumedOpaque) {
+        if (strokeA === 1.0) {
+            auxR = (Math.trunc(strokeR + 0.5) << 16) >>> 0;
+            auxG = (Math.trunc(strokeG + 0.5) << 8) >>> 0;
+            auxB = Math.trunc(strokeB + 0.5);
+            opaqueStrokeColorWord = (((0xFF000000 | auxR) | auxG) | auxB) >>> 0;
+        }
+    }
+    lastSegmentIndex = -1;
+    for (displayY = t; displayY <= b; displayY += 1) {
+        if (clippingSpec) {
+            clippingSpecL = clippingSpec[clippingSpecIndex];
+            clippingSpecR = clippingSpec[clippingSpecIndex + 1];
+            antiAliasedClippedLeftPixel = (clippingSpecL >= l
+                        ? clippingSpecL
+                        : targetWidth);
+            antiAliasedClippedRightPixel = (clippingSpecR <= r
+                        ? clippingSpecR
+                        : targetWidth);
+        }
+        pixelIndex = (displayY * targetWidth) + l;
+        displayX = l;
+        while (displayX <= r) {
+            affectedBitsIndex = pixelIndex >>> 4;
+            if (!(lastSegmentIndex === affectedBitsIndex)) {
+                alphasOrEdgeCountsInThisSegment = (affectedBits[affectedBitsIndex]) === 1;
+                lastSegmentIndex = affectedBitsIndex;
+                if (alphasOrEdgeCountsInThisSegment) {
+                    affectedBits[affectedBitsIndex] = 0;
+                }
+            }
+            segmentLength = ((affectedBitsIndex + 1) << 4) - pixelIndex;
+            if (alphasOrEdgeCountsInThisSegment) {
+                aux1 = (r - displayX) + 1;
+                toDoLimit = ((segmentLength < aux1) ? segmentLength : aux1);
+                for (idx = 1; idx <= toDoLimit; idx += 1) {
+                    strokeAntiAliasAlphaBits = alphaMaskWP[pixelIndex];
+                    if (strokeAntiAliasAlphaBits) {
+                        /* In the stroke */
+                        alphaMaskWP[pixelIndex] = 0;
+                        if ((displayX >= clippingSpecL)
+                         && (displayX <= clippingSpecR)) {
+                            if ((displayX === antiAliasedClippedLeftPixel)
+                             || (displayX === antiAliasedClippedRightPixel)) {
+                                realStrokeAlpha = strokeA;
+                                strokeA = strokeA * 0.25;
+                                realOpaqueStrokeColorWord = opaqueStrokeColorWord;
+                                opaqueStrokeColorWord = 0;
+                                mustResetColor = 1;
+                            }
+                            else {
+                                if (((displayX - 1) === antiAliasedClippedLeftPixel)
+                                 || ((displayX + 1) === antiAliasedClippedRightPixel)) {
+                                    realStrokeAlpha = strokeA;
+                                    strokeA = strokeA * 0.75;
+                                    realOpaqueStrokeColorWord = opaqueStrokeColorWord;
+                                    opaqueStrokeColorWord = 0;
+                                    mustResetColor = 1;
+                                }
+                            }
+                            if ((opaqueStrokeColorWord !== 0)
+                             && (strokeAntiAliasAlphaBits === 0x7F)) {
+                                /* Optimize inner part of a wide stroke: Fully opaque stroke (and target), no anti aliasing, no clipping at this point. */
+                                targetBits[pixelIndex] = opaqueStrokeColorWord;
+                                morphIds[pixelIndex] = currentMorphId;
+                            }
+                            else {
+                                /* General case. */
+                                blendStrokeOnlyWPAtantiAliasAlphaByte(pixelIndex, strokeAntiAliasAlphaBits);
+                            }
+                            if (mustResetColor) {
+                                strokeA = realStrokeAlpha;
+                                opaqueStrokeColorWord = realOpaqueStrokeColorWord;
+                                mustResetColor = 0;
+                            }
+                        }
+                    }
+                    displayX += 1;
+                    pixelIndex += 1;
+                }
+            }
+            else {
+                /* All alphas and edgeCounts are zero in this segment of length delta */
+                displayX += segmentLength;
+                pixelIndex += segmentLength;
+            }
+        }
+        clippingSpecIndex += 2;
+    }
+    if (!failed()) pop(4);
+    return !failed();
+};
+
+
+/* ===== grupo texto (traducido de utils/VectorEnginePlugin.ref/VectorEnginePlugin.c) ===== */
+
+// grupo texto: primDisplayByteString / Utf8 / Utf32 (y WP)
+// traducido de utils/VectorEnginePlugin.ref (ver TRADUCCION.md)
+
+// shim faltante en la capa de compatibilidad: el C usa floatObjectOf para
+// responder el ancho avanzado como Float
+function floatObjectOf(value) { return interpreterProxy.floatObjectOf(value); }
+
+/* VectorEnginePlugin>>#displayByteString:from:to:atx:y:scalex:y:contourData:contourDataIndexes: */
+function primDisplayByteString(argCount) {
+    var aByteString;
+    var advanceWidth;
+    var aux1;
+    var byte;
+    var contourData;
+    var contourDataIndexes;
+    var contourStartX;
+    var contourStartY;
+    var controlX;
+    var controlY;
+    var correction;
+    var destX;
+    var destY;
+    var dx;
+    var dy;
+    var endX;
+    var endY;
+    var f1;
+    var f2;
+    var f3;
+    var i;
+    var idx;
+    var idx2;
+    var increment;
+    var index;
+    var iSqInt;
+    var length;
+    var nextGlyphX;
+    var nextGlyphY;
+    var numBeziers;
+    var numContours;
+    var oneLessT;
+    var startIndex;
+    var startX;
+    var startY;
+    var stopIndex;
+    var sx;
+    var sy;
+    var t;
+    var t0;
+    var ttX;
+    var ttY;
+    var x;
+    var x0;
+    var xMaxEnd;
+    var xMinEnd;
+    var y;
+    var y0;
+    var yMaxEnd;
+    var yMinEnd;
+    var _return_value;
+
+    if (!(isBytes(stackValue(8))
+        && isIntegerObject((startIndex = stackValue(7)))
+        && isIntegerObject((stopIndex = stackValue(6)))
+        && isFloatObject(stackValue(5))
+        && isFloatObject(stackValue(4))
+        && isFloatObject(stackValue(3))
+        && isFloatObject(stackValue(2))
+        && isWordsOrBytes(stackValue(1))
+        && isWords(stackValue(0)))) {
+        primitiveFailFor(PrimErrBadArgument); return false;
+    }
+    aByteString = bytesOf(stackValue(8));
+    startIndex = integerValueOf(startIndex);
+    stopIndex = integerValueOf(stopIndex);
+    destX = stackFloatValue(5);
+    destY = stackFloatValue(4);
+    sx = stackFloatValue(3);
+    sy = stackFloatValue(2);
+    contourData = float32Of(stackValue(1));
+    contourDataIndexes = int32Of(stackValue(0));
+
+    /* begin displayStringLoop:displayIf:wholePixel:contourIndexAccessor:from:to:atx:y:scalex:y:contourData: */
+    trajectoryLength = 0.0;
+    needsFullAlphaCircle = 1;
+    txA11 = txA11 * sx;
+    txA12 = txA12 * sy;
+    txA21 = txA21 * sx;
+    txA22 = txA22 * sy;
+    nextGlyphX = destX / sx;
+    nextGlyphY = destY / sy;
+    for (index = startIndex - 1; index < stopIndex; index += 1) {
+        /* Index points to a byte in a ByteString or UTF8String, or to a code point in an UTF32String */
+        byte = aByteString[index];
+        i = contourDataIndexes[byte];
+        if (i < 1) {
+            i = 1;
+        }
+        iSqInt = i;
+        iSqInt -= 1;
+        advanceWidth = contourData[iSqInt];
+
+        /* boundsLeft := contourData at: i+1.
+           boundsRight := contourData at: i+2.
+           boundsBottom := contourData at: i+3.
+           boundsTop := contourData at: i+4. */
+        iSqInt += 5;
+        numContours = Math.trunc(contourData[iSqInt]);
+        iSqInt += 1;
+        for (idx = 1; idx <= numContours; idx += 1) {
+            numBeziers = Math.trunc(contourData[iSqInt]);
+            ttX = contourData[iSqInt + 1] + nextGlyphX;
+            ttY = contourData[iSqInt + 2] + nextGlyphY;
+            iSqInt += 3;
+            contourStartX = (startX = ((ttX * txA11) + (ttY * txA12)) + txA13);
+            contourStartY = (startY = ((ttX * txA21) + (ttY * txA22)) + txA23);
+
+            /* begin initializeTrajectoryFragment */
+            prevYTruncated = 0x7FFFFFFF;
+            for (idx2 = 1; idx2 <= numBeziers; idx2 += 1) {
+                ttX = contourData[iSqInt];
+                ttY = contourData[iSqInt + 1];
+                endX = ((ttX * txA11) + (ttY * txA12)) + startX;
+                endY = ((ttX * txA21) + (ttY * txA22)) + startY;
+                ttX = contourData[iSqInt + 2];
+                ttY = contourData[iSqInt + 3];
+                controlX = ((ttX * txA11) + (ttY * txA12)) + startX;
+                controlY = ((ttX * txA21) + (ttY * txA22)) + startY;
+                iSqInt += 4;
+
+                /* begin computeBoundsControlX:Y:startX:Y:endX:Y: */
+                xMinEnd = Math.trunc((startX < endX) ? startX : endX);
+                xMaxEnd = Math.trunc((startX < endX) ? endX : startX);
+                yMinEnd = Math.trunc((startY < endY) ? startY : endY);
+                yMaxEnd = Math.trunc((startY < endY) ? endY : startY);
+                spanLeft = ((spanLeft < (((xMinEnd < ((xMinEnd + controlX) / 2.0)) ? xMinEnd : ((xMinEnd + controlX) / 2.0)))) ? spanLeft : (((xMinEnd < ((xMinEnd + controlX) / 2.0)) ? xMinEnd : ((xMinEnd + controlX) / 2.0))));
+                spanRight = ((spanRight < (((xMaxEnd < ((xMaxEnd + controlX) / 2.0)) ? ((xMaxEnd + controlX) / 2.0) : xMaxEnd))) ? (((xMaxEnd < ((xMaxEnd + controlX) / 2.0)) ? ((xMaxEnd + controlX) / 2.0) : xMaxEnd)) : spanRight);
+                spanTop = ((spanTop < (((yMinEnd < ((yMinEnd + controlY) / 2.0)) ? yMinEnd : ((yMinEnd + controlY) / 2.0)))) ? spanTop : (((yMinEnd < ((yMinEnd + controlY) / 2.0)) ? yMinEnd : ((yMinEnd + controlY) / 2.0))));
+                spanBottom = ((spanBottom < (((yMaxEnd < ((yMaxEnd + controlY) / 2.0)) ? ((yMaxEnd + controlY) / 2.0) : yMaxEnd))) ? (((yMaxEnd < ((yMaxEnd + controlY) / 2.0)) ? ((yMaxEnd + controlY) / 2.0) : yMaxEnd)) : spanBottom);
+
+                /* Compute Quadratic Bezier Curve,
+                   Case t = 0.0 */
+                x = startX;
+                y = startY;
+                updateAlphasForXy(x, y);
+                updateEdgeCountAtXy(x, y);
+
+                /* Will be corrected for each hop. This, being close to pointFrom, is a good initial guess for first correction. */
+                dx = Math.abs(endX - startX);
+                dy = Math.abs(endY - startY);
+                aux1 = ((dx < dy) ? dy : dx);
+                aux1 = 0.5 / aux1;
+                increment = ((aux1 < 0.5) ? aux1 : 0.5);
+                t = 0.0;
+                while (true) {
+                    t0 = t;
+                    x0 = x;
+                    y0 = y;
+
+                    /* Compute next point */
+                    t = t0 + increment;
+                    oneLessT = 1.0 - t;
+                    f1 = oneLessT * oneLessT;
+                    f2 = (2.0 * oneLessT) * t;
+                    f3 = t * t;
+                    x = ((f1 * startX) + (f2 * controlX)) + (f3 * endX);
+                    y = ((f1 * startY) + (f2 * controlY)) + (f3 * endY);
+
+                    /* Now adjust the increment to aim at the required hop length, and recompute next point. */
+                    dx = x - x0;
+                    dy = y - y0;
+                    length = Math.sqrt((dx * dx) + (dy * dy));
+
+                    /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+                    correction = hop / (((length < 0.1) ? 0.1 : length));
+                    do {
+                        increment = increment * correction;
+                        t = t0 + increment;
+                        oneLessT = 1.0 - t;
+                        f1 = oneLessT * oneLessT;
+                        f2 = (2.0 * oneLessT) * t;
+                        f3 = t * t;
+                        x = ((f1 * startX) + (f2 * controlX)) + (f3 * endX);
+                        y = ((f1 * startY) + (f2 * controlY)) + (f3 * endY);
+                        dx = x - x0;
+                        dy = y - y0;
+                        length = Math.sqrt((dx * dx) + (dy * dy));
+
+                        /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+                        correction = hop / (((length < 0.1) ? 0.1 : length));
+                    } while (correction < 0.99);
+                    if (!(t < 1.0)) break;
+                    updateAlphasForXy(x, y);
+                    updateEdgeCountAtXy(x, y);
+                }
+
+                /* Note: For TrueType font definitions, we assume that all contour fragments start exactly where the previous ends.
+                   This means that the end point is only added for the last fragment of the contour, and not for each one of them. */
+                startX = endX;
+                startY = endY;
+            }
+            updateAlphasForXy(endX, endY);
+            updateEdgeCountAtXy(endX, endY);
+
+            /* Similar effect to ensureClosePath in #finishPath:,
+               but assume the TrueType definition is essentially right, and there might only be a rounding error.
+               So, don't draw a line, but just (possibly) correct edgeCounts. The possibility of rounding error is most likely zero.
+               Anyway, this is cheap. */
+            updateEdgeCountAtXy(contourStartX, contourStartY);
+        }
+        nextGlyphX += advanceWidth;
+    }
+    txA11 = txA11 / sx;
+    txA12 = txA12 / sy;
+    txA21 = txA21 / sx;
+    txA22 = txA22 / sy;
+    _return_value = floatObjectOf(nextGlyphX * sx);
+    if (!failed()) methodReturnValue(_return_value);
+    return !failed();
+}
+
+/* VectorEnginePlugin>>#displayByteStringWP:from:to:atx:y:scalex:y:contourData:contourDataIndexes: */
+function primDisplayByteStringWP(argCount) {
+    var aByteString;
+    var advanceWidth;
+    var aux1;
+    var byte;
+    var contourData;
+    var contourDataIndexes;
+    var contourStartX;
+    var contourStartY;
+    var controlX;
+    var controlY;
+    var correction;
+    var destX;
+    var destY;
+    var dx;
+    var dy;
+    var endX;
+    var endY;
+    var f1;
+    var f2;
+    var f3;
+    var i;
+    var idx;
+    var idx2;
+    var increment;
+    var index;
+    var iSqInt;
+    var length;
+    var nextGlyphX;
+    var nextGlyphY;
+    var numBeziers;
+    var numContours;
+    var oneLessT;
+    var startIndex;
+    var startX;
+    var startY;
+    var stopIndex;
+    var sx;
+    var sy;
+    var t;
+    var t0;
+    var ttX;
+    var ttY;
+    var x;
+    var x0;
+    var xMaxEnd;
+    var xMinEnd;
+    var y;
+    var y0;
+    var yMaxEnd;
+    var yMinEnd;
+    var _return_value;
+
+    if (!(isBytes(stackValue(8))
+        && isIntegerObject((startIndex = stackValue(7)))
+        && isIntegerObject((stopIndex = stackValue(6)))
+        && isFloatObject(stackValue(5))
+        && isFloatObject(stackValue(4))
+        && isFloatObject(stackValue(3))
+        && isFloatObject(stackValue(2))
+        && isWordsOrBytes(stackValue(1))
+        && isWords(stackValue(0)))) {
+        primitiveFailFor(PrimErrBadArgument); return false;
+    }
+    aByteString = bytesOf(stackValue(8));
+    startIndex = integerValueOf(startIndex);
+    stopIndex = integerValueOf(stopIndex);
+    destX = stackFloatValue(5);
+    destY = stackFloatValue(4);
+    sx = stackFloatValue(3);
+    sy = stackFloatValue(2);
+    contourData = float32Of(stackValue(1));
+    contourDataIndexes = int32Of(stackValue(0));
+
+    /* begin displayStringLoop:displayIf:wholePixel:contourIndexAccessor:from:to:atx:y:scalex:y:contourData: */
+    trajectoryLength = 0.0;
+    needsFullAlphaCircle = 1;
+    txA11 = txA11 * sx;
+    txA12 = txA12 * sy;
+    txA21 = txA21 * sx;
+    txA22 = txA22 * sy;
+    nextGlyphX = destX / sx;
+    nextGlyphY = destY / sy;
+    for (index = startIndex - 1; index < stopIndex; index += 1) {
+        /* Index points to a byte in a ByteString or UTF8String, or to a code point in an UTF32String */
+        byte = aByteString[index];
+        i = contourDataIndexes[byte];
+        if (i < 1) {
+            i = 1;
+        }
+        iSqInt = i;
+        iSqInt -= 1;
+        advanceWidth = contourData[iSqInt];
+
+        /* boundsLeft := contourData at: i+1.
+           boundsRight := contourData at: i+2.
+           boundsBottom := contourData at: i+3.
+           boundsTop := contourData at: i+4. */
+        iSqInt += 5;
+        numContours = Math.trunc(contourData[iSqInt]);
+        iSqInt += 1;
+        for (idx = 1; idx <= numContours; idx += 1) {
+            numBeziers = Math.trunc(contourData[iSqInt]);
+            ttX = contourData[iSqInt + 1] + nextGlyphX;
+            ttY = contourData[iSqInt + 2] + nextGlyphY;
+            iSqInt += 3;
+            contourStartX = (startX = ((ttX * txA11) + (ttY * txA12)) + txA13);
+            contourStartY = (startY = ((ttX * txA21) + (ttY * txA22)) + txA23);
+
+            /* begin initializeTrajectoryFragment */
+            prevYTruncated = 0x7FFFFFFF;
+            for (idx2 = 1; idx2 <= numBeziers; idx2 += 1) {
+                ttX = contourData[iSqInt];
+                ttY = contourData[iSqInt + 1];
+                endX = ((ttX * txA11) + (ttY * txA12)) + startX;
+                endY = ((ttX * txA21) + (ttY * txA22)) + startY;
+                ttX = contourData[iSqInt + 2];
+                ttY = contourData[iSqInt + 3];
+                controlX = ((ttX * txA11) + (ttY * txA12)) + startX;
+                controlY = ((ttX * txA21) + (ttY * txA22)) + startY;
+                iSqInt += 4;
+
+                /* begin computeBoundsControlX:Y:startX:Y:endX:Y: */
+                xMinEnd = Math.trunc((startX < endX) ? startX : endX);
+                xMaxEnd = Math.trunc((startX < endX) ? endX : startX);
+                yMinEnd = Math.trunc((startY < endY) ? startY : endY);
+                yMaxEnd = Math.trunc((startY < endY) ? endY : startY);
+                spanLeft = ((spanLeft < (((xMinEnd < ((xMinEnd + controlX) / 2.0)) ? xMinEnd : ((xMinEnd + controlX) / 2.0)))) ? spanLeft : (((xMinEnd < ((xMinEnd + controlX) / 2.0)) ? xMinEnd : ((xMinEnd + controlX) / 2.0))));
+                spanRight = ((spanRight < (((xMaxEnd < ((xMaxEnd + controlX) / 2.0)) ? ((xMaxEnd + controlX) / 2.0) : xMaxEnd))) ? (((xMaxEnd < ((xMaxEnd + controlX) / 2.0)) ? ((xMaxEnd + controlX) / 2.0) : xMaxEnd)) : spanRight);
+                spanTop = ((spanTop < (((yMinEnd < ((yMinEnd + controlY) / 2.0)) ? yMinEnd : ((yMinEnd + controlY) / 2.0)))) ? spanTop : (((yMinEnd < ((yMinEnd + controlY) / 2.0)) ? yMinEnd : ((yMinEnd + controlY) / 2.0))));
+                spanBottom = ((spanBottom < (((yMaxEnd < ((yMaxEnd + controlY) / 2.0)) ? ((yMaxEnd + controlY) / 2.0) : yMaxEnd))) ? (((yMaxEnd < ((yMaxEnd + controlY) / 2.0)) ? ((yMaxEnd + controlY) / 2.0) : yMaxEnd)) : spanBottom);
+
+                /* Compute Quadratic Bezier Curve,
+                   Case t = 0.0 */
+                x = startX;
+                y = startY;
+                updateAlphasWPZeroStrokeForXy(x, y);
+                updateEdgeCountWPAtXy(x, y);
+
+                /* Will be corrected for each hop. This, being close to pointFrom, is a good initial guess for first correction. */
+                dx = Math.abs(endX - startX);
+                dy = Math.abs(endY - startY);
+                aux1 = ((dx < dy) ? dy : dx);
+                aux1 = 0.5 / aux1;
+                increment = ((aux1 < 0.5) ? aux1 : 0.5);
+                t = 0.0;
+                while (true) {
+                    t0 = t;
+                    x0 = x;
+                    y0 = y;
+
+                    /* Compute next point */
+                    t = t0 + increment;
+                    oneLessT = 1.0 - t;
+                    f1 = oneLessT * oneLessT;
+                    f2 = (2.0 * oneLessT) * t;
+                    f3 = t * t;
+                    x = ((f1 * startX) + (f2 * controlX)) + (f3 * endX);
+                    y = ((f1 * startY) + (f2 * controlY)) + (f3 * endY);
+
+                    /* Now adjust the increment to aim at the required hop length, and recompute next point. */
+                    dx = x - x0;
+                    dy = y - y0;
+                    length = Math.sqrt((dx * dx) + (dy * dy));
+
+                    /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+                    correction = hop / (((length < 0.1) ? 0.1 : length));
+                    do {
+                        increment = increment * correction;
+                        t = t0 + increment;
+                        oneLessT = 1.0 - t;
+                        f1 = oneLessT * oneLessT;
+                        f2 = (2.0 * oneLessT) * t;
+                        f3 = t * t;
+                        x = ((f1 * startX) + (f2 * controlX)) + (f3 * endX);
+                        y = ((f1 * startY) + (f2 * controlY)) + (f3 * endY);
+                        dx = x - x0;
+                        dy = y - y0;
+                        length = Math.sqrt((dx * dx) + (dy * dy));
+
+                        /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+                        correction = hop / (((length < 0.1) ? 0.1 : length));
+                    } while (correction < 0.99);
+                    if (!(t < 1.0)) break;
+                    updateAlphasWPZeroStrokeForXy(x, y);
+                    updateEdgeCountWPAtXy(x, y);
+                }
+
+                /* Note: For TrueType font definitions, we assume that all contour fragments start exactly where the previous ends.
+                   This means that the end point is only added for the last fragment of the contour, and not for each one of them. */
+                startX = endX;
+                startY = endY;
+            }
+            updateAlphasWPZeroStrokeForXy(endX, endY);
+            updateEdgeCountWPAtXy(endX, endY);
+
+            /* Similar effect to ensureClosePath in #finishPath:,
+               but assume the TrueType definition is essentially right, and there might only be a rounding error.
+               So, don't draw a line, but just (possibly) correct edgeCountsWP. The possibility of rounding error is most likely zero.
+               Anyway, this is cheap. */
+            updateEdgeCountWPAtXy(contourStartX, contourStartY);
+        }
+        nextGlyphX += advanceWidth;
+    }
+    txA11 = txA11 / sx;
+    txA12 = txA12 / sy;
+    txA21 = txA21 / sx;
+    txA22 = txA22 / sy;
+    _return_value = floatObjectOf(nextGlyphX * sx);
+    if (!failed()) methodReturnValue(_return_value);
+    return !failed();
+}
+
+/* VectorEnginePlugin>>#displayUtf32:from:to:atx:y:scalex:y:contourData:contourDataIndexes: */
+function primDisplayUtf32(argCount) {
+    var advanceWidth;
+    var aux1;
+    var aWordArray;
+    var contourData;
+    var contourDataIndexes;
+    var contourStartX;
+    var contourStartY;
+    var controlX;
+    var controlY;
+    var correction;
+    var destX;
+    var destY;
+    var dx;
+    var dy;
+    var endX;
+    var endY;
+    var f1;
+    var f2;
+    var f3;
+    var i;
+    var idx;
+    var idx2;
+    var increment;
+    var index;
+    var iSqInt;
+    var length;
+    var nextGlyphX;
+    var nextGlyphY;
+    var numBeziers;
+    var numContours;
+    var oneLessT;
+    var startIndex;
+    var startX;
+    var startY;
+    var stopIndex;
+    var sx;
+    var sy;
+    var t;
+    var t0;
+    var ttX;
+    var ttY;
+    var utf32;
+    var utf8Byte;
+    var x;
+    var x0;
+    var xMaxEnd;
+    var xMinEnd;
+    var y;
+    var y0;
+    var yMaxEnd;
+    var yMinEnd;
+    var _return_value;
+
+    if (!(isWords(stackValue(8))
+        && isIntegerObject((startIndex = stackValue(7)))
+        && isIntegerObject((stopIndex = stackValue(6)))
+        && isFloatObject(stackValue(5))
+        && isFloatObject(stackValue(4))
+        && isFloatObject(stackValue(3))
+        && isFloatObject(stackValue(2))
+        && isWordsOrBytes(stackValue(1))
+        && isWords(stackValue(0)))) {
+        primitiveFailFor(PrimErrBadArgument); return false;
+    }
+    aWordArray = wordsOf(stackValue(8));
+    startIndex = integerValueOf(startIndex);
+    stopIndex = integerValueOf(stopIndex);
+    destX = stackFloatValue(5);
+    destY = stackFloatValue(4);
+    sx = stackFloatValue(3);
+    sy = stackFloatValue(2);
+    contourData = float32Of(stackValue(1));
+    contourDataIndexes = int32Of(stackValue(0));
+
+    /* begin displayStringLoop:displayIf:wholePixel:contourIndexAccessor:from:to:atx:y:scalex:y:contourData: */
+    trajectoryLength = 0.0;
+    needsFullAlphaCircle = 1;
+    txA11 = txA11 * sx;
+    txA12 = txA12 * sy;
+    txA21 = txA21 * sx;
+    txA22 = txA22 * sy;
+    nextGlyphX = destX / sx;
+    nextGlyphY = destY / sy;
+    for (index = startIndex - 1; index < stopIndex; index += 1) {
+        /* Index points to a byte in a ByteString or UTF8String, or to a code point in an UTF32String */
+        utf32 = aWordArray[index];
+        iSqInt = (utf32 <= 0x7F
+                    ? ((utf8Byte = utf32),
+                    contourDataIndexes[utf8Byte])
+                    : (utf32 <= 0x7FF
+                            ? ((utf8Byte = (utf32 >>> 6) | 192),
+                            (i = contourDataIndexes[utf8Byte]),
+                            (utf8Byte = (utf32 & 0x3F) | 128),
+                            contourDataIndexes[utf8Byte - i])
+                            : (utf32 <= 0xFFFF
+                                    ? ((utf8Byte = (utf32 >>> 12) | 224),
+                                    (i = contourDataIndexes[utf8Byte]),
+                                    (utf8Byte = ((utf32 >>> 6) & 0x3F) | 128),
+                                    (i = contourDataIndexes[utf8Byte - i]),
+                                    (utf8Byte = (utf32 & 0x3F) | 128),
+                                    contourDataIndexes[utf8Byte - i])
+                                    : ((utf8Byte = (utf32 >>> 18) | 240),
+                                    (i = contourDataIndexes[utf8Byte]),
+                                    (utf8Byte = ((utf32 >>> 12) & 0x3F) | 128),
+                                    (i = contourDataIndexes[utf8Byte - i]),
+                                    (utf8Byte = ((utf32 >>> 6) & 0x3F) | 128),
+                                    (i = contourDataIndexes[utf8Byte - i]),
+                                    (utf8Byte = (utf32 & 0x3F) | 128),
+                                    contourDataIndexes[utf8Byte - i]))));
+        iSqInt -= 1;
+        advanceWidth = contourData[iSqInt];
+
+        /* boundsLeft := contourData at: i+1.
+           boundsRight := contourData at: i+2.
+           boundsBottom := contourData at: i+3.
+           boundsTop := contourData at: i+4. */
+        iSqInt += 5;
+        numContours = Math.trunc(contourData[iSqInt]);
+        iSqInt += 1;
+        for (idx = 1; idx <= numContours; idx += 1) {
+            numBeziers = Math.trunc(contourData[iSqInt]);
+            ttX = contourData[iSqInt + 1] + nextGlyphX;
+            ttY = contourData[iSqInt + 2] + nextGlyphY;
+            iSqInt += 3;
+            contourStartX = (startX = ((ttX * txA11) + (ttY * txA12)) + txA13);
+            contourStartY = (startY = ((ttX * txA21) + (ttY * txA22)) + txA23);
+
+            /* begin initializeTrajectoryFragment */
+            prevYTruncated = 0x7FFFFFFF;
+            for (idx2 = 1; idx2 <= numBeziers; idx2 += 1) {
+                ttX = contourData[iSqInt];
+                ttY = contourData[iSqInt + 1];
+                endX = ((ttX * txA11) + (ttY * txA12)) + startX;
+                endY = ((ttX * txA21) + (ttY * txA22)) + startY;
+                ttX = contourData[iSqInt + 2];
+                ttY = contourData[iSqInt + 3];
+                controlX = ((ttX * txA11) + (ttY * txA12)) + startX;
+                controlY = ((ttX * txA21) + (ttY * txA22)) + startY;
+                iSqInt += 4;
+
+                /* begin computeBoundsControlX:Y:startX:Y:endX:Y: */
+                xMinEnd = Math.trunc((startX < endX) ? startX : endX);
+                xMaxEnd = Math.trunc((startX < endX) ? endX : startX);
+                yMinEnd = Math.trunc((startY < endY) ? startY : endY);
+                yMaxEnd = Math.trunc((startY < endY) ? endY : startY);
+                spanLeft = ((spanLeft < (((xMinEnd < ((xMinEnd + controlX) / 2.0)) ? xMinEnd : ((xMinEnd + controlX) / 2.0)))) ? spanLeft : (((xMinEnd < ((xMinEnd + controlX) / 2.0)) ? xMinEnd : ((xMinEnd + controlX) / 2.0))));
+                spanRight = ((spanRight < (((xMaxEnd < ((xMaxEnd + controlX) / 2.0)) ? ((xMaxEnd + controlX) / 2.0) : xMaxEnd))) ? (((xMaxEnd < ((xMaxEnd + controlX) / 2.0)) ? ((xMaxEnd + controlX) / 2.0) : xMaxEnd)) : spanRight);
+                spanTop = ((spanTop < (((yMinEnd < ((yMinEnd + controlY) / 2.0)) ? yMinEnd : ((yMinEnd + controlY) / 2.0)))) ? spanTop : (((yMinEnd < ((yMinEnd + controlY) / 2.0)) ? yMinEnd : ((yMinEnd + controlY) / 2.0))));
+                spanBottom = ((spanBottom < (((yMaxEnd < ((yMaxEnd + controlY) / 2.0)) ? ((yMaxEnd + controlY) / 2.0) : yMaxEnd))) ? (((yMaxEnd < ((yMaxEnd + controlY) / 2.0)) ? ((yMaxEnd + controlY) / 2.0) : yMaxEnd)) : spanBottom);
+
+                /* Compute Quadratic Bezier Curve,
+                   Case t = 0.0 */
+                x = startX;
+                y = startY;
+                updateAlphasForXy(x, y);
+                updateEdgeCountAtXy(x, y);
+
+                /* Will be corrected for each hop. This, being close to pointFrom, is a good initial guess for first correction. */
+                dx = Math.abs(endX - startX);
+                dy = Math.abs(endY - startY);
+                aux1 = ((dx < dy) ? dy : dx);
+                aux1 = 0.5 / aux1;
+                increment = ((aux1 < 0.5) ? aux1 : 0.5);
+                t = 0.0;
+                while (true) {
+                    t0 = t;
+                    x0 = x;
+                    y0 = y;
+
+                    /* Compute next point */
+                    t = t0 + increment;
+                    oneLessT = 1.0 - t;
+                    f1 = oneLessT * oneLessT;
+                    f2 = (2.0 * oneLessT) * t;
+                    f3 = t * t;
+                    x = ((f1 * startX) + (f2 * controlX)) + (f3 * endX);
+                    y = ((f1 * startY) + (f2 * controlY)) + (f3 * endY);
+
+                    /* Now adjust the increment to aim at the required hop length, and recompute next point. */
+                    dx = x - x0;
+                    dy = y - y0;
+                    length = Math.sqrt((dx * dx) + (dy * dy));
+
+                    /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+                    correction = hop / (((length < 0.1) ? 0.1 : length));
+                    do {
+                        increment = increment * correction;
+                        t = t0 + increment;
+                        oneLessT = 1.0 - t;
+                        f1 = oneLessT * oneLessT;
+                        f2 = (2.0 * oneLessT) * t;
+                        f3 = t * t;
+                        x = ((f1 * startX) + (f2 * controlX)) + (f3 * endX);
+                        y = ((f1 * startY) + (f2 * controlY)) + (f3 * endY);
+                        dx = x - x0;
+                        dy = y - y0;
+                        length = Math.sqrt((dx * dx) + (dy * dy));
+
+                        /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+                        correction = hop / (((length < 0.1) ? 0.1 : length));
+                    } while (correction < 0.99);
+                    if (!(t < 1.0)) break;
+                    updateAlphasForXy(x, y);
+                    updateEdgeCountAtXy(x, y);
+                }
+
+                /* Note: For TrueType font definitions, we assume that all contour fragments start exactly where the previous ends.
+                   This means that the end point is only added for the last fragment of the contour, and not for each one of them. */
+                startX = endX;
+                startY = endY;
+            }
+            updateAlphasForXy(endX, endY);
+            updateEdgeCountAtXy(endX, endY);
+
+            /* Similar effect to ensureClosePath in #finishPath:,
+               but assume the TrueType definition is essentially right, and there might only be a rounding error.
+               So, don't draw a line, but just (possibly) correct edgeCounts. The possibility of rounding error is most likely zero.
+               Anyway, this is cheap. */
+            updateEdgeCountAtXy(contourStartX, contourStartY);
+        }
+        nextGlyphX += advanceWidth;
+    }
+    txA11 = txA11 / sx;
+    txA12 = txA12 / sy;
+    txA21 = txA21 / sx;
+    txA22 = txA22 / sy;
+    _return_value = floatObjectOf(nextGlyphX * sx);
+    if (!failed()) methodReturnValue(_return_value);
+    return !failed();
+}
+
+/* VectorEnginePlugin>>#displayUtf32WP:from:to:atx:y:scalex:y:contourData:contourDataIndexes: */
+function primDisplayUtf32WP(argCount) {
+    var advanceWidth;
+    var aux1;
+    var aWordArray;
+    var contourData;
+    var contourDataIndexes;
+    var contourStartX;
+    var contourStartY;
+    var controlX;
+    var controlY;
+    var correction;
+    var destX;
+    var destY;
+    var dx;
+    var dy;
+    var endX;
+    var endY;
+    var f1;
+    var f2;
+    var f3;
+    var i;
+    var idx;
+    var idx2;
+    var increment;
+    var index;
+    var iSqInt;
+    var length;
+    var nextGlyphX;
+    var nextGlyphY;
+    var numBeziers;
+    var numContours;
+    var oneLessT;
+    var startIndex;
+    var startX;
+    var startY;
+    var stopIndex;
+    var sx;
+    var sy;
+    var t;
+    var t0;
+    var ttX;
+    var ttY;
+    var utf32;
+    var utf8Byte;
+    var x;
+    var x0;
+    var xMaxEnd;
+    var xMinEnd;
+    var y;
+    var y0;
+    var yMaxEnd;
+    var yMinEnd;
+    var _return_value;
+
+    if (!(isWords(stackValue(8))
+        && isIntegerObject((startIndex = stackValue(7)))
+        && isIntegerObject((stopIndex = stackValue(6)))
+        && isFloatObject(stackValue(5))
+        && isFloatObject(stackValue(4))
+        && isFloatObject(stackValue(3))
+        && isFloatObject(stackValue(2))
+        && isWordsOrBytes(stackValue(1))
+        && isWords(stackValue(0)))) {
+        primitiveFailFor(PrimErrBadArgument); return false;
+    }
+    aWordArray = wordsOf(stackValue(8));
+    startIndex = integerValueOf(startIndex);
+    stopIndex = integerValueOf(stopIndex);
+    destX = stackFloatValue(5);
+    destY = stackFloatValue(4);
+    sx = stackFloatValue(3);
+    sy = stackFloatValue(2);
+    contourData = float32Of(stackValue(1));
+    contourDataIndexes = int32Of(stackValue(0));
+
+    /* begin displayStringLoop:displayIf:wholePixel:contourIndexAccessor:from:to:atx:y:scalex:y:contourData: */
+    trajectoryLength = 0.0;
+    needsFullAlphaCircle = 1;
+    txA11 = txA11 * sx;
+    txA12 = txA12 * sy;
+    txA21 = txA21 * sx;
+    txA22 = txA22 * sy;
+    nextGlyphX = destX / sx;
+    nextGlyphY = destY / sy;
+    for (index = startIndex - 1; index < stopIndex; index += 1) {
+        /* Index points to a byte in a ByteString or UTF8String, or to a code point in an UTF32String */
+        utf32 = aWordArray[index];
+        iSqInt = (utf32 <= 0x7F
+                    ? ((utf8Byte = utf32),
+                    contourDataIndexes[utf8Byte])
+                    : (utf32 <= 0x7FF
+                            ? ((utf8Byte = (utf32 >>> 6) | 192),
+                            (i = contourDataIndexes[utf8Byte]),
+                            (utf8Byte = (utf32 & 0x3F) | 128),
+                            contourDataIndexes[utf8Byte - i])
+                            : (utf32 <= 0xFFFF
+                                    ? ((utf8Byte = (utf32 >>> 12) | 224),
+                                    (i = contourDataIndexes[utf8Byte]),
+                                    (utf8Byte = ((utf32 >>> 6) & 0x3F) | 128),
+                                    (i = contourDataIndexes[utf8Byte - i]),
+                                    (utf8Byte = (utf32 & 0x3F) | 128),
+                                    contourDataIndexes[utf8Byte - i])
+                                    : ((utf8Byte = (utf32 >>> 18) | 240),
+                                    (i = contourDataIndexes[utf8Byte]),
+                                    (utf8Byte = ((utf32 >>> 12) & 0x3F) | 128),
+                                    (i = contourDataIndexes[utf8Byte - i]),
+                                    (utf8Byte = ((utf32 >>> 6) & 0x3F) | 128),
+                                    (i = contourDataIndexes[utf8Byte - i]),
+                                    (utf8Byte = (utf32 & 0x3F) | 128),
+                                    contourDataIndexes[utf8Byte - i]))));
+        iSqInt -= 1;
+        advanceWidth = contourData[iSqInt];
+
+        /* boundsLeft := contourData at: i+1.
+           boundsRight := contourData at: i+2.
+           boundsBottom := contourData at: i+3.
+           boundsTop := contourData at: i+4. */
+        iSqInt += 5;
+        numContours = Math.trunc(contourData[iSqInt]);
+        iSqInt += 1;
+        for (idx = 1; idx <= numContours; idx += 1) {
+            numBeziers = Math.trunc(contourData[iSqInt]);
+            ttX = contourData[iSqInt + 1] + nextGlyphX;
+            ttY = contourData[iSqInt + 2] + nextGlyphY;
+            iSqInt += 3;
+            contourStartX = (startX = ((ttX * txA11) + (ttY * txA12)) + txA13);
+            contourStartY = (startY = ((ttX * txA21) + (ttY * txA22)) + txA23);
+
+            /* begin initializeTrajectoryFragment */
+            prevYTruncated = 0x7FFFFFFF;
+            for (idx2 = 1; idx2 <= numBeziers; idx2 += 1) {
+                ttX = contourData[iSqInt];
+                ttY = contourData[iSqInt + 1];
+                endX = ((ttX * txA11) + (ttY * txA12)) + startX;
+                endY = ((ttX * txA21) + (ttY * txA22)) + startY;
+                ttX = contourData[iSqInt + 2];
+                ttY = contourData[iSqInt + 3];
+                controlX = ((ttX * txA11) + (ttY * txA12)) + startX;
+                controlY = ((ttX * txA21) + (ttY * txA22)) + startY;
+                iSqInt += 4;
+
+                /* begin computeBoundsControlX:Y:startX:Y:endX:Y: */
+                xMinEnd = Math.trunc((startX < endX) ? startX : endX);
+                xMaxEnd = Math.trunc((startX < endX) ? endX : startX);
+                yMinEnd = Math.trunc((startY < endY) ? startY : endY);
+                yMaxEnd = Math.trunc((startY < endY) ? endY : startY);
+                spanLeft = ((spanLeft < (((xMinEnd < ((xMinEnd + controlX) / 2.0)) ? xMinEnd : ((xMinEnd + controlX) / 2.0)))) ? spanLeft : (((xMinEnd < ((xMinEnd + controlX) / 2.0)) ? xMinEnd : ((xMinEnd + controlX) / 2.0))));
+                spanRight = ((spanRight < (((xMaxEnd < ((xMaxEnd + controlX) / 2.0)) ? ((xMaxEnd + controlX) / 2.0) : xMaxEnd))) ? (((xMaxEnd < ((xMaxEnd + controlX) / 2.0)) ? ((xMaxEnd + controlX) / 2.0) : xMaxEnd)) : spanRight);
+                spanTop = ((spanTop < (((yMinEnd < ((yMinEnd + controlY) / 2.0)) ? yMinEnd : ((yMinEnd + controlY) / 2.0)))) ? spanTop : (((yMinEnd < ((yMinEnd + controlY) / 2.0)) ? yMinEnd : ((yMinEnd + controlY) / 2.0))));
+                spanBottom = ((spanBottom < (((yMaxEnd < ((yMaxEnd + controlY) / 2.0)) ? ((yMaxEnd + controlY) / 2.0) : yMaxEnd))) ? (((yMaxEnd < ((yMaxEnd + controlY) / 2.0)) ? ((yMaxEnd + controlY) / 2.0) : yMaxEnd)) : spanBottom);
+
+                /* Compute Quadratic Bezier Curve,
+                   Case t = 0.0 */
+                x = startX;
+                y = startY;
+                updateAlphasWPZeroStrokeForXy(x, y);
+                updateEdgeCountWPAtXy(x, y);
+
+                /* Will be corrected for each hop. This, being close to pointFrom, is a good initial guess for first correction. */
+                dx = Math.abs(endX - startX);
+                dy = Math.abs(endY - startY);
+                aux1 = ((dx < dy) ? dy : dx);
+                aux1 = 0.5 / aux1;
+                increment = ((aux1 < 0.5) ? aux1 : 0.5);
+                t = 0.0;
+                while (true) {
+                    t0 = t;
+                    x0 = x;
+                    y0 = y;
+
+                    /* Compute next point */
+                    t = t0 + increment;
+                    oneLessT = 1.0 - t;
+                    f1 = oneLessT * oneLessT;
+                    f2 = (2.0 * oneLessT) * t;
+                    f3 = t * t;
+                    x = ((f1 * startX) + (f2 * controlX)) + (f3 * endX);
+                    y = ((f1 * startY) + (f2 * controlY)) + (f3 * endY);
+
+                    /* Now adjust the increment to aim at the required hop length, and recompute next point. */
+                    dx = x - x0;
+                    dy = y - y0;
+                    length = Math.sqrt((dx * dx) + (dy * dy));
+
+                    /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+                    correction = hop / (((length < 0.1) ? 0.1 : length));
+                    do {
+                        increment = increment * correction;
+                        t = t0 + increment;
+                        oneLessT = 1.0 - t;
+                        f1 = oneLessT * oneLessT;
+                        f2 = (2.0 * oneLessT) * t;
+                        f3 = t * t;
+                        x = ((f1 * startX) + (f2 * controlX)) + (f3 * endX);
+                        y = ((f1 * startY) + (f2 * controlY)) + (f3 * endY);
+                        dx = x - x0;
+                        dy = y - y0;
+                        length = Math.sqrt((dx * dx) + (dy * dy));
+
+                        /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+                        correction = hop / (((length < 0.1) ? 0.1 : length));
+                    } while (correction < 0.99);
+                    if (!(t < 1.0)) break;
+                    updateAlphasWPZeroStrokeForXy(x, y);
+                    updateEdgeCountWPAtXy(x, y);
+                }
+
+                /* Note: For TrueType font definitions, we assume that all contour fragments start exactly where the previous ends.
+                   This means that the end point is only added for the last fragment of the contour, and not for each one of them. */
+                startX = endX;
+                startY = endY;
+            }
+            updateAlphasWPZeroStrokeForXy(endX, endY);
+            updateEdgeCountWPAtXy(endX, endY);
+
+            /* Similar effect to ensureClosePath in #finishPath:,
+               but assume the TrueType definition is essentially right, and there might only be a rounding error.
+               So, don't draw a line, but just (possibly) correct edgeCountsWP. The possibility of rounding error is most likely zero.
+               Anyway, this is cheap. */
+            updateEdgeCountWPAtXy(contourStartX, contourStartY);
+        }
+        nextGlyphX += advanceWidth;
+    }
+    txA11 = txA11 / sx;
+    txA12 = txA12 / sy;
+    txA21 = txA21 / sx;
+    txA22 = txA22 / sy;
+    _return_value = floatObjectOf(nextGlyphX * sx);
+    if (!failed()) methodReturnValue(_return_value);
+    return !failed();
+}
+
+/* VectorEnginePlugin>>#displayUtf8:fromByte:toByte:atx:y:scalex:y:contourData:contourDataIndexes: */
+function primDisplayUtf8(argCount) {
+    var aByteArray;
+    var advanceWidth;
+    var aux1;
+    var baseIndex;
+    var byte;
+    var byteStartIndex;
+    var byteStopIndex;
+    var contourData;
+    var contourDataIndexes;
+    var contourStartX;
+    var contourStartY;
+    var controlX;
+    var controlY;
+    var correction;
+    var destX;
+    var destY;
+    var dx;
+    var dy;
+    var endX;
+    var endY;
+    var f1;
+    var f2;
+    var f3;
+    var i;
+    var idx;
+    var idx2;
+    var increment;
+    var index;
+    var iSqInt;
+    var length;
+    var nextGlyphX;
+    var nextGlyphY;
+    var numBeziers;
+    var numContours;
+    var oneLessT;
+    var startX;
+    var startY;
+    var sx;
+    var sy;
+    var t;
+    var t0;
+    var ttX;
+    var ttY;
+    var x;
+    var x0;
+    var xMaxEnd;
+    var xMinEnd;
+    var y;
+    var y0;
+    var yMaxEnd;
+    var yMinEnd;
+    var _return_value;
+
+    if (!(isBytes(stackValue(8))
+        && isIntegerObject((byteStartIndex = stackValue(7)))
+        && isIntegerObject((byteStopIndex = stackValue(6)))
+        && isFloatObject(stackValue(5))
+        && isFloatObject(stackValue(4))
+        && isFloatObject(stackValue(3))
+        && isFloatObject(stackValue(2))
+        && isWordsOrBytes(stackValue(1))
+        && isWords(stackValue(0)))) {
+        primitiveFailFor(PrimErrBadArgument); return false;
+    }
+    aByteArray = bytesOf(stackValue(8));
+    byteStartIndex = integerValueOf(byteStartIndex);
+    byteStopIndex = integerValueOf(byteStopIndex);
+    destX = stackFloatValue(5);
+    destY = stackFloatValue(4);
+    sx = stackFloatValue(3);
+    sy = stackFloatValue(2);
+    contourData = float32Of(stackValue(1));
+    contourDataIndexes = int32Of(stackValue(0));
+    baseIndex = 0;
+
+    /* begin displayStringLoop:displayIf:wholePixel:contourIndexAccessor:from:to:atx:y:scalex:y:contourData: */
+    trajectoryLength = 0.0;
+    needsFullAlphaCircle = 1;
+    txA11 = txA11 * sx;
+    txA12 = txA12 * sy;
+    txA21 = txA21 * sx;
+    txA22 = txA22 * sy;
+    nextGlyphX = destX / sx;
+    nextGlyphY = destY / sy;
+    for (index = byteStartIndex - 1; index < byteStopIndex; index += 1) {
+        /* Index points to a byte in a ByteString or UTF8String, or to a code point in an UTF32String */
+        byte = aByteArray[index];
+        i = contourDataIndexes[baseIndex + byte];
+        baseIndex = (i >= 0
+                    ? 0
+                    : 0 - i);
+        iSqInt = i;
+        if (!baseIndex) {
+            iSqInt -= 1;
+            advanceWidth = contourData[iSqInt];
+
+            /* boundsLeft := contourData at: i+1.
+               boundsRight := contourData at: i+2.
+               boundsBottom := contourData at: i+3.
+               boundsTop := contourData at: i+4. */
+            iSqInt += 5;
+            numContours = Math.trunc(contourData[iSqInt]);
+            iSqInt += 1;
+            for (idx = 1; idx <= numContours; idx += 1) {
+                numBeziers = Math.trunc(contourData[iSqInt]);
+                ttX = contourData[iSqInt + 1] + nextGlyphX;
+                ttY = contourData[iSqInt + 2] + nextGlyphY;
+                iSqInt += 3;
+                contourStartX = (startX = ((ttX * txA11) + (ttY * txA12)) + txA13);
+                contourStartY = (startY = ((ttX * txA21) + (ttY * txA22)) + txA23);
+
+                /* begin initializeTrajectoryFragment */
+                prevYTruncated = 0x7FFFFFFF;
+                for (idx2 = 1; idx2 <= numBeziers; idx2 += 1) {
+                    ttX = contourData[iSqInt];
+                    ttY = contourData[iSqInt + 1];
+                    endX = ((ttX * txA11) + (ttY * txA12)) + startX;
+                    endY = ((ttX * txA21) + (ttY * txA22)) + startY;
+                    ttX = contourData[iSqInt + 2];
+                    ttY = contourData[iSqInt + 3];
+                    controlX = ((ttX * txA11) + (ttY * txA12)) + startX;
+                    controlY = ((ttX * txA21) + (ttY * txA22)) + startY;
+                    iSqInt += 4;
+
+                    /* begin computeBoundsControlX:Y:startX:Y:endX:Y: */
+                    xMinEnd = Math.trunc((startX < endX) ? startX : endX);
+                    xMaxEnd = Math.trunc((startX < endX) ? endX : startX);
+                    yMinEnd = Math.trunc((startY < endY) ? startY : endY);
+                    yMaxEnd = Math.trunc((startY < endY) ? endY : startY);
+                    spanLeft = ((spanLeft < (((xMinEnd < ((xMinEnd + controlX) / 2.0)) ? xMinEnd : ((xMinEnd + controlX) / 2.0)))) ? spanLeft : (((xMinEnd < ((xMinEnd + controlX) / 2.0)) ? xMinEnd : ((xMinEnd + controlX) / 2.0))));
+                    spanRight = ((spanRight < (((xMaxEnd < ((xMaxEnd + controlX) / 2.0)) ? ((xMaxEnd + controlX) / 2.0) : xMaxEnd))) ? (((xMaxEnd < ((xMaxEnd + controlX) / 2.0)) ? ((xMaxEnd + controlX) / 2.0) : xMaxEnd)) : spanRight);
+                    spanTop = ((spanTop < (((yMinEnd < ((yMinEnd + controlY) / 2.0)) ? yMinEnd : ((yMinEnd + controlY) / 2.0)))) ? spanTop : (((yMinEnd < ((yMinEnd + controlY) / 2.0)) ? yMinEnd : ((yMinEnd + controlY) / 2.0))));
+                    spanBottom = ((spanBottom < (((yMaxEnd < ((yMaxEnd + controlY) / 2.0)) ? ((yMaxEnd + controlY) / 2.0) : yMaxEnd))) ? (((yMaxEnd < ((yMaxEnd + controlY) / 2.0)) ? ((yMaxEnd + controlY) / 2.0) : yMaxEnd)) : spanBottom);
+
+                    /* Compute Quadratic Bezier Curve,
+                       Case t = 0.0 */
+                    x = startX;
+                    y = startY;
+                    updateAlphasForXy(x, y);
+                    updateEdgeCountAtXy(x, y);
+
+                    /* Will be corrected for each hop. This, being close to pointFrom, is a good initial guess for first correction. */
+                    dx = Math.abs(endX - startX);
+                    dy = Math.abs(endY - startY);
+                    aux1 = ((dx < dy) ? dy : dx);
+                    aux1 = 0.5 / aux1;
+                    increment = ((aux1 < 0.5) ? aux1 : 0.5);
+                    t = 0.0;
+                    while (true) {
+                        t0 = t;
+                        x0 = x;
+                        y0 = y;
+
+                        /* Compute next point */
+                        t = t0 + increment;
+                        oneLessT = 1.0 - t;
+                        f1 = oneLessT * oneLessT;
+                        f2 = (2.0 * oneLessT) * t;
+                        f3 = t * t;
+                        x = ((f1 * startX) + (f2 * controlX)) + (f3 * endX);
+                        y = ((f1 * startY) + (f2 * controlY)) + (f3 * endY);
+
+                        /* Now adjust the increment to aim at the required hop length, and recompute next point. */
+                        dx = x - x0;
+                        dy = y - y0;
+                        length = Math.sqrt((dx * dx) + (dy * dy));
+
+                        /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+                        correction = hop / (((length < 0.1) ? 0.1 : length));
+                        do {
+                            increment = increment * correction;
+                            t = t0 + increment;
+                            oneLessT = 1.0 - t;
+                            f1 = oneLessT * oneLessT;
+                            f2 = (2.0 * oneLessT) * t;
+                            f3 = t * t;
+                            x = ((f1 * startX) + (f2 * controlX)) + (f3 * endX);
+                            y = ((f1 * startY) + (f2 * controlY)) + (f3 * endY);
+                            dx = x - x0;
+                            dy = y - y0;
+                            length = Math.sqrt((dx * dx) + (dy * dy));
+
+                            /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+                            correction = hop / (((length < 0.1) ? 0.1 : length));
+                        } while (correction < 0.99);
+                        if (!(t < 1.0)) break;
+                        updateAlphasForXy(x, y);
+                        updateEdgeCountAtXy(x, y);
+                    }
+
+                    /* Note: For TrueType font definitions, we assume that all contour fragments start exactly where the previous ends.
+                       This means that the end point is only added for the last fragment of the contour, and not for each one of them. */
+                    startX = endX;
+                    startY = endY;
+                }
+                updateAlphasForXy(endX, endY);
+                updateEdgeCountAtXy(endX, endY);
+
+                /* Similar effect to ensureClosePath in #finishPath:,
+                   but assume the TrueType definition is essentially right, and there might only be a rounding error.
+                   So, don't draw a line, but just (possibly) correct edgeCounts. The possibility of rounding error is most likely zero.
+                   Anyway, this is cheap. */
+                updateEdgeCountAtXy(contourStartX, contourStartY);
+            }
+            nextGlyphX += advanceWidth;
+        }
+    }
+    txA11 = txA11 / sx;
+    txA12 = txA12 / sy;
+    txA21 = txA21 / sx;
+    txA22 = txA22 / sy;
+    _return_value = floatObjectOf(nextGlyphX * sx);
+    if (!failed()) methodReturnValue(_return_value);
+    return !failed();
+}
+
+/* VectorEnginePlugin>>#displayUtf8WP:fromByte:toByte:atx:y:scalex:y:contourData:contourDataIndexes: */
+function primDisplayUtf8WP(argCount) {
+    var aByteArray;
+    var advanceWidth;
+    var aux1;
+    var baseIndex;
+    var byte;
+    var byteStartIndex;
+    var byteStopIndex;
+    var contourData;
+    var contourDataIndexes;
+    var contourStartX;
+    var contourStartY;
+    var controlX;
+    var controlY;
+    var correction;
+    var destX;
+    var destY;
+    var dx;
+    var dy;
+    var endX;
+    var endY;
+    var f1;
+    var f2;
+    var f3;
+    var i;
+    var idx;
+    var idx2;
+    var increment;
+    var index;
+    var iSqInt;
+    var length;
+    var nextGlyphX;
+    var nextGlyphY;
+    var numBeziers;
+    var numContours;
+    var oneLessT;
+    var startX;
+    var startY;
+    var sx;
+    var sy;
+    var t;
+    var t0;
+    var ttX;
+    var ttY;
+    var x;
+    var x0;
+    var xMaxEnd;
+    var xMinEnd;
+    var y;
+    var y0;
+    var yMaxEnd;
+    var yMinEnd;
+    var _return_value;
+
+    if (!(isBytes(stackValue(8))
+        && isIntegerObject((byteStartIndex = stackValue(7)))
+        && isIntegerObject((byteStopIndex = stackValue(6)))
+        && isFloatObject(stackValue(5))
+        && isFloatObject(stackValue(4))
+        && isFloatObject(stackValue(3))
+        && isFloatObject(stackValue(2))
+        && isWordsOrBytes(stackValue(1))
+        && isWords(stackValue(0)))) {
+        primitiveFailFor(PrimErrBadArgument); return false;
+    }
+    aByteArray = bytesOf(stackValue(8));
+    byteStartIndex = integerValueOf(byteStartIndex);
+    byteStopIndex = integerValueOf(byteStopIndex);
+    destX = stackFloatValue(5);
+    destY = stackFloatValue(4);
+    sx = stackFloatValue(3);
+    sy = stackFloatValue(2);
+    contourData = float32Of(stackValue(1));
+    contourDataIndexes = int32Of(stackValue(0));
+    baseIndex = 0;
+
+    /* begin displayStringLoop:displayIf:wholePixel:contourIndexAccessor:from:to:atx:y:scalex:y:contourData: */
+    trajectoryLength = 0.0;
+    needsFullAlphaCircle = 1;
+    txA11 = txA11 * sx;
+    txA12 = txA12 * sy;
+    txA21 = txA21 * sx;
+    txA22 = txA22 * sy;
+    nextGlyphX = destX / sx;
+    nextGlyphY = destY / sy;
+    for (index = byteStartIndex - 1; index < byteStopIndex; index += 1) {
+        /* Index points to a byte in a ByteString or UTF8String, or to a code point in an UTF32String */
+        byte = aByteArray[index];
+        i = contourDataIndexes[baseIndex + byte];
+        baseIndex = (i >= 0
+                    ? 0
+                    : 0 - i);
+        iSqInt = i;
+        if (!baseIndex) {
+            iSqInt -= 1;
+            advanceWidth = contourData[iSqInt];
+
+            /* boundsLeft := contourData at: i+1.
+               boundsRight := contourData at: i+2.
+               boundsBottom := contourData at: i+3.
+               boundsTop := contourData at: i+4. */
+            iSqInt += 5;
+            numContours = Math.trunc(contourData[iSqInt]);
+            iSqInt += 1;
+            for (idx = 1; idx <= numContours; idx += 1) {
+                numBeziers = Math.trunc(contourData[iSqInt]);
+                ttX = contourData[iSqInt + 1] + nextGlyphX;
+                ttY = contourData[iSqInt + 2] + nextGlyphY;
+                iSqInt += 3;
+                contourStartX = (startX = ((ttX * txA11) + (ttY * txA12)) + txA13);
+                contourStartY = (startY = ((ttX * txA21) + (ttY * txA22)) + txA23);
+
+                /* begin initializeTrajectoryFragment */
+                prevYTruncated = 0x7FFFFFFF;
+                for (idx2 = 1; idx2 <= numBeziers; idx2 += 1) {
+                    ttX = contourData[iSqInt];
+                    ttY = contourData[iSqInt + 1];
+                    endX = ((ttX * txA11) + (ttY * txA12)) + startX;
+                    endY = ((ttX * txA21) + (ttY * txA22)) + startY;
+                    ttX = contourData[iSqInt + 2];
+                    ttY = contourData[iSqInt + 3];
+                    controlX = ((ttX * txA11) + (ttY * txA12)) + startX;
+                    controlY = ((ttX * txA21) + (ttY * txA22)) + startY;
+                    iSqInt += 4;
+
+                    /* begin computeBoundsControlX:Y:startX:Y:endX:Y: */
+                    xMinEnd = Math.trunc((startX < endX) ? startX : endX);
+                    xMaxEnd = Math.trunc((startX < endX) ? endX : startX);
+                    yMinEnd = Math.trunc((startY < endY) ? startY : endY);
+                    yMaxEnd = Math.trunc((startY < endY) ? endY : startY);
+                    spanLeft = ((spanLeft < (((xMinEnd < ((xMinEnd + controlX) / 2.0)) ? xMinEnd : ((xMinEnd + controlX) / 2.0)))) ? spanLeft : (((xMinEnd < ((xMinEnd + controlX) / 2.0)) ? xMinEnd : ((xMinEnd + controlX) / 2.0))));
+                    spanRight = ((spanRight < (((xMaxEnd < ((xMaxEnd + controlX) / 2.0)) ? ((xMaxEnd + controlX) / 2.0) : xMaxEnd))) ? (((xMaxEnd < ((xMaxEnd + controlX) / 2.0)) ? ((xMaxEnd + controlX) / 2.0) : xMaxEnd)) : spanRight);
+                    spanTop = ((spanTop < (((yMinEnd < ((yMinEnd + controlY) / 2.0)) ? yMinEnd : ((yMinEnd + controlY) / 2.0)))) ? spanTop : (((yMinEnd < ((yMinEnd + controlY) / 2.0)) ? yMinEnd : ((yMinEnd + controlY) / 2.0))));
+                    spanBottom = ((spanBottom < (((yMaxEnd < ((yMaxEnd + controlY) / 2.0)) ? ((yMaxEnd + controlY) / 2.0) : yMaxEnd))) ? (((yMaxEnd < ((yMaxEnd + controlY) / 2.0)) ? ((yMaxEnd + controlY) / 2.0) : yMaxEnd)) : spanBottom);
+
+                    /* Compute Quadratic Bezier Curve,
+                       Case t = 0.0 */
+                    x = startX;
+                    y = startY;
+                    updateAlphasWPZeroStrokeForXy(x, y);
+                    updateEdgeCountWPAtXy(x, y);
+
+                    /* Will be corrected for each hop. This, being close to pointFrom, is a good initial guess for first correction. */
+                    dx = Math.abs(endX - startX);
+                    dy = Math.abs(endY - startY);
+                    aux1 = ((dx < dy) ? dy : dx);
+                    aux1 = 0.5 / aux1;
+                    increment = ((aux1 < 0.5) ? aux1 : 0.5);
+                    t = 0.0;
+                    while (true) {
+                        t0 = t;
+                        x0 = x;
+                        y0 = y;
+
+                        /* Compute next point */
+                        t = t0 + increment;
+                        oneLessT = 1.0 - t;
+                        f1 = oneLessT * oneLessT;
+                        f2 = (2.0 * oneLessT) * t;
+                        f3 = t * t;
+                        x = ((f1 * startX) + (f2 * controlX)) + (f3 * endX);
+                        y = ((f1 * startY) + (f2 * controlY)) + (f3 * endY);
+
+                        /* Now adjust the increment to aim at the required hop length, and recompute next point. */
+                        dx = x - x0;
+                        dy = y - y0;
+                        length = Math.sqrt((dx * dx) + (dy * dy));
+
+                        /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+                        correction = hop / (((length < 0.1) ? 0.1 : length));
+                        do {
+                            increment = increment * correction;
+                            t = t0 + increment;
+                            oneLessT = 1.0 - t;
+                            f1 = oneLessT * oneLessT;
+                            f2 = (2.0 * oneLessT) * t;
+                            f3 = t * t;
+                            x = ((f1 * startX) + (f2 * controlX)) + (f3 * endX);
+                            y = ((f1 * startY) + (f2 * controlY)) + (f3 * endY);
+                            dx = x - x0;
+                            dy = y - y0;
+                            length = Math.sqrt((dx * dx) + (dy * dy));
+
+                            /* Don't grow increment too much in one step. More importantly, don't divide by zero under any circumstances. */
+                            correction = hop / (((length < 0.1) ? 0.1 : length));
+                        } while (correction < 0.99);
+                        if (!(t < 1.0)) break;
+                        updateAlphasWPZeroStrokeForXy(x, y);
+                        updateEdgeCountWPAtXy(x, y);
+                    }
+
+                    /* Note: For TrueType font definitions, we assume that all contour fragments start exactly where the previous ends.
+                       This means that the end point is only added for the last fragment of the contour, and not for each one of them. */
+                    startX = endX;
+                    startY = endY;
+                }
+                updateAlphasWPZeroStrokeForXy(endX, endY);
+                updateEdgeCountWPAtXy(endX, endY);
+
+                /* Similar effect to ensureClosePath in #finishPath:,
+                   but assume the TrueType definition is essentially right, and there might only be a rounding error.
+                   So, don't draw a line, but just (possibly) correct edgeCountsWP. The possibility of rounding error is most likely zero.
+                   Anyway, this is cheap. */
+                updateEdgeCountWPAtXy(contourStartX, contourStartY);
+            }
+            nextGlyphX += advanceWidth;
+        }
+    }
+    txA11 = txA11 / sx;
+    txA12 = txA12 / sy;
+    txA21 = txA21 / sx;
+    txA22 = txA22 / sy;
+    _return_value = floatObjectOf(nextGlyphX * sx);
+    if (!failed()) methodReturnValue(_return_value);
+    return !failed();
+}
+
+
+/* ===== grupo path (traducido de utils/VectorEnginePlugin.ref/VectorEnginePlugin.c) ===== */
+
+/* VectorEnginePlugin>>#pathSequence:size: */
+primPathSequence = function(argCount) {
+    var aFloat32Array;
+    var commandType;
+    var control1X;
+    var control1Y;
+    var control2X;
+    var control2Y;
+    var endX;
+    var endY;
+    var i;
+    var size;
+    var startX;
+    var startY;
+
+    if (!((isWordsOrBytes(stackValue(1)))
+         && (isIntegerObject((size = stackValue(0)))))) {
+        primitiveFailFor(PrimErrBadArgument); return false;
+    }
+    aFloat32Array = float32Of(stackValue(1));
+    size = integerValueOf(size);
+    i = 0;
+    while (i < size) {
+        commandType = Math.trunc(aFloat32Array[i]);
+        i += 1;
+        switch (commandType) {
+        case 0:
+            if (!((i + 1) < size)) {
+                if (!failed()) pop(2);
+                return !failed();
+            }
+            startX = aFloat32Array[i];
+            i += 1;
+            startY = aFloat32Array[i];
+            i += 1;
+
+            /* begin initializeTrajectoryFragment */
+            prevYTruncated = 0x7FFFFFFF;
+            break;
+        case 1:
+            if (!((i + 1) < size)) {
+                if (!failed()) pop(2);
+                return !failed();
+            }
+            endX = aFloat32Array[i];
+            i += 1;
+            endY = aFloat32Array[i];
+            i += 1;
+            pvt_lineFromXytoXy(startX, startY, endX, endY);
+            startX = endX;
+            startY = endY;
+            break;
+        case 2:
+            if (!((i + 3) < size)) {
+                if (!failed()) pop(2);
+                return !failed();
+            }
+            endX = aFloat32Array[i];
+            i += 1;
+            endY = aFloat32Array[i];
+            i += 1;
+            control1X = aFloat32Array[i];
+            i += 1;
+            control1Y = aFloat32Array[i];
+            i += 1;
+            pvt_quadraticBezierFromXytoXycontrolXy(startX, startY, endX, endY, control1X, control1Y);
+            startX = endX;
+            startY = endY;
+            break;
+        case 3:
+            if (!((i + 5) < size)) {
+                if (!failed()) pop(2);
+                return !failed();
+            }
+            endX = aFloat32Array[i];
+            i += 1;
+            endY = aFloat32Array[i];
+            i += 1;
+            control1X = aFloat32Array[i];
+            i += 1;
+            control1Y = aFloat32Array[i];
+            i += 1;
+            control2X = aFloat32Array[i];
+            i += 1;
+            control2Y = aFloat32Array[i];
+            i += 1;
+            pvt_cubicBezierFromXytoXycontrol1Xycontrol2Xy(startX, startY, endX, endY, control1X, control1Y, control2X, control2Y);
+            startX = endX;
+            startY = endY;
+            break;
+        default:
+            if (!failed()) pop(2);
+            return !failed();
+        }
+    }
+    if (!failed()) pop(2);
+    return !failed();
+};
+
+/* VectorEnginePlugin>>#pathSequenceWP:size: */
+primPathSequenceWP = function(argCount) {
+    var aFloat32Array;
+    var commandType;
+    var control1X;
+    var control1Y;
+    var control2X;
+    var control2Y;
+    var endX;
+    var endY;
+    var i;
+    var size;
+    var startX;
+    var startY;
+
+    if (!((isWordsOrBytes(stackValue(1)))
+         && (isIntegerObject((size = stackValue(0)))))) {
+        primitiveFailFor(PrimErrBadArgument); return false;
+    }
+    aFloat32Array = float32Of(stackValue(1));
+    size = integerValueOf(size);
+    i = 0;
+    while (i < size) {
+        commandType = Math.trunc(aFloat32Array[i]);
+        i += 1;
+        switch (commandType) {
+        case 0:
+            if (!((i + 1) < size)) {
+                if (!failed()) pop(2);
+                return !failed();
+            }
+            startX = aFloat32Array[i];
+            i += 1;
+            startY = aFloat32Array[i];
+            i += 1;
+
+            /* begin initializeTrajectoryFragment */
+            prevYTruncated = 0x7FFFFFFF;
+            break;
+        case 1:
+            if (!((i + 1) < size)) {
+                if (!failed()) pop(2);
+                return !failed();
+            }
+            endX = aFloat32Array[i];
+            i += 1;
+            endY = aFloat32Array[i];
+            i += 1;
+            pvt_lineWPFromXytoXy(startX, startY, endX, endY);
+            startX = endX;
+            startY = endY;
+            break;
+        case 2:
+            if (!((i + 3) < size)) {
+                if (!failed()) pop(2);
+                return !failed();
+            }
+            endX = aFloat32Array[i];
+            i += 1;
+            endY = aFloat32Array[i];
+            i += 1;
+            control1X = aFloat32Array[i];
+            i += 1;
+            control1Y = aFloat32Array[i];
+            i += 1;
+            pvt_quadraticBezierWPFromXytoXycontrolXy(startX, startY, endX, endY, control1X, control1Y);
+            startX = endX;
+            startY = endY;
+            break;
+        case 3:
+            if (!((i + 5) < size)) {
+                if (!failed()) pop(2);
+                return !failed();
+            }
+            endX = aFloat32Array[i];
+            i += 1;
+            endY = aFloat32Array[i];
+            i += 1;
+            control1X = aFloat32Array[i];
+            i += 1;
+            control1Y = aFloat32Array[i];
+            i += 1;
+            control2X = aFloat32Array[i];
+            i += 1;
+            control2Y = aFloat32Array[i];
+            i += 1;
+            pvt_cubicBezierWPFromXytoXycontrol1Xycontrol2Xy(startX, startY, endX, endY, control1X, control1Y, control2X, control2Y);
+            startX = endX;
+            startY = endY;
+            break;
+        default:
+            if (!failed()) pop(2);
+            return !failed();
+        }
+    }
+    if (!failed()) pop(2);
+    return !failed();
+};
 
 /*** module plumbing ***/
 

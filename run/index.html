@@ -396,7 +396,8 @@
         // image finds its changes/sources in its own directory (see runSqueakInWorker)
         var imgName = name && name[0] === "/" ? name : "/" + (name || "image");
         worker.postMessage({ type: "init", canvas: offscreen, width: W, height: H,
-            image: image, name: imgName, settings: settings, downloadOnSave: true }, transfer);
+            image: image, name: imgName, settings: settings, downloadOnSave: true,
+            vectorPlugin: /(^|[#&])vectorPlugin\b/.test(location.hash) }, transfer);
         var stillLoading = true;
         worker.onmessage = function(e) {
             var m = e.data;
