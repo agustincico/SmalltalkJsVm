@@ -45,9 +45,11 @@ para que todo quede consistente venga de la mano que venga.
   (`base[idx]`, `idx += n`). Si el C camina un puntero local sobre un buffer
   global, declarar `var idx` local con el desplazamiento.
 - `null` de punteros → `null`. Comparaciones `ptr == null` → `=== null`.
-- Los helpers se definen ASIGNANDO a las variables ya declaradas en el archivo:
-  `pvt_lineFromXytoXy = function(xFrom, yFrom, xTo, yTo) { ... };`
-  (así reemplazan el stub `notYetTranslated` sin tocar el registro).
+- Sirven las dos formas: `function nombre(args) { ... }` (declaración) o
+  `nombre = function(args) { ... };` (asignación sobre el stub). El cosedor
+  (`coser-vep.py`) normaliza: para las declaraciones borra el stub
+  `var nombre = notYetTranslated;`; para las asignaciones lo conserva como
+  declaración de la variable.
 
 ## Marshalling de argumentos
 
