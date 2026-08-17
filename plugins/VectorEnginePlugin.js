@@ -31,7 +31,7 @@ var moduleName = "VectorEnginePlugin VectorEnginePlugin-jmv.26 (j)";
 // Set to true (Squeak.enableVectorEnginePlugin) to let the image use the plugin
 // before ALL primitives are done. Never ship a default of true while any
 // primitive below still fails: see the header.
-var COMPLETE = false;   // flip when the whole API is implemented and validated
+var COMPLETE = true;    // all 44 primitives ported and validated bit-exact (see utils/VectorEnginePlugin.ref/INFORME.md)
 
 /*** state (the C file's static variables, same names) ***/
 
