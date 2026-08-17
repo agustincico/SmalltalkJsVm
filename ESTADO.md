@@ -35,8 +35,13 @@ disparó el port:
   rasterizador pasó a <1% del perfil. El arrastre sigue 5–10 fps porque ahora manda Morphic
   interpretado (44% maquinaria de sends) — ese es otro problema.
 
-**La decisión pendiente (era la pregunta que la sesión nunca llegó a hacerte): ¿lo
-encendemos por defecto y lo subimos?** Hoy está apagado (`COMPLETE=false` adentro del
+**RESUELTO (17-ago): Agustín dio el OK y el plugin quedó ENCENDIDO por defecto y
+deployado a producción** — `COMPLETE=true` (commit `6971fad`), import agregado en
+`squeak.js`, dist regenerado, sitio regenerado y deployado; verificado con el arnés de
+rotación (`mediciones/rotar.js`) en worker y main-thread, local y en
+smalltalkjsvm.com.ar, con Cuis 7.8 y Cuis University: los morphs ROTAN, cero errores.
+Queda solo contestarle a Juan (con las capturas del halo). Lo que sigue describe cómo
+estaba antes del encendido:** Hoy está apagado (`COMPLETE=false` adentro del
 plugin), se activa solo con `#vectorPlugin` en la URL y **solo en modo worker** (el import
 está en `squeak_worker.js:48`; `squeak.js` NO lo importa — el informe dice que sí, está mal).
 Checklist del encendido, si das el OK:
