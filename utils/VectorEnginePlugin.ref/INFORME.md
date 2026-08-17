@@ -131,3 +131,36 @@ generador / integración), síntesis, y crítico de completitud. Verificaciones
 directas hechas aparte: el mcz jmv.26 abierto y confirmado (API 7, 44
 primitivas, las 14 nuevas de v6→v7 presentes); el C confirmado (mismo uuid,
 responde 7, exporta las 44).*
+
+
+---
+
+# Medición del baseline (2026-08-16, posterior al informe)
+
+La enmienda 1 del crítico, resuelta. Todo con el motor Smalltalk puro (sin plugin):
+
+| medición | resultado |
+|---|---|
+| redibujo completo, escena inicial (Node, 640×480) | 7.1 ms |
+| redibujo completo con UN Browser abierto | 169 ms |
+| redibujo completo con tres Browsers | 474 ms |
+| `fullDraw:` del Browser solo (aislado del mundo) | **174 ms** |
+| navegador real 1200×850: arrastrar un Browser | **5 fps** (dt p50 97 ms, p90 316 ms) |
+| navegador real: abrir el menú del World | p50 162 ms |
+
+Lecturas: (1) el costo es íntegramente del motor vectorial — la ventana sola
+cuesta lo mismo que el mundo entero con ella; (2) 5 fps arrastrando la ventana
+de trabajo básica del sistema es inusable, y la referencia del mismo arnés
+(la Pharo app arrastra a 30+ fps bajo esta misma VM) descarta que sea lentitud
+general de SqueakJS; (3) por lo tanto **el port se justifica por performance**
+y la Ruta D (parchar los halos) no alcanza por sí sola.
+
+Margen esperable del plugin JS (estimación, no medición): el mismo algoritmo
+sobre typed arrays suele dar 10-50× contra Smalltalk interpretado (precedente:
+BitBlt/B2D) → ~30-60 fps. Pendiente no bloqueante: el multiplicador de la VM
+nativa con/sin .so (la CuisVM de la distro no corre en esta máquina).
+
+Método reutilizable como oráculo de perf durante el port:
+en imagen, `w fullRepaintNeeded. w displayWorldOn: w mainCanvas` ×10 cronometrado
+con `Time millisecondsToRun:`; en navegador, el arnés `medir-cuis.js` (latencia
+de menú + fps de arrastre con muestreador de cambios dentro de la página).
