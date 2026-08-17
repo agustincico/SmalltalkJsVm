@@ -164,3 +164,51 @@ Método reutilizable como oráculo de perf durante el port:
 en imagen, `w fullRepaintNeeded. w displayWorldOn: w mainCanvas` ×10 cronometrado
 con `Time millisecondsToRun:`; en navegador, el arnés `medir-cuis.js` (latencia
 de menú + fps de arrastre con muestreador de cambios dentro de la página).
+
+
+---
+
+# Resultado del port (2026-08-16, mismo día)
+
+Ruta A ejecutada: 4635 líneas de JS en `plugins/VectorEnginePlugin.js`
+(commits 02c7b0d esqueleto + 0b89fef port completo). Cinco grupos traducidos en
+paralelo del C, cada uno auditado función por función contra el C y reparado.
+
+## Correctitud (contra el motor Smalltalk de la misma imagen)
+
+| escena | resultado |
+|---|---|
+| línea, rect relleno, béziers, arco (sub-pixel) | **bit-idéntico** (0 de 40.000 px) |
+| arco whole-pixel | **bit-idéntico** |
+| trazo punteado | **bit-idéntico** |
+| stroke + fill con alpha | **bit-idéntico** |
+| texto TrueType | estructuralmente idéntico (misma tinta, mismas 159 columnas, mismo rango; peor delta por columna 1 px); los bordes AA difieren igual que difieren el plugin nativo y el motor Smalltalk (el C no tiene dotless-i ni centrado de diacríticos: comentarios de jmv) |
+| halo de SystemWindow | **aparecen los 3 handles** que faltaban (escala/rotación), verificado por conteo de blobs: 16 → 19 |
+
+## Performance
+
+| medición | sin plugin | con plugin |
+|---|---|---|
+| redibujo completo, Browser abierto (640×480) | 169 ms | **101 ms** |
+| tres Browsers | 474 ms | **229 ms** |
+| navegador real: dt por cuadro de arrastre (p50) | 135 ms | 100 ms |
+| navegador real: menú del World (p50) | 191 ms | 162-177 ms |
+
+El perfil con plugin muestra el rasterizador **por debajo del 1%**: el costo
+restante es Morphic interpretado (44% maquinaria de sends, 15% alocación) —
+el techo conocido del proyecto de perf, no de este plugin. La ganancia grande
+está en redibujos completos (abrir/cerrar/refrescar: 1.7-2.1×); el arrastre
+mejora ~26% por cuadro porque su redibujo por damage rasteriza poco.
+
+## Estado de encendido
+
+Apagado por defecto (`COMPLETE = false`): sin la llave, `pluginApiVersion`
+falla y la imagen usa su motor Smalltalk como siempre. Para probar:
+`#vectorPlugin` en la URL del launcher, o `VECTORPLUGIN=1` en el runner Node.
+Cuando se decida encender: poner `COMPLETE = true` en el plugin, regenerar
+dist y sitio, humo de los 5 ejemplos, deploy.
+
+Pendientes menores conocidos: picking por morphIds ejercitado sólo
+implícitamente; ciclo snapshot/reload del módulo sin prueba dedicada; y las dos
+diferencias de texto que el plugin nativo también tiene (dotless-i, diacríticos)
+se heredan tal cual — si jmv las agrega al C en jmv.27, se re-portan.
