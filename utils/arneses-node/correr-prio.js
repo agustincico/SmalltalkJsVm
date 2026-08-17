@@ -1,0 +1,254 @@
+// Corre una imagen Cuis bajo squeakjs/Node pasándole argumentos de línea de comandos
+// (squeak_node.js no los pasa; Cuis los lee con getSystemAttribute: 2..n).
+//
+//   node correr-cuis.js <imagen> [args para la imagen...]      p.ej.  -s probar.st
+//
+// Copia de squeak_node.js con display.argv y un tope de tiempo.
+"use strict";
+const os = require("os"), fs = require("fs"), path = require("path");
+const REPO = "/Users/agustin/SqueakJS";
+const fullName = require("path").resolve(process.argv[2]); // absoluto: la imagen deriva su directorio de este nombre
+const imgArgs = process.argv.slice(3);
+const TOPE_MS = +(process.env.TOPE_MS || 300000);
+const root = path.dirname(fullName) + path.sep;
+const imageName = path.basename(fullName, ".image");
+
+Object.assign(global, {
+    self: new Proxy({}, {
+        get: (o, p) => global[p],
+        set: (o, p, v) => { global[p] = v; return true; },
+    }),
+});
+Object.assign(self, {
+    localStorage: {},
+    WebSocket: typeof WebSocket === "undefined" ? require(REPO + "/lib_node/WebSocket") : WebSocket,
+    sha1: require(REPO + "/lib/sha1"),
+    btoa: s => Buffer.from(s, "ascii").toString("base64"),
+    atob: s => Buffer.from(s, "base64").toString("ascii"),
+});
+
+require(REPO + "/globals.js");
+require(REPO + "/vm.js");
+require(REPO + "/vm.object.js");
+require(REPO + "/vm.object.spur.js");
+require(REPO + "/vm.image.js");
+require(REPO + "/vm.interpreter.js");
+require(REPO + "/vm.interpreter.proxy.js");
+require(REPO + "/vm.instruction.stream.js");
+require(REPO + "/vm.instruction.stream.sista.js");
+require(REPO + "/vm.instruction.printer.js");
+require(REPO + "/vm.primitives.js");
+if (!process.env.NOJIT) require(REPO + "/jit.js");
+require(REPO + "/vm.display.js");
+require(REPO + "/vm.display.headless.js");
+require(REPO + "/vm.input.js");
+require(REPO + "/vm.input.headless.js");
+require(REPO + "/vm.plugins.js");
+require(REPO + "/vm.plugins.file.node");
+require(REPO + "/plugins/BitBltPlugin.js");
+require(REPO + "/plugins/LargeIntegers.js");
+require(REPO + "/plugins/MiscPrimitivePlugin.js");
+require(REPO + "/plugins/FloatArrayPlugin.js");
+
+Object.extend(Squeak, {
+    vmPath: process.cwd() + path.sep,
+    platformSubtype: "Node.js",
+    osVersion: process.version + " " + os.platform() + " " + os.release() + " " + os.arch(),
+    windowSystem: "none",
+});
+Object.extend(Squeak.Primitives.prototype, {
+    loadModuleDynamically: function(modName) {
+        try { require(REPO + "/plugins/" + modName); return Squeak.externalModules[modName]; }
+        catch (e) { console.error("Plugin " + modName + " could not be loaded"); }
+        return undefined;
+    },
+});
+
+// SONDA: muestrear la pila Smalltalk cada 700 ms
+if (process.env.ESTACA) {
+    setInterval(function() {
+        try { if (self.__vm) console.error("~~~pila~~~\n" + self.__vm.printStack(null, 8)); }
+        catch (e) {}
+    }, 700);
+}
+// SONDA: quién manda el selector CAZA (por método llamador)
+if (process.env.CAZA) {
+    var caza = process.env.CAZA, porLlamador = new Map();
+    var origSend2 = Squeak.Interpreter.prototype.send;
+    Squeak.Interpreter.prototype.send = function(selector, argCount, doSuper) {
+        if (selector && selector.bytes && selector.bytesAsString() === caza)
+            porLlamador.set(this.method, (porLlamador.get(this.method) || 0) + 1);
+        return origSend2.call(this, selector, argCount, doSuper);
+    };
+    process.on("exit", function() {
+        console.error("== llamadores de " + caza + " ==");
+        var vm = self.__vm;
+        Array.from(porLlamador.entries()).sort(function(a,b){ return b[1]-a[1]; }).slice(0, 15)
+            .forEach(function(par) {
+                var nombre = "?";
+                try { nombre = vm.printMethod(par[0]); } catch (e) {}
+                console.error("  " + par[1] + "\t" + nombre);
+            });
+    });
+}
+// SONDA: censo de sends por fase (la imagen corta fase abriendo 'census-marker')
+if (process.env.CENSO) {
+    var conteo = new Map(), fases = 0;
+    var origSend = Squeak.Interpreter.prototype.send;
+    Squeak.Interpreter.prototype.send = function(selector, argCount, doSuper) {
+        conteo.set(selector, (conteo.get(selector) || 0) + 1);
+        return origSend.call(this, selector, argCount, doSuper);
+    };
+    var volcar = function() {
+        fases++;
+        var total = 0; conteo.forEach(function(v) { total += v; });
+        console.error("== censo fase " + fases + ": " + total + " sends ==");
+        Array.from(conteo.entries()).sort(function(a,b){ return b[1]-a[1]; }).slice(0, 30)
+            .forEach(function(par) { console.error("  " + par[1] + "	" +
+                (par[0] && par[0].bytesAsString ? par[0].bytesAsString() : String(par[0]))); });
+        conteo = new Map();
+    };
+    var origFO = Squeak.Primitives.prototype.primitiveFileOpen;
+    Squeak.Primitives.prototype.primitiveFileOpen = function(argCount) {
+        var nombre = this.vm.stackValue(1);
+        if (nombre && nombre.bytesAsString && /census-marker/.test(nombre.bytesAsString())) volcar();
+        return origFO.apply(this, arguments);
+    };
+}
+// SONDA: espiar las primitivas de directorio para ver qué pregunta la imagen
+if (process.env.ESPIAR) {
+    ["primitiveDirectoryCreate", "primitiveDirectoryEntry", "primitiveDirectoryLookup"].forEach(function(nombre) {
+        var orig = Squeak.Primitives.prototype[nombre];
+        Squeak.Primitives.prototype[nombre] = function(argCount) {
+            var args = [];
+            for (var i = argCount - 1; i >= 0; i--) {
+                var o = this.vm.stackValue(i);
+                args.push(o && o.bytesAsString ? o.bytesAsString() : String(o));
+            }
+            var ok = orig.call(this, argCount);
+            var res = ok && this.vm.top();
+            console.error("[espía] " + nombre + "(" + args.join(", ") + ") -> " +
+                (ok ? (res && res.pointers ? "entrada" : String(res)) : "FALLA"));
+            return ok;
+        };
+    });
+}
+// SONDA: mirar sends de primitiveEnterCriticalSection / DNU, y el backup de pc
+// CENSO: cada vez que un proceso queda dormido, ¿el pc guardado cae justo después de un send?
+if (process.env.CENSO) {
+    var censo = { enCola: 0, enColaConSend: 0, bloqueado: 0, bloqueadoConSend: 0, err: null };
+    var origT = Squeak.Primitives.prototype.transferTo;
+    Squeak.Primitives.prototype.transferTo = function(newProc) {
+        var sched = this.getScheduler();
+        var oldProc = sched.pointers[Squeak.ProcSched_activeProcess];
+        var r = origT.apply(this, arguments);
+        try {
+            var lista = oldProc.pointers[Squeak.Proc_myList];
+            if (lista && lista.pointers) {
+                var listas = sched.pointers[Squeak.ProcSched_processLists], enCola = false;
+                for (var i = 0; i < listas.pointers.length; i++) if (listas.pointers[i] === lista) enCola = true;
+                var ctx = oldProc.pointers[Squeak.Proc_suspendedContext],
+                    m = ctx && ctx.pointers && ctx.pointers[Squeak.Context_method],
+                    pcObj = ctx && ctx.pointers && ctx.pointers[Squeak.Context_instructionPointer];
+                if (m && m.bytes && typeof pcObj === "number") {
+                    var sp2 = this.startOfPrecedingSend(m, this.vm.decodeSqueakPC(pcObj, m));
+                    if (enCola) { censo.enCola++; if (sp2 >= 0) censo.enColaConSend++; }
+                    else { censo.bloqueado++; if (sp2 >= 0) censo.bloqueadoConSend++; }
+                }
+            }
+        } catch (e) { censo.err = String(e); }
+        // ¿hay algún proceso encolado cuya prioridad no coincida con el índice de su cola?
+        try {
+            if ((censo.enCola + censo.bloqueado) % 50 === 0) {
+                var ls = sched.pointers[Squeak.ProcSched_processLists].pointers;
+                censo.escaneos = (censo.escaneos || 0) + 1;
+                for (var k = 0; k < ls.length; k++) {
+                    var p = ls[k].pointers[Squeak.LinkedList_firstLink], n = 0;
+                    while (p && p.pointers && !p.isNil && n++ < 1000) {
+                        censo.encolados = (censo.encolados || 0) + 1;
+                        if (p.pointers[Squeak.Proc_priority] !== k + 1) {
+                            censo.desajustes = (censo.desajustes || 0) + 1;
+                            censo.ejemplo = "prioridad " + p.pointers[Squeak.Proc_priority] + " en cola " + (k + 1);
+                        }
+                        p = p.pointers[Squeak.Link_nextLink];
+                    }
+                }
+            }
+        } catch (e) { censo.err2 = String(e); }
+        return r;
+    };
+    setInterval(function() { console.error("[censo] " + JSON.stringify(censo)); }, 5000);
+}
+if (process.env.SONDA_PRIO) {
+    var origB = Squeak.Primitives.prototype.primitiveSuspendAndBackupPC;
+    Squeak.Primitives.prototype.primitiveSuspendAndBackupPC = function() {
+        var proc = this.vm.top();
+        var esActivo = proc === this.activeProcess();
+        var prio = proc && proc.pointers && proc.pointers[Squeak.Proc_priority];
+        var lista = proc && proc.pointers && proc.pointers[Squeak.Proc_myList];
+        var listas = this.getScheduler().pointers[Squeak.ProcSched_processLists];
+        var idx = -1;
+        for (var i = 0; i < listas.pointers.length; i++) if (listas.pointers[i] === lista) idx = i + 1;
+        var ctx = proc && proc.pointers && proc.pointers[Squeak.Proc_suspendedContext];
+        var pcAntes = ctx && ctx.pointers && ctx.pointers[Squeak.Context_instructionPointer];
+        var res = origB.apply(this, arguments);
+        var pcDesp = ctx && ctx.pointers && ctx.pointers[Squeak.Context_instructionPointer];
+        console.error("[prio] 578 activo=" + esActivo + " prioridad=" + prio + " colaIdx=" + idx +
+            " -> " + res + " pc " + pcAntes + " => " + pcDesp);
+        return res;
+    };
+}
+if (process.env.SONDA_MUTEX) {
+    var origSend3 = Squeak.Interpreter.prototype.send;
+    Squeak.Interpreter.prototype.send = function(selector, argCount, doSuper) {
+        var sel = selector && selector.bytes && selector.bytesAsString();
+        if (sel === "primitiveEnterCriticalSection" || sel === "primitiveExitCriticalSection" ||
+            sel === "doesNotUnderstand:") {
+            var rcvr = this.stackValue(argCount);
+            var cls = "?";
+            try { cls = (rcvr && rcvr.sqInstName) ? rcvr.sqInstName() : String(rcvr); } catch (e) {}
+            console.error("[sonda] send " + sel + " a " + cls);
+        }
+        return origSend3.call(this, selector, argCount, doSuper);
+    };
+    var origBackup = Squeak.Primitives.prototype.primitiveSuspendAndBackupPC;
+    Squeak.Primitives.prototype.primitiveSuspendAndBackupPC = function() {
+        var proc = this.vm.top();
+        var ctx = proc && proc.pointers && proc.pointers[Squeak.Proc_suspendedContext];
+        var pcAntes = ctx && ctx.pointers && ctx.pointers[Squeak.Context_instructionPointer];
+        var res = origBackup.apply(this, arguments);
+        var pcDespues = ctx && ctx.pointers && ctx.pointers[Squeak.Context_instructionPointer];
+        var tope = "?";
+        try {
+            if (ctx && ctx.pointers) {
+                var sp = ctx.pointers[Squeak.Context_stackPointer];
+                var base = Squeak.Context_tempFrameStart;
+                var t = ctx.pointers[base + sp - 1]; tope = (t && t.sqInstName) ? t.sqInstName() : String(t);
+            }
+        } catch (e) { tope = "err " + e; }
+        console.error("[sonda] 578 -> " + res + " pc " + pcAntes + " => " + pcDespues + "  tope de pila: " + tope);
+        return res;
+    };
+}
+fs.readFile(root + imageName + ".image", function(error, data) {
+    if (error) { console.error("Failed to read image", error); process.exit(1); }
+    var image = new Squeak.Image(root + imageName);
+    image.readFromBuffer(data.buffer, function startRunning() {
+        // argv: [vm, imagen, argumentos...] -- la imagen los ve por getSystemAttribute:
+        var display = { vmOptions: ["-vm-display-null", "-nodisplay"],
+                        argv: [Squeak.vmPath, root + imageName + ".image"].concat(imgArgs) };
+        var vm = new Squeak.Interpreter(image, display); self.__vm = vm;
+        if (process.env.NOJIT) vm.compiler = null;
+        var t0 = Date.now();
+        function run() {
+            if (Date.now() - t0 > TOPE_MS) { console.error("[tope de " + TOPE_MS + " ms]"); process.exit(2); }
+            try {
+                vm.interpret(200, function runAgain(ms) {
+                    if (!display.quitFlag) setTimeout(run, ms === "sleep" ? 10 : ms);
+                    else process.exit(0);
+                });
+            } catch (e) { console.error("Failure during Squeak run: ", e); process.exit(3); }
+        }
+        run();
+    });
+});
