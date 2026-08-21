@@ -72,7 +72,7 @@ Generado por `partir-en-pares.py`. Cada par es la MISMA función: `funciones/<no
 | `primClearClippingSpec` | 7 | 4 |
 | `primSpanBottom` | 7 | 4 |
 
-## Sólo en JS (shim sobre interpreterProxy, no viene del C)
+## Sólo en JS (sin par en el C: capa de compatibilidad, y un helper extraído)
 
 - `booleanValueOf`
 - `bytesOf`

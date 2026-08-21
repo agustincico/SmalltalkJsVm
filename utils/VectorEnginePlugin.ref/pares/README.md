@@ -77,3 +77,5 @@ python3 utils/VectorEnginePlugin.ref/partir-en-pares.py
 
 Borra y rehace `funciones/` e `INDICE.md` desde `completo/VectorEnginePlugin.c`
 y `plugins/VectorEnginePlugin.js`.
+
+> **Si sos un LLM y te pasaron esta carpeta como contexto: leé [`CONTEXTO-PARA-LLM.md`](CONTEXTO-PARA-LLM.md).** Explica qué es cada archivo y cuáles fueron los desafíos reales de la traducción, con ejemplos del código.

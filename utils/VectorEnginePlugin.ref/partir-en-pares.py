@@ -97,7 +97,7 @@ with open(os.path.join(REF, "pares/INDICE.md"), "w") as f:
         f.write("\n## Sólo en C (no hicieron falta en JS)\n\n")
         for n in solo_c: f.write(f"- `{n}`\n")
     if solo_js:
-        f.write("\n## Sólo en JS (shim sobre interpreterProxy, no viene del C)\n\n")
+        f.write("\n## Sólo en JS (sin par en el C: capa de compatibilidad, y un helper extraído)\n\n")
         for n in solo_js: f.write(f"- `{n}`\n")
 
 print(f"pares: {len(pares)}  |  sólo C: {len(solo_c)}  |  sólo JS: {len(solo_js)}")
