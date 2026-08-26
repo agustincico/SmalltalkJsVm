@@ -131,6 +131,29 @@ headRoom 512 MB, JIT-fallback automático. Es el default en `run/` y en el sitio
   fast-mode para siempre. Izadas 10 constantes en el intérprete: 9,6%. (El fromEntries global
   daría ~4% más pero con riesgo de aliasing — medido y NO aplicado.)
 
+### Performance: REABIERTA con datos nuevos (26-ago-2026) — la línea tinyBenchmarks
+- El análisis de tinyBenchmarks (perfil por escalón del send: 39% cuerpo jiteado, 20%
+  activación, 16% lookup, 8% aritmética fuera de línea, 8% retorno, 6% trampolín; method
+  cache 100.00% de aciertos; contextos 99.997% reciclados) localizó grasa NO cubierta por
+  el cierre anterior. Aterrizado en main (commit e313639, A/B intercalado vs worktree,
+  invariantes verificados): + y - inline en el jit (solo el overflow paga la llamada a
+  signed32BitIntegerFor) + segundo lote de constantes izadas (getClass, canBeSmallInt,
+  isMethodContext, recycleIfPossible). **sends 3.27→4.24 M/s (+29%), bytecodes 209→232
+  M/s (+11%)** con carga 6-7; en máquina tranquila la base era 358 Mbc/s / 5.3 Msends/s.
+- **Próxima de la lista, medida y NO implementada: sp en una local del código generado.**
+  El verificador adversarial la midió transformando solo la función caliente: criba
+  **+24.9% de mediana (12/12 pares a favor, rango 1.11-1.52)**, benchFib 0%, placebo
+  descartado. PERO: dos intentos de hacerlo en las plantillas del jit terminaron en
+  corrupción silenciosa (cascada de DNU sin excepción en el punto del bug) y V8 OOM; su
+  verificador automático rechazó 768 de 2839 métodos. Es un proyecto con gating por
+  método y verificador, no un parche de una tarde. Los datos: tasks/w9tsflgv3.output.
+- El propio benchmark tiene ruido incorporado: el method cache instala la entrada en una
+  ranura al azar (methodCacheRandomish, vm.interpreter.js:~1356) — el MISMO benchmark paga
+  1-4 sondeos según la corrida y findSelectorInClass oscila 4.6-9.4% del perfil.
+- La medición headless ahora es confiable: ver el commit 4ca1305 (nombre de imagen con
+  .image, bomba de eventos, medir-tiny.js con invariantes). La receta completa está
+  comentada en utils/arneses-node/medir-tiny.js.
+
 ### Performance: qué se cerró con números (NO reabrir sin datos nuevos)
 - **Stack zone estilo Cog**: rechazada DOS veces. +21% en bench Node pero ~0% percibido
   (Morphic satura de closures, ~1,05M marriages; solo 1% necesita el contexto real). Techo
