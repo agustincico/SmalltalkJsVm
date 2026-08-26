@@ -171,17 +171,19 @@ if (process.env.CENSO578) {
     });
 }
 // SONDA: muestrear la pila Smalltalk cada 700 ms
-// BOMBA DE EVENTOS (default: encendida; apagar con SINPULSO=1). El backend
+// BOMBA DE EVENTOS (opt-in: PULSO=1). El backend
 // headless (vm.input.headless.js) se traga el registro del semaforo de input y
 // primitiveGetNextEvent falla siempre, asi que el mundo Morphic se duerme
 // esperando eventos que no llegan y NUNCA bombea deferredUIMessages — que es
 // donde Cuis procesa las opciones finales de linea de comandos (-s / -d).
 // Historicamente esto "funcionaba" de casualidad: el chequeo del .changes
 // fallaba (nombre truncado), el DNU mataba el proceso de UI y el respawn
-// bombeaba la cola. Arreglado el nombre, hace falta una bomba legitima:
+// bombeaba la cola. Con el nombre arreglado el arranque drena la cola solo y
+// el -s corre sin ayuda; la bomba queda como opt-in para scripts que necesiten
+// UI viva despues del arranque (menus, delays de Morphic, etc):
 // registramos el semaforo de verdad y lo pulsamos cada 50 ms. Un despertar
 // espurio es legal para un semaforo; dormir para siempre no.
-if (!process.env.SINPULSO) {
+if (process.env.PULSO) {
     var pulsoPendiente = false, pulsoX = 0;
     Squeak.Primitives.prototype.primitiveInputSemaphore = function(argCount) {
         this.inputEventSemaIndex = this.stackInteger(0);
