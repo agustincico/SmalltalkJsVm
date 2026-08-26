@@ -36,6 +36,16 @@ const Context_closure = Squeak.Context_closure;
 const Closure_outerContext = Squeak.Closure_outerContext;
 const BlockContext_initialIP = Squeak.BlockContext_initialIP;
 const BlockContext_home = Squeak.BlockContext_home;
+// Second batch (2026-08): the remaining namespace reads on the send/return path —
+// getClass, canBeSmallInt, isMethodContext and recycleIfPossible run once or more
+// per send, and each Squeak.* read is a dictionary-mode lookup V8 will not hoist.
+const splOb_ClassInteger = Squeak.splOb_ClassInteger;
+const splOb_ClassMethodContext = Squeak.splOb_ClassMethodContext;
+const splOb_ClassBlockContext = Squeak.splOb_ClassBlockContext;
+const Context_smallFrameSize = Squeak.Context_smallFrameSize;
+const Context_largeFrameSize = Squeak.Context_largeFrameSize;
+const MinSmallInt = Squeak.MinSmallInt;
+const MaxSmallInt = Squeak.MaxSmallInt;
 
 Object.subclass('Squeak.Interpreter',
 'initialization', {
@@ -1459,12 +1469,12 @@ Object.subclass('Squeak.Interpreter',
     },
     recycleIfPossible: function(ctxt) {
         if (!this.isMethodContext(ctxt)) return;
-        if (ctxt.pointersSize() === (Context_tempFrameStart+Squeak.Context_smallFrameSize)) {
+        if (ctxt.pointers.length === (Context_tempFrameStart+Context_smallFrameSize)) {
             // Recycle small contexts
             ctxt.pointers[0] = this.freeContexts;
             this.freeContexts = ctxt;
         } else { // Recycle large contexts
-            if (ctxt.pointersSize() !== (Context_tempFrameStart+Squeak.Context_largeFrameSize))
+            if (ctxt.pointers.length !== (Context_tempFrameStart+Context_largeFrameSize))
                 return;
             ctxt.pointers[0] = this.freeLargeContexts;
             this.freeLargeContexts = ctxt;
@@ -1587,11 +1597,11 @@ Object.subclass('Squeak.Interpreter',
 'numbers', {
     getClass: function(obj) {
         if (this.isSmallInt(obj))
-            return this.specialObjects[Squeak.splOb_ClassInteger];
+            return this.specialObjects[splOb_ClassInteger];
         return obj.sqClass;
     },
     canBeSmallInt: function(anInt) {
-        return (anInt >= Squeak.MinSmallInt) && (anInt <= Squeak.MaxSmallInt);
+        return (anInt >= MinSmallInt) && (anInt <= MaxSmallInt);
     },
     isSmallInt: function(object) {
         return typeof object === "number";
@@ -1637,12 +1647,12 @@ Object.subclass('Squeak.Interpreter',
 'utils',
 {
     isContext: function(obj) {//either block or methodContext
-        if (obj.sqClass === this.specialObjects[Squeak.splOb_ClassMethodContext]) return true;
-        if (obj.sqClass === this.specialObjects[Squeak.splOb_ClassBlockContext]) return true;
+        if (obj.sqClass === this.specialObjects[splOb_ClassMethodContext]) return true;
+        if (obj.sqClass === this.specialObjects[splOb_ClassBlockContext]) return true;
         return false;
     },
     isMethodContext: function(obj) {
-        return obj.sqClass === this.specialObjects[Squeak.splOb_ClassMethodContext];
+        return obj.sqClass === this.specialObjects[splOb_ClassMethodContext];
     },
     instantiateClass: function(aClass, indexableSize) {
         return this.image.instantiateClass(aClass, indexableSize, this.nilObj);

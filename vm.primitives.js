@@ -703,7 +703,7 @@ Object.subclass('Squeak.Primitives',
     },
     signed32BitIntegerFor: function(signed32) {
         // Return the 32-bit quantity as a signed 32-bit integer
-        if (signed32 >= Squeak.MinSmallInt && signed32 <= Squeak.MaxSmallInt) return signed32;
+        if (signed32 >= -1073741824 && signed32 <= 1073741823) return signed32; // Squeak.MinSmallInt..MaxSmallInt, sin lectura de diccionario
         var negative = signed32 < 0,
             unsigned = negative ? -signed32 : signed32,
             lgIntClass = negative ? Squeak.splOb_ClassLargeNegativeInteger : Squeak.splOb_ClassLargePositiveInteger,

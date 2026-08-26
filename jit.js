@@ -961,16 +961,21 @@ to single-step.
         switch (byte & 0x0F) {
             case 0x0: // PLUS +
                 this.needsVar['stack'] = true;
+                // the in-range add stays fully inline: V8 does not inline
+                // signed32BitIntegerFor (it shows up as its own frame, ~8% of
+                // benchFib), so only the overflow path pays the out-of-line call
                 this.source.push("var a = stack[vm.sp - 1], b = stack[vm.sp];\n",
                 "if (typeof a === 'number' && typeof b === 'number') {\n",
-                "   stack[--vm.sp] = vm.primHandler.signed32BitIntegerFor(a + b);\n",
+                "   var r = a + b;\n",
+                "   stack[--vm.sp] = (r >= -1073741824 && r <= 1073741823) ? r : vm.primHandler.signed32BitIntegerFor(r);\n",
                 "} else { vm.success = true; vm.resultIsFloat = false; if (!vm.pop2AndPushNumResult(vm.stackIntOrFloat(1) + vm.stackIntOrFloat(0))) { vm.pc = ", this.pc, "; vm.sendSpecial(0); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return} }\n");
                 return;
             case 0x1: // MINUS -
                 this.needsVar['stack'] = true;
                 this.source.push("var a = stack[vm.sp - 1], b = stack[vm.sp];\n",
                 "if (typeof a === 'number' && typeof b === 'number') {\n",
-                "   stack[--vm.sp] = vm.primHandler.signed32BitIntegerFor(a - b);\n",
+                "   var r = a - b;\n",
+                "   stack[--vm.sp] = (r >= -1073741824 && r <= 1073741823) ? r : vm.primHandler.signed32BitIntegerFor(r);\n",
                 "} else { vm.success = true; vm.resultIsFloat = false; if (!vm.pop2AndPushNumResult(vm.stackIntOrFloat(1) - vm.stackIntOrFloat(0))) { vm.pc = ", this.pc, "; vm.sendSpecial(1); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return} }\n");
                 return;
             case 0x2: // LESS <

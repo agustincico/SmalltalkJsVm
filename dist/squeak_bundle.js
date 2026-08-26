@@ -2950,6 +2950,16 @@
     const Closure_outerContext = Squeak.Closure_outerContext;
     const BlockContext_initialIP = Squeak.BlockContext_initialIP;
     const BlockContext_home = Squeak.BlockContext_home;
+    // Second batch (2026-08): the remaining namespace reads on the send/return path —
+    // getClass, canBeSmallInt, isMethodContext and recycleIfPossible run once or more
+    // per send, and each Squeak.* read is a dictionary-mode lookup V8 will not hoist.
+    const splOb_ClassInteger = Squeak.splOb_ClassInteger;
+    const splOb_ClassMethodContext = Squeak.splOb_ClassMethodContext;
+    const splOb_ClassBlockContext = Squeak.splOb_ClassBlockContext;
+    const Context_smallFrameSize = Squeak.Context_smallFrameSize;
+    const Context_largeFrameSize = Squeak.Context_largeFrameSize;
+    const MinSmallInt = Squeak.MinSmallInt;
+    const MaxSmallInt = Squeak.MaxSmallInt;
 
     Object.subclass('Squeak.Interpreter',
     'initialization', {
@@ -4369,12 +4379,12 @@
         },
         recycleIfPossible: function(ctxt) {
             if (!this.isMethodContext(ctxt)) return;
-            if (ctxt.pointersSize() === (Context_tempFrameStart+Squeak.Context_smallFrameSize)) {
+            if (ctxt.pointers.length === (Context_tempFrameStart+Context_smallFrameSize)) {
                 // Recycle small contexts
                 ctxt.pointers[0] = this.freeContexts;
                 this.freeContexts = ctxt;
             } else { // Recycle large contexts
-                if (ctxt.pointersSize() !== (Context_tempFrameStart+Squeak.Context_largeFrameSize))
+                if (ctxt.pointers.length !== (Context_tempFrameStart+Context_largeFrameSize))
                     return;
                 ctxt.pointers[0] = this.freeLargeContexts;
                 this.freeLargeContexts = ctxt;
@@ -4497,11 +4507,11 @@
     'numbers', {
         getClass: function(obj) {
             if (this.isSmallInt(obj))
-                return this.specialObjects[Squeak.splOb_ClassInteger];
+                return this.specialObjects[splOb_ClassInteger];
             return obj.sqClass;
         },
         canBeSmallInt: function(anInt) {
-            return (anInt >= Squeak.MinSmallInt) && (anInt <= Squeak.MaxSmallInt);
+            return (anInt >= MinSmallInt) && (anInt <= MaxSmallInt);
         },
         isSmallInt: function(object) {
             return typeof object === "number";
@@ -4547,12 +4557,12 @@
     'utils',
     {
         isContext: function(obj) {//either block or methodContext
-            if (obj.sqClass === this.specialObjects[Squeak.splOb_ClassMethodContext]) return true;
-            if (obj.sqClass === this.specialObjects[Squeak.splOb_ClassBlockContext]) return true;
+            if (obj.sqClass === this.specialObjects[splOb_ClassMethodContext]) return true;
+            if (obj.sqClass === this.specialObjects[splOb_ClassBlockContext]) return true;
             return false;
         },
         isMethodContext: function(obj) {
-            return obj.sqClass === this.specialObjects[Squeak.splOb_ClassMethodContext];
+            return obj.sqClass === this.specialObjects[splOb_ClassMethodContext];
         },
         instantiateClass: function(aClass, indexableSize) {
             return this.image.instantiateClass(aClass, indexableSize, this.nilObj);
@@ -6448,7 +6458,7 @@
         },
         signed32BitIntegerFor: function(signed32) {
             // Return the 32-bit quantity as a signed 32-bit integer
-            if (signed32 >= Squeak.MinSmallInt && signed32 <= Squeak.MaxSmallInt) return signed32;
+            if (signed32 >= -1073741824 && signed32 <= 1073741823) return signed32; // Squeak.MinSmallInt..MaxSmallInt, sin lectura de diccionario
             var negative = signed32 < 0,
                 unsigned = negative ? -signed32 : signed32,
                 lgIntClass = negative ? Squeak.splOb_ClassLargeNegativeInteger : Squeak.splOb_ClassLargePositiveInteger,
@@ -9497,16 +9507,21 @@
             switch (byte & 0x0F) {
                 case 0x0: // PLUS +
                     this.needsVar['stack'] = true;
+                    // the in-range add stays fully inline: V8 does not inline
+                    // signed32BitIntegerFor (it shows up as its own frame, ~8% of
+                    // benchFib), so only the overflow path pays the out-of-line call
                     this.source.push("var a = stack[vm.sp - 1], b = stack[vm.sp];\n",
                     "if (typeof a === 'number' && typeof b === 'number') {\n",
-                    "   stack[--vm.sp] = vm.primHandler.signed32BitIntegerFor(a + b);\n",
+                    "   var r = a + b;\n",
+                    "   stack[--vm.sp] = (r >= -1073741824 && r <= 1073741823) ? r : vm.primHandler.signed32BitIntegerFor(r);\n",
                     "} else { vm.success = true; vm.resultIsFloat = false; if (!vm.pop2AndPushNumResult(vm.stackIntOrFloat(1) + vm.stackIntOrFloat(0))) { vm.pc = ", this.pc, "; vm.sendSpecial(0); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return} }\n");
                     return;
                 case 0x1: // MINUS -
                     this.needsVar['stack'] = true;
                     this.source.push("var a = stack[vm.sp - 1], b = stack[vm.sp];\n",
                     "if (typeof a === 'number' && typeof b === 'number') {\n",
-                    "   stack[--vm.sp] = vm.primHandler.signed32BitIntegerFor(a - b);\n",
+                    "   var r = a - b;\n",
+                    "   stack[--vm.sp] = (r >= -1073741824 && r <= 1073741823) ? r : vm.primHandler.signed32BitIntegerFor(r);\n",
                     "} else { vm.success = true; vm.resultIsFloat = false; if (!vm.pop2AndPushNumResult(vm.stackIntOrFloat(1) - vm.stackIntOrFloat(0))) { vm.pc = ", this.pc, "; vm.sendSpecial(1); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return} }\n");
                     return;
                 case 0x2: // LESS <
