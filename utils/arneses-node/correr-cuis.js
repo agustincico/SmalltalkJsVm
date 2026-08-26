@@ -171,6 +171,50 @@ if (process.env.CENSO578) {
     });
 }
 // SONDA: muestrear la pila Smalltalk cada 700 ms
+// BOMBA DE EVENTOS (default: encendida; apagar con SINPULSO=1). El backend
+// headless (vm.input.headless.js) se traga el registro del semaforo de input y
+// primitiveGetNextEvent falla siempre, asi que el mundo Morphic se duerme
+// esperando eventos que no llegan y NUNCA bombea deferredUIMessages — que es
+// donde Cuis procesa las opciones finales de linea de comandos (-s / -d).
+// Historicamente esto "funcionaba" de casualidad: el chequeo del .changes
+// fallaba (nombre truncado), el DNU mataba el proceso de UI y el respawn
+// bombeaba la cola. Arreglado el nombre, hace falta una bomba legitima:
+// registramos el semaforo de verdad y lo pulsamos cada 50 ms. Un despertar
+// espurio es legal para un semaforo; dormir para siempre no.
+if (!process.env.SINPULSO) {
+    var pulsoPendiente = false, pulsoX = 0;
+    Squeak.Primitives.prototype.primitiveInputSemaphore = function(argCount) {
+        this.inputEventSemaIndex = this.stackInteger(0);
+        this.vm.popNandPush(argCount + 1, this.vm.nilObj);
+        return true;
+    };
+    // formato de evento: [tipo, tick, x, y, botones, modificadores, 0, 0]
+    // (mismo layout que makeSqueakEvent en squeak.js; tipo 1 = mouse)
+    Squeak.Primitives.prototype.primitiveGetNextEvent = function(argCount) {
+        var evtBuf = this.vm.stackValue(0).pointers;
+        if (evtBuf) {
+            for (var i = 0; i < evtBuf.length; i++) evtBuf[i] = 0;
+            if (pulsoPendiente) {
+                pulsoPendiente = false;
+                pulsoX = (pulsoX + 1) & 15; // mover 1px ida y vuelta: evento "real" pero inocuo
+                evtBuf[0] = Squeak.EventTypeMouse;
+                evtBuf[1] = this.millisecondClockValue();
+                evtBuf[2] = 10 + (pulsoX & 1);
+                evtBuf[3] = 10;
+            } // si no, queda EventTypeNone (0)
+        }
+        this.vm.popN(argCount);
+        return true;
+    };
+    setInterval(function() {
+        var vm = self.__vm;
+        if (vm && vm.primHandler && vm.primHandler.inputEventSemaIndex > 0) {
+            pulsoPendiente = true;
+            vm.primHandler.signalSemaphoreWithIndex(vm.primHandler.inputEventSemaIndex);
+            vm.forceInterruptCheck();
+        }
+    }, 200);
+}
 if (process.env.ESTACA) {
     setInterval(function() {
         try { if (self.__vm) console.error("~~~pila~~~\n" + self.__vm.printStack(null, 8)); }
@@ -241,7 +285,12 @@ if (process.env.ESPIAR) {
 }
 fs.readFile(root + imageName + ".image", function(error, data) {
     if (error) { console.error("Failed to read image", error); process.exit(1); }
-    var image = new Squeak.Image(root + imageName);
+    // CON ".image": el nombre va a parar a primitiveImageName y la imagen deriva
+    // de ahi su .changes recortando la ultima extension. Sin el ".image", un
+    // nombre con punto ("Cuis7.8") pierde el ".8" y el chequeo de arranque de
+    // Cuis (checkIfAlreadyRunningOrStoppedNoExit) muere buscando Cuis7.changes,
+    // matando de paso la cola de deferredUIMessages donde corre nuestro -s.
+    var image = new Squeak.Image(root + imageName + ".image");
     image.readFromBuffer(data.buffer, function startRunning() {
         // argv: [vm, imagen, argumentos...] -- la imagen los ve por getSystemAttribute:
         var display = { vmOptions: ["-vm-display-null", "-nodisplay"],

@@ -131,7 +131,11 @@ fs.readFile(root + imageName + ".image", function(error, data) {
     }
 
     // Create Squeak image from raw data
-    var image = new Squeak.Image(root + imageName);
+    // with ".image": the name is what primitiveImageName answers, and the image
+    // derives its .changes name by stripping the last extension — without the
+    // suffix, an image named "Cuis7.8" would look for "Cuis7.changes" (the
+    // browser entry points pass the full name too, see run/index.html)
+    var image = new Squeak.Image(root + imageName + ".image");
     image.readFromBuffer(data.buffer, function startRunning() {
 
         // Create fake display and create interpreter
