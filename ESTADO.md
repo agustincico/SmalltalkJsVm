@@ -31,6 +31,19 @@ disparó el port:
   `utils/VectorEnginePlugin.ref/mediciones/halo-sinplugin.png` y `halo-conplugin.png`
   (rescatadas de /tmp; la sesión murió antes de poder mostrarlas). El arnés que las genera:
   `mediciones/halo.js` (puppeteer).
+- **Perf ago-2026, línea tinyBenchmarks** (26-ago): el jit ahora mantiene `vm.sp` en una
+  local del código generado (`Compiler>>spLocalize`, jit.js) — **bytecodes 2.1x** (A/B
+  pareado 328→688 M/s; absoluto en máquina libre: mediana 782M, mejor 811M "Dorados").
+  Encendido por defecto tras auditoría adversarial (gramática estricta sobre el codegen,
+  SharedQueue stress, GC en bucles jiteados, humos de Pharo 64 y Squeak 3.8 V3). Escapes:
+  `SPLOCAL=0` (arnés), `#nosplocal` (run/), `JITSP=`/`JITSPNOT=` (bisección). Regla de oro
+  del diseño: vm.sp viejo-ALTO es seguro, viejo-BAJO corrompe (GC nilea sobre el sp
+  registrado); el GC solo dispara desde primitivas → sends → ya son puntos de sync. De
+  paso: bug upstream (2021) del template at:put: arreglado (String at:put: en bucle
+  jiteado mataba la VM). Scripts de validación en `utils/arneses-node/scripts/`
+  (tiny/veri/dif/atput). benchFib NO cambia: el hueco de sends (activación+lookup+retorno,
+  ~44% del tiempo) sigue siendo la línea abierta — atacarlo en serio es el trampolín
+  (2 entradas JS por send), que colinda con la stack zone cerrada.
 - **Performance**: redibujos 1,7–2,1x (1 Browser: 169→101 ms; 3 Browsers: 474→229 ms), el
   rasterizador pasó a <1% del perfil. El arrastre sigue 5–10 fps porque ahora manda Morphic
   interpretado (44% maquinaria de sends) — ese es otro problema.
