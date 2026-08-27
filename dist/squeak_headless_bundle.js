@@ -3009,6 +3009,10 @@ Object.subclass('Squeak.Interpreter',
         this.nLeafCalls = 0;
         this.nLeafDeopts = 0;
         this.useStackZone = false;
+        // jit: vm.sp vive en una local del codigo generado (+110% bytecodes medido).
+        // Auditado adversarialmente antes de encenderse por defecto; escape: SPLOCAL=0
+        // en el arnes de Node, #nosplocal en run/. Ver Compiler>>spLocalize en jit.js.
+        this.jitSpLocal = true;
         this.zonePages = null;
         this.zonePage = null;
         this.fp = -1;
@@ -8812,7 +8816,93 @@ to single-step.
         }
         this.deleteUnneededVariables();
         var source = "'use strict';\nreturn function " + funcName + "(vm) {\n" + this.source.join("") + "}";
+        // sp-en-local: mantener vm.sp en una local del codigo generado (V8 lo
+        // registeriza; medido +25% en codigo de bucles). Solo si esta prendido,
+        // nunca en single-step/debug (sus returns extra no estan cubiertos), y
+        // con verificacion estructural + fallback al codegen clasico por metodo.
+        if (this.vm.jitSpLocal && !this.singleStep && !this.debug && !this.vm.useStackZone
+            && this.spLocalAllowed(funcName)) {
+            var localized = this.spLocalize(source);
+            if (localized) {
+                try {
+                    var fn = new Function(localized)();
+                    this.vm.jitSpLocalized = (this.vm.jitSpLocalized || 0) + 1;
+                    return fn;
+                } catch (e) {
+                    console.warn("spLocalize: sintaxis rota en " + funcName + ", fallback clasico");
+                }
+            }
+            this.vm.jitSpLocalFallbacks = (this.vm.jitSpLocalFallbacks || 0) + 1;
+        }
         return new Function(source)();
+    },
+    spLocalAllowed: function(funcName) {
+        // filtros de biseccion: JITSP=solo,estos / JITSPNOT=todos,menos,estos
+        var only = this.vm.jitSpLocalOnly, not = this.vm.jitSpLocalNot;
+        if (only && !only.some(function(s) { return funcName.indexOf(s) >= 0; })) return false;
+        if (not && not.some(function(s) { return funcName.indexOf(s) >= 0; })) return false;
+        return true;
+    },
+    spLocalize: function(source) {
+        // Reescribe el fuente generado para que vm.sp viva en una local `sp`.
+        // REGLA DE ORO (autopsia del spike previo, ver ESTADO.md): vm.sp puede
+        // quedar viejo-ALTO sin peligro (el GC preserva slots de mas) pero
+        // jamas viejo-BAJO (el GC nilea operandos vivos: corrupcion silenciosa,
+        // sintoma a millones de bytecodes). Por eso: sync ANTES de toda llamada
+        // que lea o mueva vm.sp, reload DESPUES de las que continuan, y el GC
+        // solo puede disparar desde primitivas -- que se alcanzan por sends, que
+        // ya son puntos de sync.
+        if (source.indexOf("var fp = vm.fp") >= 0) return null;  // modo stack-zone
+        var s = source;
+        // 1) todo vm.sp pasa a la local (\b: no toca vm.specialObjects)
+        s = s.replace(/vm\.sp(?![A-Za-z0-9_$])/g, "sp");
+        // 2) syncs (vm.sp = sp) ANTES de cada llamada insegura
+        s = s.replace(/(vm\.pc = \d+; )(vm\.send(?:SuperDirected|Special)?\()/g, "$1vm.sp = sp; $2");
+        s = s.replace(/(vm\.success = true; )/g, "vm.sp = sp; $1");
+        s = s.replace(/(\} else \{ )(var c = vm\.primHandler\.objectAt\()/g, "$1vm.sp = sp; $2");
+        s = s.replace(/(\} else \{ var c = stack\[sp\]; )(vm\.primHandler\.objectAtPut\()/g, "$1vm.sp = sp; $2");
+        s = s.replace(/(vm\.pc = \d+; )(if \(!vm\.primHandler\.quickSendOther\()/g, "vm.sp = sp; $1$2");
+        s = s.replace(/(if \(vm\.interruptCheckCounter-- <= 0\) \{\n)/g, "$1vm.sp = sp;\n");
+        s = s.replace(/(vm\.pc = \d+; )(vm\.do(?:Block)?Return\()/g, "vm.sp = sp; $1$2");
+        s = s.replace(/(closure\.pointers\[0\] = vm\.activeContextObj\(\);)/g, "vm.sp = sp; $1");
+        s = s.replace(/(stack\[\+\+sp\] = vm\.exportThisContext\()/g, "vm.sp = sp; $1");
+        s = s.replace(/default: vm\.interpretOne\(true\); return;/g, "default: vm.sp = sp; vm.interpretOne(true); return;");
+        // 3) reloads (sp = vm.sp) DESPUES de los caminos que continuan
+        s = s.replace(/\) return;\n/g, ") return; sp = vm.sp;\n");            // sends, quickSend generico, interrupt check
+        s = s.replace(/\) return; \}\n/g, ") return; sp = vm.sp; }\n");        // size
+        s = s.replace(/\) return\} \}\n/g, ") return} sp = vm.sp; }\n");       // + - < > ... (else de typeof)
+        s = s.replace(/\) return; \}\}\n/g, ") return; sp = vm.sp; }}\n");     // at: / at:put:
+        s = s.replace(/(vm\.sendSpecial\(\d+\); return\}\n)/g, "$1sp = vm.sp;\n"); // * / \\ @ bitShift // bitAnd bitOr
+        // 4) prologo
+        s = s.replace(/\(vm\) \{\n/, "(vm) {\nvar sp = vm.sp;\n");
+        // 5) verificacion estructural; si algo no cierra, el metodo cae al codegen clasico
+        var limpio = s.replace(/vm\.sp = sp/g, "").replace(/sp = vm\.sp/g, "").replace(/var sp = /g, "");
+        if (/vm\.sp(?![A-Za-z0-9_$])/.test(limpio)) return null;               // quedo un vm.sp suelto
+        var inseguras = ["vm.send(", "vm.sendSpecial(", "vm.sendSuperDirected(", "vm.doReturn(",
+            "vm.doBlockReturn(", "vm.pop2AndPushNumResult(", "vm.pop2AndPushBoolResult(",
+            "vm.pop2AndPushIntResult(", "vm.stackIntOrFloat(", "vm.stackInteger(",
+            "vm.primHandler.quickSendOther(", "vm.primHandler.objectAt(", "vm.primHandler.objectAtPut(",
+            "vm.primHandler.primitiveMakePoint(", "vm.checkForInterrupts(", "vm.interpretOne(",
+            "vm.exportThisContext(", "vm.activeContextObj(", "vm.storeToMarriedContext("];
+        // El sync tiene que estar en la MISMA linea que la llamada (todas las reglas de
+        // arriba lo ponen en el mismo statement) — una ventana por caracteres se puede
+        // satisfacer espureamente con el sync de un send anterior cruzando un label
+        // "case N:", donde en la reentrada real ese sync jamas corrio. Unica excepcion:
+        // checkForInterrupts, cuyo sync queda en la linea anterior del mismo bloque.
+        for (var i = 0; i < inseguras.length; i++) {
+            var at = -1, tok = inseguras[i];
+            while ((at = s.indexOf(tok, at + 1)) >= 0) {
+                var lineaDesde = s.lastIndexOf("\n", at) + 1;
+                var linea = s.slice(lineaDesde, at);
+                if (linea.indexOf("vm.sp = sp") >= 0) continue;
+                if (tok === "vm.checkForInterrupts(") {
+                    var prevDesde = s.lastIndexOf("\n", lineaDesde - 2) + 1;
+                    if (s.slice(prevDesde, lineaDesde).indexOf("vm.sp = sp") >= 0) continue;
+                }
+                return null;                                                   // llamada insegura sin sync propio
+            }
+        }
+        return s;
     },
     generateV3: function(method) {
         this.done = false;
@@ -9440,7 +9530,12 @@ to single-step.
                 this.source.push(
                     "var a, b; if ((a=stack[vm.sp-2]).sqClass === vm.specialObjects[7] && a.pointers && typeof (b=stack[vm.sp-1]) === 'number' && b>0 && b<=a.pointers.length) {\n",
                     "  var c = stack[vm.sp]; stack[vm.sp-=2] = a.pointers[b-1] = c; a.dirty = true;",
-                    "} else { vm.primHandler.objectAtPut(true,true,false); if (vm.primHandler.success) stack[vm.sp-=2] = c; else {\n",
+                    // "var c" BEFORE the call: the fast branch's c is not assigned on this
+                    // path, and objectAtPut leaves the stack untouched — without the capture,
+                    // a non-Array receiver that succeeds via the atPutCache pushed undefined
+                    // (String at:put: in a hot jitted loop killed the VM; same fix as the
+                    // stack-zone variant above)
+                    "} else { var c = stack[vm.sp]; vm.primHandler.objectAtPut(true,true,false); if (vm.primHandler.success) stack[vm.sp-=2] = c; else {\n",
                     "  vm.pc = ", this.pc, "; vm.sendSpecial(17); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return; }}\n");
                 this.needsLabel[this.pc] = true;
                 return;

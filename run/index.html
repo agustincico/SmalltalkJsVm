@@ -397,7 +397,8 @@
         var imgName = name && name[0] === "/" ? name : "/" + (name || "image");
         worker.postMessage({ type: "init", canvas: offscreen, width: W, height: H,
             image: image, name: imgName, settings: settings, downloadOnSave: true,
-            vectorPlugin: /(^|[#&])vectorPlugin\b/.test(location.hash) }, transfer);
+            vectorPlugin: /(^|[#&])vectorPlugin\b/.test(location.hash),
+            spLocal: !/(^|[#&])nosplocal\b/.test(location.hash) }, transfer);
         var stillLoading = true;
         worker.onmessage = function(e) {
             var m = e.data;

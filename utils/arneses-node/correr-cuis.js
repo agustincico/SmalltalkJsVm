@@ -299,6 +299,17 @@ fs.readFile(root + imageName + ".image", function(error, data) {
                         argv: [Squeak.vmPath, root + imageName + ".image"].concat(imgArgs) };
         var vm = new Squeak.Interpreter(image, display); self.__vm = vm;
         if (process.env.NOJIT) vm.compiler = null;
+        // sp-en-local del jit (default: prendido). SPLOCAL=0 lo apaga;
+        // JITSP=a,b / JITSPNOT=c,d bisecan por nombre de funcion generada
+        if (process.env.SPLOCAL === "0") vm.jitSpLocal = false;
+        if (process.env.SPLOCAL) {
+            if (process.env.JITSP) vm.jitSpLocalOnly = process.env.JITSP.split(",");
+            if (process.env.JITSPNOT) vm.jitSpLocalNot = process.env.JITSPNOT.split(",");
+            process.on("exit", function() {
+                console.error("[splocal] transformados: " + (vm.jitSpLocalized || 0) +
+                    " | fallbacks: " + (vm.jitSpLocalFallbacks || 0));
+            });
+        }
         var t0 = Date.now();
         function run() {
             if (Date.now() - t0 > TOPE_MS) { console.error("[tope de " + TOPE_MS + " ms]"); process.exit(2); }

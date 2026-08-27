@@ -98,6 +98,10 @@ Object.subclass('Squeak.Interpreter',
         this.nLeafCalls = 0;
         this.nLeafDeopts = 0;
         this.useStackZone = false;
+        // jit: vm.sp vive en una local del codigo generado (+110% bytecodes medido).
+        // Auditado adversarialmente antes de encenderse por defecto; escape: SPLOCAL=0
+        // en el arnes de Node, #nosplocal en run/. Ver Compiler>>spLocalize en jit.js.
+        this.jitSpLocal = true;
         this.zonePages = null;
         this.zonePage = null;
         this.fp = -1;
