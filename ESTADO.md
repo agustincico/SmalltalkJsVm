@@ -44,6 +44,17 @@ disparó el port:
   (tiny/veri/dif/atput). benchFib NO cambia: el hueco de sends (activación+lookup+retorno,
   ~44% del tiempo) sigue siendo la línea abierta — atacarlo en serio es el trampolín
   (2 entradas JS por send), que colinda con la stack zone cerrada.
+- **Perf 3-sep: la línea tinyBenchmarks quedó MINADA — no re-excavar sin idea estructural
+  nueva.** Post sp-en-local, perfiles limpios (procesar-cpuprof.js, ventana estacionaria):
+  la criba es 88% código generado (solo mejor codegen ayudaría; semanas para migajas) y
+  benchFib es 36% cuerpo + 58% maquinaria de send cuyos micro-caminos ya fueron acotados
+  adversarialmente a ≤2% cada uno (activación magra, retorno magro, cache, IC). Dos
+  experimentos nulos documentados hoy: (1) predeclarar el slot `compiled` en el
+  constructor compartido = 0% (A/B 5+5 intercalado, medianas 345 vs 352 ms) — el "43% en
+  una línea" del perfil era ATRIBUCIÓN FANTASMA de positionTicks sobre código optimizado
+  de V8: jamás creer ticks por línea sin A/B; (2) el único estructural restante para
+  sends es el trampolín/stack-zone, cerrado con números. Lo que sigue en perf real:
+  workloads de imagen (carga ~1,4s del boot de Pharo, línea abierta de siempre).
 - **Performance**: redibujos 1,7–2,1x (1 Browser: 169→101 ms; 3 Browsers: 474→229 ms), el
   rasterizador pasó a <1% del perfil. El arrastre sigue 5–10 fps porque ahora manda Morphic
   interpretado (44% maquinaria de sends) — ese es otro problema.
