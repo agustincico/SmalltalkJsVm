@@ -135,6 +135,9 @@ if (process.env.SINTOPE) {
         return true;
     };
 }
+// spike de forma directa (ver utils/spikes/directo/): opt-in con DIRECTO=1
+if (process.env.DIRECTO && process.env.DIRECTO !== "0") require(REPO + "/utils/spikes/directo/spike-directo.js");
+
 // llave de desarrollo del VectorEnginePlugin
 if (process.env.VECTORPLUGIN) Squeak.enableVectorEnginePlugin = true;
 // SONDA: censo de la primitiva 578 -- cuantas veces se llama, sobre que clase de
@@ -305,6 +308,23 @@ fs.readFile(root + imageName + ".image", function(error, data) {
         // JITSP=a,b / JITSPNOT=c,d bisecan por nombre de funcion generada
         if (process.env.SPLOCAL === "0") vm.jitSpLocal = false;
         if (process.env.PEEPHOLE === "0") vm.jitPeephole = false;
+        // SONDA: desensamblar el metodo cuyo nombre matchea (DESARMAR=Integer>>benchFib)
+        if (process.env.DESARMAR) {
+            var __d = process.env.DESARMAR.split(">>"), __hecho = false;
+            var __orig = vm.executeNewMethod.bind(vm);
+            vm.executeNewMethod = function(rcvr, method, argc, prim, optClass, optSel) {
+                if (!__hecho && optClass && optSel && optClass.className() === __d[0] && optSel.bytesAsString() === __d[1]) {
+                    __hecho = true;
+                    console.error("=== " + __d[0] + ">>" + __d[1] + " ===");
+                    console.error("bytes: " + Array.from(method.bytes).join(" "));
+                    console.error("numArgs=" + method.methodNumArgs() + " numTemps=" + method.methodTempCount() +
+                        " numLits=" + method.methodNumLits() + " sista=" + method.methodSignFlag() +
+                        " needsLarge=" + method.methodNeedsLargeFrame());
+                    console.error(new Squeak.InstructionPrinter(method, vm).printInstructions());
+                }
+                return __orig(rcvr, method, argc, prim, optClass, optSel);
+            };
+        }
         if (process.env.PEEPHOLE) process.on("exit", function() { console.error("[mirilla] metodos: " + (vm.jitPeepholeOk||0) + " | rechazados: " + (vm.jitPeepholeFail||0)); });
         // SONDA: volcar el JS que genera el jit para un metodo. VOLCAR=<texto> matchea
         // contra el nombre de la funcion generada O contra su fuente (util porque los
