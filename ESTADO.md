@@ -44,6 +44,20 @@ disparó el port:
   (tiny/veri/dif/atput). benchFib NO cambia: el hueco de sends (activación+lookup+retorno,
   ~44% del tiempo) sigue siendo la línea abierta — atacarlo en serio es el trampolín
   (2 entradas JS por send), que colinda con la stack zone cerrada.
+- **Perf 4-sep (3): SPIKE DE FORMA DIRECTA — 15,7x en benchFib, validado** (commit
+  97f15a0, `utils/spikes/directo/`). Es el camino estructural para el hueco de sends
+  (50x contra Cog, mientras bytecodes está a 7x): métodos que reciben receptor y args
+  como argumentos de JS, frames en la pila de JS, cero MethodContext en el caso común,
+  y **deoptimización al desenrollar** — cada frame materializa su contexto mientras la
+  pila se desenrolla, y el VM sigue con el jit clásico, que ya sabe reanudar. benchFib
+  compilado A MANO: valida el diseño, no un codegen. A/B 6/6 pares sin solaparse
+  (355-418 → 19-39 ms) = ~115 M sends/s, del 2% al 28% de Cog. Deopt ejercitada 368
+  veces/corrida (y 1.048.730 en una versión con bug de cadencia, siempre exacta), y
+  bajo 300 cambios de proceso forzados los dos modos dan resultados idénticos.
+  **NO es la stack zone**: ahí el trabajo se re-representaba y los closures la hacían
+  PEOR; acá se elimina, y ante un closure se deoptimiza ese frame — nunca peor que hoy.
+  El proyecto que sigue (codegen general, reglas de frontera y de GC) está escrito en
+  el README del spike.
 - **Perf 4-sep (2): MIRILLA EN EL CODEGEN — bytecodes +13%, 905 Dorados** (commit
   5f18808). El jit transcribía bytecode a bytecode, así que todo valor iba y volvía por
   el array de pila aunque naciera y muriera dos instrucciones después. La mirilla fusiona
