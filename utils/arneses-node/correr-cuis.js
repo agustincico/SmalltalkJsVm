@@ -304,6 +304,24 @@ fs.readFile(root + imageName + ".image", function(error, data) {
         // sp-en-local del jit (default: prendido). SPLOCAL=0 lo apaga;
         // JITSP=a,b / JITSPNOT=c,d bisecan por nombre de funcion generada
         if (process.env.SPLOCAL === "0") vm.jitSpLocal = false;
+        // SONDA: volcar el JS que genera el jit para un metodo. VOLCAR=<texto> matchea
+        // contra el nombre de la funcion generada O contra su fuente (util porque los
+        // metodos compilados desde interpret() pierden clase/selector y salen DOIT_n:
+        // a la criba se la encuentra por su literal, VOLCAR=8190). VOLCAR=LISTA lista
+        // todos los nombres generados.
+        if (process.env.VOLCAR) {
+            var __gen = vm.compiler.generate.bind(vm.compiler), __visto = false;
+            vm.compiler.generate = function(m, cls, sel, iv) {
+                var f = __gen(m, cls, sel, iv);
+                if (process.env.VOLCAR === "LISTA" && f && f.name) console.error("[gen] " + f.name);
+                var __t = f ? f.toString() : "";
+                if (!__visto && f && (f.name.indexOf(process.env.VOLCAR) >= 0 || __t.indexOf(process.env.VOLCAR) >= 0)) {
+                    __visto = true;
+                    console.error("=== " + f.name + " ===\n" + f.toString());
+                }
+                return f;
+            };
+        }
         if (process.env.SPLOCAL) {
             if (process.env.JITSP) vm.jitSpLocalOnly = process.env.JITSP.split(",");
             if (process.env.JITSPNOT) vm.jitSpLocalNot = process.env.JITSPNOT.split(",");
