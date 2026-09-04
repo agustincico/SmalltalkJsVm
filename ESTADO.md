@@ -44,6 +44,14 @@ disparó el port:
   (tiny/veri/dif/atput). benchFib NO cambia: el hueco de sends (activación+lookup+retorno,
   ~44% del tiempo) sigue siendo la línea abierta — atacarlo en serio es el trampolín
   (2 entradas JS por send), que colinda con la stack zone cerrada.
+- **Perf 4-sep, máquina quieta — números oficiales y dos cierres**: tinyBenchmarks
+  mediana 815 Mbc/s / 8,16 Msends/s, **839 Dorados** de mejor corrida. Cierres con
+  números: (a) activadores por método retesteados en quieto = +3,5%, 7/10, solapado →
+  NO aterriza, definitivo (parche y autopsia en utils/arneses-node/estacionados/);
+  (b) guardas indexOf en spLocalize (3,9% del boot) = +1,4% dentro del ruido con salida
+  byte-idéntica probada → revertido: no paga su complejidad. Post-oopMap el boot headless
+  de Cuis es ~0,8 s y lo que queda es difuso (interpret frío 10%, GC de carga 7%,
+  readFromBuffer residual 7%): sin palanca clara.
 - **Perf 3-sep (2): CARGA DE IMAGEN -32/-42%** (commit 3d25597): el oopMap del loader
   era un Map con claves oldBaseAddr+oop > 2^31 → V8 hasheaba doubles millones de veces;
   ahora Uint32Array de índices + tabla (derrame a Map para claves fuera de rango). Pharo
