@@ -44,6 +44,14 @@ disparó el port:
   (tiny/veri/dif/atput). benchFib NO cambia: el hueco de sends (activación+lookup+retorno,
   ~44% del tiempo) sigue siendo la línea abierta — atacarlo en serio es el trampolín
   (2 entradas JS por send), que colinda con la stack zone cerrada.
+- **Perf 3-sep (2): CARGA DE IMAGEN -32/-42%** (commit 3d25597): el oopMap del loader
+  era un Map con claves oldBaseAddr+oop > 2^31 → V8 hasheaba doubles millones de veces;
+  ahora Uint32Array de índices + tabla (derrame a Map para claves fuera de rango). Pharo
+  46MB: 3,1→1,8 s de mediana; Cuis: 390→265 ms. Es perf *sentida* en cada arranque del
+  sitio. Sonda: CARGA=1 en el arnés. Pendiente natural: mismo tratamiento para
+  loadImageSegment (proyectos) si algún día pesa. Lo estructural de sends quedó
+  estacionado con números en utils/arneses-node/estacionados/ (activadores por método:
+  +2-4% solapado, retestear en máquina quieta).
 - **Perf 3-sep: la línea tinyBenchmarks quedó MINADA — no re-excavar sin idea estructural
   nueva.** Post sp-en-local, perfiles limpios (procesar-cpuprof.js, ventana estacionaria):
   la criba es 88% código generado (solo mejor codegen ayudaría; semanas para migajas) y
