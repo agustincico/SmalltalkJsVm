@@ -44,6 +44,22 @@ disparó el port:
   (tiny/veri/dif/atput). benchFib NO cambia: el hueco de sends (activación+lookup+retorno,
   ~44% del tiempo) sigue siendo la línea abierta — atacarlo en serio es el trampolín
   (2 entradas JS por send), que colinda con la stack zone cerrada.
+- **Perf 4-sep (2): MIRILLA EN EL CODEGEN — bytecodes +13%, 905 Dorados** (commit
+  5f18808). El jit transcribía bytecode a bytecode, así que todo valor iba y volvía por
+  el array de pila aunque naciera y muriera dos instrucciones después. La mirilla fusiona
+  pares adyacentes: push+popInto → asignación, y push(es)+plantilla → operandos por
+  locales de JS (binarias de SmallInteger, at: y at:put: con sus tres operandos). Seguridad
+  por construcción: adyacencia textual (un `case N:` sobreviviente = un salto aterriza ahí
+  = no se toca), lista blanca de operandos puros, el camino lento repone y queda
+  byte-idéntico, sólo `else` plano, y fallback por método. Medido: criba 8/8 pares,
+  293→259 ms; tiny 777→877 M/s. Escapes: PEEPHOLE=0 / #nopeephole.
+- **TECHO DE LA MIRILLA, documentado**: las fusiones que faltan en el bucle de la criba
+  (at:put:→descarte, +→popInto, comparación→salto) están TODAS bloqueadas por labels
+  `case N:`, que existen porque el camino lento de cada instrucción puede retornar al
+  trampolín. Post-mirilla la criba es 88% código generado y el VM ~2%: para seguir hay que
+  cambiar la FORMA del código generado (camino rápido lineal + continuaciones frías
+  fuera de línea con su propia tabla de resume), no agregar patrones. Eso es un rediseño
+  de varias sesiones, no un parche.
 - **Perf 4-sep, máquina quieta — números oficiales y dos cierres**: tinyBenchmarks
   mediana 815 Mbc/s / 8,16 Msends/s, **839 Dorados** de mejor corrida. Cierres con
   números: (a) activadores por método retesteados en quieto = +3,5%, 7/10, solapado →
