@@ -15,7 +15,13 @@ overhead de arrayCopy/Fill para 0-2 elementos) es chico; el costo real de la
 activación son los ~20 stores del contexto, que la versión especializada
 también paga.
 
-Para retestear en máquina QUIETA: `git apply utils/arneses-node/estacionados/
+**RETESTEADO EN MÁQUINA QUIETA (4-sep, carga 1.9): mediana 346→334 ms = +3,5%,
+7/10 pares, distribuciones SIGUEN solapadas.** Consistente con la medición bajo
+carga. Veredicto definitivo: NO aterrizar — +3,5% no paga un segundo camino de
+activación en el código más delicado del VM más una lectura de propiedad extra
+por send para todos. Cerrado con números, dos veces.
+
+Para re-derivar el contexto o reintentar con otra idea: `git apply utils/arneses-node/estacionados/
 activadores-por-metodo.patch`, y A/B con `ACTIVATORS=1` vs `=0` sobre
 `30 benchFib` (scripts/fib de medir-tiny), 10+ pares intercalados. Si separa
 distribuciones: batería completa (dif/veri/tiny/Pharo/humo Morphic) antes de
