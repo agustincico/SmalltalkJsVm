@@ -1,0 +1,103 @@
+diff --git a/jit.js b/jit.js
+index 0ebe5a6..a2721a0 100644
+--- a/jit.js
++++ b/jit.js
+@@ -175,10 +175,64 @@ to single-step.
+                 }
+             }
+             method.compiled = this.generate(method, clsName, sel, instVars);
++            if (this.vm.jitActivators) method.activator = this.generateActivator(method, clsName, sel);
+         }
+     },
++    generateActivator: function(method, optClass, optSel) {
++        // Activador especializado por metodo: la activacion que executeNewMethod hace
++        // de forma generica (loops de largo variable, decode de header, despacho de
++        // primitiva, chequeos), horneada con constantes del metodo y desenrollada.
++        // Contextos reales, mismos pasos, mismo orden — pura especializacion.
++        // Solo metodos sin primitiva (send() decide; los demas van por el camino generico).
++        if (method.methodPrimitiveIndex() !== 0) return undefined;
++        var A = method.methodNumArgs(),
++            T = method.methodTempCount(),
++            large = method.methodNeedsLargeFrame(),
++            TFS = Squeak.Context_tempFrameStart,
++            frameSize = large ? Squeak.Context_largeFrameSize : Squeak.Context_smallFrameSize,
++            freeList = large ? "freeLargeContexts" : "freeContexts",
++            src = [];
++        if (T - A > 24) return undefined;   // desenrollado absurdo: que lo haga el generico
++        var name = "ACT_" + (optClass || "?").replace(/[^A-Za-z0-9]/g, "_") + "_" + (optSel || "").replace(/[^A-Za-z0-9]/g, "_");
++        src.push("'use strict';\nreturn function ", name, "(vm, method, newRcvr) {\n",
++            // paridad con executeNewMethod: los ganchos de debug derivan al generico
++            "if (vm.logSends || vm.breakOnContextChanged || method === vm.breakOnMethod) return vm.executeNewMethod(newRcvr, method, ", A, ", 0);\n",
++            "vm.sendCount++;\n",
++            "var ctx = vm.", freeList, ";\n",
++            "if (!ctx.isNil) { vm.", freeList, " = ctx.pointers[0]; vm.nRecycledContexts++; }\n",
++            "else { vm.nAllocatedContexts++; ctx = vm.instantiateClass(vm.specialObjects[", Squeak.splOb_ClassMethodContext, "], ", frameSize, "); }\n",
++            "var p = ctx.pointers, stack = vm.stack, sp = vm.sp;\n",
++            "p[", Squeak.Context_method, "] = method;\n",
++            "p[", Squeak.BlockContext_initialIP, "] = vm.nilObj;\n",
++            "p[", Squeak.Context_sender, "] = vm.activeContext;\n");
++        for (var i = 0; i <= A; i++)      // receptor + argumentos, desenrollado
++            src.push("p[", TFS - 1 + i, "] = stack[sp - ", A - i, "];\n");
++        for (var t = A; t < T; t++)       // temporales a nil, desenrollado
++            src.push("p[", TFS + t, "] = vm.nilObj;\n");
++        src.push(
++            "vm.sp = sp - ", A + 1, ";\n",
++            "vm.reclaimableContextCount++;\n",
++            // storeContextRegisters inline (pc/sp del CALLER, con su propio method)
++            "var old = vm.activeContext, op = old.pointers;\n",
++            "op[", Squeak.Context_instructionPointer, "] = vm.pc + vm.method.pointers.length * 4 + 1;\n",
++            "op[", Squeak.Context_stackPointer, "] = vm.sp - ", TFS - 1, ";\n",
++            "vm.activeContext = ctx; ctx.dirty = true;\n",
++            "vm.homeContext = ctx;\n",
++            "vm.method = method;\n",
++            "vm.pc = 0;\n",
++            "vm.sp = ", TFS + T - 1, ";\n",
++            "vm.stack = p;\n",
++            "vm.temps = p;\n",
++            "vm.tempOffset = ", TFS, ";\n",
++            "vm.receiver = p[", Squeak.Context_receiver, "];\n",
++            "if (!method.compiled) vm.compileIfPossible(method);\n",
++            "if (vm.interruptCheckCounter-- <= 0) vm.checkForInterrupts();\n",
++            "}");
++        try { return new Function(src.join(""))(); } catch (e) { return undefined; }
++    },
+     enableSingleStepping: function(method, optClass, optSel) {
+         // recompile method for single-stepping
++        method.activator = undefined;   // el activador especializado no sabe de single-step
+         if (!method.compiled || !method.compiled.canSingleStep) {
+             this.singleStep = true; // generate breakpoint support
+             this.debug = true;
+diff --git a/utils/arneses-node/correr-cuis.js b/utils/arneses-node/correr-cuis.js
+index b36431d..35e4802 100644
+--- a/utils/arneses-node/correr-cuis.js
++++ b/utils/arneses-node/correr-cuis.js
+@@ -302,6 +302,7 @@ fs.readFile(root + imageName + ".image", function(error, data) {
+         // sp-en-local del jit (default: prendido). SPLOCAL=0 lo apaga;
+         // JITSP=a,b / JITSPNOT=c,d bisecan por nombre de funcion generada
+         if (process.env.SPLOCAL === "0") vm.jitSpLocal = false;
++        if (process.env.ACTIVATORS === "1") vm.jitActivators = true;
+         if (process.env.SPLOCAL) {
+             if (process.env.JITSP) vm.jitSpLocalOnly = process.env.JITSP.split(",");
+             if (process.env.JITSPNOT) vm.jitSpLocalNot = process.env.JITSPNOT.split(",");
+diff --git a/vm.interpreter.js b/vm.interpreter.js
+index e9dea7a..66bbbd0 100644
+--- a/vm.interpreter.js
++++ b/vm.interpreter.js
+@@ -102,6 +102,7 @@ Object.subclass('Squeak.Interpreter',
+         // Auditado adversarialmente antes de encenderse por defecto; escape: SPLOCAL=0
+         // en el arnes de Node, #nosplocal en run/. Ver Compiler>>spLocalize en jit.js.
+         this.jitSpLocal = true;
++        this.jitActivators = false;  // activadores por metodo: en evaluacion (ACTIVATORS=1 en el arnes)
+         this.zonePages = null;
+         this.zonePage = null;
+         this.fp = -1;
+@@ -1024,6 +1025,9 @@ Object.subclass('Squeak.Interpreter',
+             this.verifyAtSelector = selector;
+             this.verifyAtClass = lookupClass;
+         }
++        // activador especializado por metodo (jit): la misma activacion, horneada
++        var act = entry.method.activator;
++        if (act !== undefined) return act(this, entry.method, newRcvr);
+         this.executeNewMethod(newRcvr, entry.method, entry.argCount, entry.primIndex, entry.mClass, selector);
+     },
+     sendSuperDirected: function(selector, argCount) {
