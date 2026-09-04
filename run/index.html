@@ -398,7 +398,8 @@
         worker.postMessage({ type: "init", canvas: offscreen, width: W, height: H,
             image: image, name: imgName, settings: settings, downloadOnSave: true,
             vectorPlugin: /(^|[#&])vectorPlugin\b/.test(location.hash),
-            spLocal: !/(^|[#&])nosplocal\b/.test(location.hash) }, transfer);
+            spLocal: !/(^|[#&])nosplocal\b/.test(location.hash),
+            peephole: !/(^|[#&])nopeephole\b/.test(location.hash) }, transfer);
         var stillLoading = true;
         worker.onmessage = function(e) {
             var m = e.data;

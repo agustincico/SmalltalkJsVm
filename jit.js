@@ -269,6 +269,18 @@ to single-step.
         }
         this.deleteUnneededVariables();
         var source = "'use strict';\nreturn function " + funcName + "(vm) {\n" + this.source.join("") + "}";
+        // mirilla: el codegen transcribe bytecode a bytecode, asi que todo valor va y
+        // vuelve por el array de pila aunque nazca y muera dos instrucciones despues.
+        // Fusiona los pares adyacentes mas frecuentes. La adyacencia TEXTUAL es la
+        // condicion de seguridad: si sobrevivio un "case N:" entre las dos partes
+        // (o sea, algun salto aterriza en el medio) el patron no matchea y no se toca.
+        if (this.vm.jitPeephole && !this.singleStep && !this.debug) {
+            var mirado = this.peephole(source);
+            if (mirado) {
+                try { new Function(mirado); source = mirado; this.vm.jitPeepholeOk = (this.vm.jitPeepholeOk || 0) + 1; }
+                catch (e) { this.vm.jitPeepholeFail = (this.vm.jitPeepholeFail || 0) + 1; }
+            }
+        }
         // sp-en-local: mantener vm.sp en una local del codigo generado (V8 lo
         // registeriza; medido +25% en codigo de bucles). Solo si esta prendido,
         // nunca en single-step/debug (sus returns extra no estan cubiertos), y
@@ -289,6 +301,87 @@ to single-step.
         }
         return new Function(source)();
     },
+    // Operandos que la mirilla acepta sacar del array: lecturas puras, sin efectos y
+    // sin depender de sp. Lista blanca a proposito — cualquier otra cosa (un dup, que
+    // es stack[sp], o un resultado intermedio) queda como esta.
+    peepholeOperando: /^(?:-?\d+|rcvr|vm\.(?:nil|true|false)Obj|temp\[\d+\]|inst\[\d+\]|lit\[\d+\])$/,
+
+    peephole: function(source) {
+        var s = source, self = this, hubo = false;
+
+        // P1  push X ; popInto T   ->   T = X
+        // (la escritura al array y su relectura inmediata sobran)
+        s = s.replace(/stack\[\+\+vm\.sp\] = ([^;\n]+);\n([A-Za-z_$][A-Za-z0-9_$\[\]\.]*) = stack\[vm\.sp--\];\n/g,
+            function(todo, expr, destino) {
+                if (!self.peepholeOperando.test(expr)) return todo;
+                if (/vm\.sp|stack/.test(destino)) return todo;
+                hubo = true;
+                return destino + " = " + expr + ";\n";
+            });
+
+        // P2/P3  push A [;push B ...] ; <plantilla que los relee del array>
+        //   ->   var a = A, b = B ...   (camino rapido sin tocar el array)
+        // El camino lento SI necesita los operandos en la pila (los relee con
+        // stackIntOrFloat/objectAt/objectAtPut), asi que se los REPONE tal cual y su
+        // texto queda byte-identico: solo cambia por donde llegan los valores.
+        var recetas = [
+            {   // aritmetica y comparaciones de SmallInteger
+                n: 2,
+                ancla: "var a = stack[vm.sp - 1], b = stack[vm.sp];\nif (typeof a === 'number' && typeof b === 'number') {\n",
+                nueva: function(o) { return "var a = " + o[0] + ", b = " + o[1] + ";\nif (typeof a === 'number' && typeof b === 'number') {\n"; },
+                rapido: function(r) { return r.replace(/stack\[--vm\.sp\] =/g, "stack[++vm.sp] ="); },
+            },
+            {   // at: sobre Array
+                n: 2,
+                ancla: "var a, b; if ((a=stack[vm.sp-1]).sqClass === vm.specialObjects[7] && a.pointers && typeof (b=stack[vm.sp]) === 'number' && b>0 && b<=a.pointers.length) {\n",
+                nueva: function(o) { return "var a = " + o[0] + ", b = " + o[1] + "; if (a.sqClass === vm.specialObjects[7] && a.pointers && typeof b === 'number' && b>0 && b<=a.pointers.length) {\n"; },
+                rapido: function(r) { return r.replace(/stack\[--vm\.sp\] =/g, "stack[++vm.sp] ="); },
+            },
+            {   // at:put: sobre Array — tres operandos, el mas caro del bucle de la criba
+                n: 3,
+                ancla: "var a, b; if ((a=stack[vm.sp-2]).sqClass === vm.specialObjects[7] && a.pointers && typeof (b=stack[vm.sp-1]) === 'number' && b>0 && b<=a.pointers.length) {\n",
+                nueva: function(o) { return "var a = " + o[0] + ", b = " + o[1] + "; if (a.sqClass === vm.specialObjects[7] && a.pointers && typeof b === 'number' && b>0 && b<=a.pointers.length) {\n"; },
+                rapido: function(r, o) {
+                    return r.replace("var c = stack[vm.sp];", "var c = " + o[2] + ";")
+                            .replace("stack[vm.sp-=2] =", "stack[++vm.sp] =");
+                },
+            },
+        ];
+        for (var ri = 0; ri < recetas.length; ri++) {
+            var R = recetas[ri], at = -1;
+            while ((at = s.indexOf(R.ancla, at + 1)) >= 0) {
+                // las N lineas inmediatamente anteriores tienen que ser los N push.
+                // Que sean ADYACENTES es la garantia: un "case M:" sobreviviente entre
+                // medio (o sea, un salto que aterriza ahi) rompe el match y no se toca.
+                var ini = [], p = at, ok = true, ops = [];
+                for (var k = 0; k < R.n; k++) {
+                    var iniLinea = s.lastIndexOf("\n", p - 2) + 1;
+                    if (iniLinea <= 0 || iniLinea >= p) { ok = false; break; }
+                    var m = /^stack\[\+\+vm\.sp\] = ([^;\n]+);\n$/.exec(s.slice(iniLinea, p));
+                    if (!m || !this.peepholeOperando.test(m[1])) { ok = false; break; }
+                    ops.unshift(m[1]);
+                    p = iniLinea;
+                }
+                if (!ok) continue;
+                var finAncla = at + R.ancla.length;
+                var elseAt = s.indexOf("} else", finAncla);
+                if (elseAt < 0) continue;
+                // solo el else PLANO: = y ~= encadenan "} else if (a === b ...)" para NaN,
+                // y reponer los operandos ahi seria reponerlos en la rama equivocada
+                if (s.substr(elseAt, 9) !== "} else { ") continue;
+                var rapido = R.rapido(s.slice(finAncla, elseAt), ops);
+                if (rapido.indexOf("vm.sp-=") >= 0 || rapido.indexOf("stack[--vm.sp]") >= 0) continue;
+                var repone = "";
+                for (var k2 = 0; k2 < R.n; k2++) repone += "stack[++vm.sp] = " + ops[k2] + "; ";
+                s = s.slice(0, p) + R.nueva(ops) + rapido + "} else { " + repone + s.slice(elseAt + 9);
+                hubo = true;
+                at = p;
+            }
+        }
+
+        return hubo ? s : null;
+    },
+
     spLocalAllowed: function(funcName) {
         // filtros de biseccion: JITSP=solo,estos / JITSPNOT=todos,menos,estos
         var only = this.vm.jitSpLocalOnly, not = this.vm.jitSpLocalNot;

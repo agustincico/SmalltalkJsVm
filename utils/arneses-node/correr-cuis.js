@@ -304,6 +304,8 @@ fs.readFile(root + imageName + ".image", function(error, data) {
         // sp-en-local del jit (default: prendido). SPLOCAL=0 lo apaga;
         // JITSP=a,b / JITSPNOT=c,d bisecan por nombre de funcion generada
         if (process.env.SPLOCAL === "0") vm.jitSpLocal = false;
+        if (process.env.PEEPHOLE === "0") vm.jitPeephole = false;
+        if (process.env.PEEPHOLE) process.on("exit", function() { console.error("[mirilla] metodos: " + (vm.jitPeepholeOk||0) + " | rechazados: " + (vm.jitPeepholeFail||0)); });
         // SONDA: volcar el JS que genera el jit para un metodo. VOLCAR=<texto> matchea
         // contra el nombre de la funcion generada O contra su fuente (util porque los
         // metodos compilados desde interpret() pierden clase/selector y salen DOIT_n:

@@ -327,6 +327,7 @@ function boot(opts) {
                 vm = new Squeak.Interpreter(image, display);
                 if (noJit || opts.nojit) vm.compiler = null;
                 if (opts.spLocal === false) vm.jitSpLocal = false;   // #nosplocal: apagar sp-en-local del jit
+                if (opts.peephole === false) vm.jitPeephole = false;   // #nopeephole: apagar la mirilla del jit
                 if (opts.nostream) vm.primHandler.streamPrims = false; // A/B: disable stream prims 65/66/67
                 self.postMessage({ type: "ready", build: BUILD });
                 startIntervals();

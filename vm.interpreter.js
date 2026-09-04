@@ -102,6 +102,9 @@ Object.subclass('Squeak.Interpreter',
         // Auditado adversarialmente antes de encenderse por defecto; escape: SPLOCAL=0
         // en el arnes de Node, #nosplocal en run/. Ver Compiler>>spLocalize en jit.js.
         this.jitSpLocal = true;
+        // jit: mirilla sobre el codigo generado — iza a locales los operandos que el
+        // codegen 1:1 manda y trae del array de pila. Escape: PEEPHOLE=0 / #nopeephole.
+        this.jitPeephole = true;
         this.zonePages = null;
         this.zonePage = null;
         this.fp = -1;
