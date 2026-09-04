@@ -286,6 +286,7 @@ if (process.env.ESPIAR) {
     });
 }
 fs.readFile(root + imageName + ".image", function(error, data) {
+    if (process.env.CARGA) { var __t0 = Date.now(); }
     if (error) { console.error("Failed to read image", error); process.exit(1); }
     // CON ".image": el nombre va a parar a primitiveImageName y la imagen deriva
     // de ahi su .changes recortando la ultima extension. Sin el ".image", un
@@ -294,6 +295,7 @@ fs.readFile(root + imageName + ".image", function(error, data) {
     // matando de paso la cola de deferredUIMessages donde corre nuestro -s.
     var image = new Squeak.Image(root + imageName + ".image");
     image.readFromBuffer(data.buffer, function startRunning() {
+        if (process.env.CARGA) console.error("[carga] " + (Date.now() - __t0) + " ms");
         // argv: [vm, imagen, argumentos...] -- la imagen los ve por getSystemAttribute:
         var display = { vmOptions: ["-vm-display-null", "-nodisplay"],
                         argv: [Squeak.vmPath, root + imageName + ".image"].concat(imgArgs) };

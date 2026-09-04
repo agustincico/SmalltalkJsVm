@@ -177,7 +177,36 @@ Object.subclass('Squeak.Image',
         }
         var firstSegSize = readWord();
         var prevObj;
-        var oopMap = new Map();
+        // El oopMap clasico era un Map con claves oldBaseAddr+oop: para imagenes con base
+        // alta las claves superan 2^31 y V8 hashea doubles — millones de veces durante
+        // decodePointers. Los oops son offsets alineados dentro de la imagen: indexacion
+        // directa (typed array de indices + tabla), con derrame a un Map para cualquier
+        // clave fuera de rango (bridges patologicos), misma semantica.
+        var oopMapBase = oldBaseAddr,
+            oopMapIdx = new Uint32Array((data.byteLength >> 2) + 64),
+            oopMapVals = [],
+            oopMapSpill = null;
+        var oopMap = {
+            set: function(key, obj) {
+                var off = key - oopMapBase;
+                if (off >= 0 && (off & 3) === 0 && (off >> 2) < oopMapIdx.length) {
+                    var slot = off >> 2, i = oopMapIdx[slot];
+                    if (i) oopMapVals[i - 1] = obj;
+                    else { oopMapVals.push(obj); oopMapIdx[slot] = oopMapVals.length; }
+                } else {
+                    if (!oopMapSpill) oopMapSpill = new Map();
+                    oopMapSpill.set(key, obj);
+                }
+            },
+            get: function(key) {
+                var off = key - oopMapBase;
+                if (off >= 0 && (off & 3) === 0 && (off >> 2) < oopMapIdx.length) {
+                    var i = oopMapIdx[off >> 2];
+                    return i ? oopMapVals[i - 1] : undefined;
+                }
+                return oopMapSpill ? oopMapSpill.get(key) : undefined;
+            },
+        };
         var rawBits = new Map();
         var headerSize = fileHeaderSize + imageHeaderSize;
         pos = headerSize;
