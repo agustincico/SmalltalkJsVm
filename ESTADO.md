@@ -44,6 +44,16 @@ disparó el port:
   (tiny/veri/dif/atput). benchFib NO cambia: el hueco de sends (activación+lookup+retorno,
   ~44% del tiempo) sigue siendo la línea abierta — atacarlo en serio es el trampolín
   (2 entradas JS por send), que colinda con la stack zone cerrada.
+- **Perf 5-sep (2): etapa 2 — LOOPS** (commit 3d0a801). Cobertura 476 → 534 métodos
+  en Cuis (1928 en Pharo), con el gate BLK del censo implementado: back-jumps siempre
+  incondicionales, loops anidados o disjuntos, ningún salto de afuera aterrizando
+  adentro. Emisión con `L{H}: for(;;)` y bloques anidados por región; back-edge con
+  chequeo de interrupciones y deopt D2 en el pc del destino. **La traza sigue idéntica
+  al clásico** sobre 3,0 M sends. Dos bugs propios en el camino: el decoder perdía el
+  pc de las instrucciones con prefijos de extensión (la pista fue que rechazaba 40
+  métodos por un motivo que el censo decía imposible), y un destino que es el header
+  de un loop no está adentro del loop (el bloque cierra antes del for(;;)). Censo de
+  motivos nuevo: `DIRECTOMOTIVOS=1`.
 - **Perf 5-sep: EL CODEGEN DE FORMA DIRECTA EXISTE — sends 7,94 → 60-85 M/s**
   (`jit.directo.js`, commits 07e0287 y ce1af06). Compila métodos reales de la imagen
   a funciones JS con args posicionales y frames en la pila de JS; deopt al
