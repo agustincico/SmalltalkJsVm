@@ -135,8 +135,10 @@ if (process.env.SINTOPE) {
         return true;
     };
 }
-// spike de forma directa (ver utils/spikes/directo/): opt-in con DIRECTO=1
-if (process.env.DIRECTO && process.env.DIRECTO !== "0") require(REPO + "/utils/spikes/directo/spike-directo.js");
+// forma directa: DIRECTO=1 = spike historico (benchFib a mano);
+// DIRECTO=2 = codegen real solo-frontera (etapa 1a); DIRECTO=3 = + llamadas directo->directo (1b)
+if (process.env.DIRECTO === "1") require(REPO + "/utils/spikes/directo/spike-directo.js");
+if (process.env.DIRECTO === "2" || process.env.DIRECTO === "3") require(REPO + "/jit.directo.js");
 
 // llave de desarrollo del VectorEnginePlugin
 if (process.env.VECTORPLUGIN) Squeak.enableVectorEnginePlugin = true;
@@ -308,6 +310,43 @@ fs.readFile(root + imageName + ".image", function(error, data) {
         // JITSP=a,b / JITSPNOT=c,d bisecan por nombre de funcion generada
         if (process.env.SPLOCAL === "0") vm.jitSpLocal = false;
         if (process.env.PEEPHOLE === "0") vm.jitPeephole = false;
+        if (process.env.DIRECTO === "2" || process.env.DIRECTO === "3") {
+            Squeak.Directo.preparar(vm);
+            if (process.env.DIRECTOUMBRAL) Squeak.Directo.config({umbral: +process.env.DIRECTOUMBRAL});
+            if (process.env.DIRECTOFILTRO) {
+                var pf = process.env.DIRECTOFILTRO.split(",");
+                Squeak.Directo.config({filtro: {div: +pf[0], rem: +pf[1]}});
+            }
+            if (process.env.DIRECTO === "3") vm.directoEncadenar = true;
+            if (process.env.DIRECTODEBUG) { vm.directoDebug = true; vm.directoVolcarN = +process.env.DIRECTODEBUG; }
+            if (process.env.DIRECTOSONDA) {
+                var origMat = Squeak.Directo.RT.mat, porK = {}, totalMat = 0, ultimo = 0, t0 = Date.now();
+                Squeak.Directo.RT.mat = function(vm2, method, rcvr, args, temps, pc, ops, tag) {
+                    var k = "m" + (method.hash & 0xFFFF) + "/" + method.bytes.length + "b pc" + pc + (tag ? " frontera" : " int");
+                    porK[k] = (porK[k] || 0) + 1; totalMat++;
+                    return origMat.apply(null, arguments);
+                };
+                var iv = setInterval(function() {
+                    console.error("[t+" + ((Date.now()-t0)/1000).toFixed(0) + "s] sends=" + vm.sendCount +
+                        " (+" + (vm.sendCount - ultimo) + ") mat=" + totalMat);
+                    ultimo = vm.sendCount;
+                }, 3000);
+                if (iv.unref) iv.unref();
+                process.on("exit", function() {
+                    var top = Object.keys(porK).sort(function(a,b){ return porK[b]-porK[a]; }).slice(0, 8);
+                    console.error("=== top materializaciones ===");
+                    top.forEach(function(k) { console.error("  " + porK[k] + "  " + k); });
+                });
+            }
+            process.on("exit", function() {
+                console.error("[directo] compilados: " + vm.nDirectoCompilados +
+                    " | rechazados: " + vm.nDirectoRechazados +
+                    " | vetados: " + vm.nDirectoVetados +
+                    " | errores codegen: " + vm.nDirectoErroresCodegen +
+                    " | deopts: " + vm.nDeoptEventosDirecto + " eventos, " +
+                    vm.nDeoptFramesDirecto + " frames");
+            });
+        }
         // SONDA: desensamblar el metodo cuyo nombre matchea (DESARMAR=Integer>>benchFib)
         if (process.env.DESARMAR) {
             var __d = process.env.DESARMAR.split(">>"), __hecho = false;

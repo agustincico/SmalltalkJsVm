@@ -102,6 +102,7 @@ Object.subclass('Squeak.Interpreter',
         // Auditado adversarialmente antes de encenderse por defecto; escape: SPLOCAL=0
         // en el arnes de Node, #nosplocal en run/. Ver Compiler>>spLocalize en jit.js.
         this.jitSpLocal = true;
+        this.directo = null;   // forma directa (jit.directo.js): Squeak.Directo.preparar(vm) la enciende
         // jit: mirilla sobre el codigo generado — iza a locales los operandos que el
         // codegen 1:1 manda y trae del array de pila. Escape: PEEPHOLE=0 / #nopeephole.
         this.jitPeephole = true;
@@ -260,7 +261,7 @@ Object.subclass('Squeak.Interpreter',
                         // with return-receiver (Sista 0x58 / V3 0x78). Only safe when the
                         // method has no primitive (else bytes[0..] is the callPrimitive).
                         if (m.methodPrimitiveIndex() !== 0) hacked = false;
-                        else { m.bytes[0] = m.methodSignFlag() ? 0x58 : 0x78; m.compiled = null; }
+                        else { m.bytes[0] = m.methodSignFlag() ? 0x58 : 0x78; m.compiled = null; m.directo = undefined; }
                     }
                     else if (prim) m.pointers[0] |= prim;
                     else if (byte && m.bytes[byte.pc] === byte.old) m.bytes[byte.pc] = byte.hack;
@@ -285,6 +286,7 @@ Object.subclass('Squeak.Interpreter',
             if (singleStep) {
                 if (!this.compiler.enableSingleStepping(this.method)) {
                     this.method.compiled = null;
+                    this.method.directo = undefined;
                     return this.interpretOne(singleStep);
                 }
                 this.breakNow();
@@ -1129,6 +1131,9 @@ Object.subclass('Squeak.Interpreter',
         if (primitiveIndex > 0)
             if (this.tryPrimitive(primitiveIndex, argumentCount, newMethod))
                 return;  //Primitive succeeded -- end of story
+        // forma directa (jit.directo.js): frames en la pila de JS, deopt al desenrollar
+        if (this.directo !== null && this.directo.hook(this, newRcvr, newMethod, argumentCount))
+            return;
         // The method header decoded here instead of through two accessors. This runs on
         // every single activation, and the profile puts methodTempCount alone at 8.7% of
         // the running app for what is one shift and one mask.
