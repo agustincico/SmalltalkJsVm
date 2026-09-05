@@ -44,6 +44,18 @@ disparó el port:
   (tiny/veri/dif/atput). benchFib NO cambia: el hueco de sends (activación+lookup+retorno,
   ~44% del tiempo) sigue siendo la línea abierta — atacarlo en serio es el trampolín
   (2 entradas JS por send), que colinda con la stack zone cerrada.
+- **Perf 5-sep (4): sends 146,5 M/s (19,4x) — y el censo REFUTÓ que los bloques sean
+  el techo** (2aee7db). Censo nuevo `DIRECTOFRONTERA=1`: dice por qué se rompe cada
+  cadena en Morphic vivo. Resultado que cambia el plan: **los bloques son el 0,6%**, no
+  el techo (R7 del análisis, refutado con datos — nos ahorró semanas). Los motivos
+  reales eran hojas quick-prim (18,5%) e inline cache (18,6%), ambos ya implementados:
+  las primitivas 256-519 reciben un `.directo` sintético instalado desde el camino de
+  frontera, y cada sitio de send cachea (clase→función) en el closure con invalidación
+  por época, en vez de sondear el cache global (que además desalojaba entradas: nos
+  hacíamos las roturas solos). Fronteras 17.605→15.979, vetados 189→137, cadenas de
+  1,4→2,2 frames. Traza idéntica en los dos modos. **Pero en Morphic sigue ~7% más
+  lento** (4/4 pares): lo que queda es estructural (40,8% vetados, 23,4% fríos). La
+  decisión no cambia: opt-in, no por defecto.
 - **Perf 5-sep (3): la forma directa NO ayuda a la performance SENTIDA** (82a0dd9).
   Medido con difftrace --ui --until-stable (Morphic offscreen real): 3 pares
   intercalados 8507→8813 ms (~4% peor) y corrida completa 13676→25007 ms (1,8x peor),
