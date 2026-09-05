@@ -50,7 +50,7 @@ var SIN_LOOPS = !!process.env.DIRECTOSINLOOPS;   // biseccion: volver a etapa 1 
 var TRAZA = false;
 var FILTRO = null;       // biseccion: {div, rem} compila solo si (hash % div) === rem
 var TOPE_PROFUNDIDAD = 1000;
-var VETO_MIN_FRONTERAS = 32;
+var VETO_MIN_FRONTERAS = +(process.env.DIRECTOVETO || 32);
 
 // ---------------------------------------------------------------------------
 // RT: materialización de un frame (la receta del spike + temps vivos + trampas)
@@ -74,6 +74,13 @@ function mat(vm, method, rcvr, args, temps, pc, ops, tag) {
     ctx.dirty = true;
     vm.nDeoptFramesDirecto++;
     if (vm.deoptInner === null) {
+        if (vm.directoCensoDeopt) {
+            var kk = tag === null || tag === undefined ? "D1/D2 interrupcion"
+                   : tag.mbb ? "D6 mustBeBoolean"
+                   : tag.si !== undefined ? "D4 especial si" + tag.si
+                   : tag.dirsuper ? "D5 super dirigido" : "D5 frontera de send";
+            vm.directoCensoDeopt[kk] = (vm.directoCensoDeopt[kk] || 0) + 1;
+        }
         vm.deoptInner = ctx;
         vm.deoptPendiente = tag || null;
         vm.deoptIniciador = method;

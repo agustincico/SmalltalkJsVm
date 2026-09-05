@@ -319,6 +319,17 @@ fs.readFile(root + imageName + ".image", function(error, data) {
                 Squeak.Directo.config({filtro: {div: +pf[0], rem: +pf[1]}});
             }
             if (process.env.DIRECTO === "3") vm.directoEncadenar = true;
+            if (process.env.DIRECTODEOPT) {
+                vm.directoCensoDeopt = {};
+                process.on("exit", function() {
+                    var c = vm.directoCensoDeopt, tot = 0;
+                    Object.keys(c).forEach(function(k){ tot += c[k]; });
+                    console.error("=== deopts por tipo (total " + tot + ") ===");
+                    Object.keys(c).sort(function(a,b){return c[b]-c[a];}).forEach(function(k) {
+                        console.error("  " + (c[k]*100/tot).toFixed(1) + "%  " + c[k] + "  " + k);
+                    });
+                });
+            }
             if (process.env.DIRECTOCOSTO) {
                 vm.directoCosto = { analisis: 0, newFunction: 0, bytes: 0, _t0: 0 };
                 process.on("exit", function() {
