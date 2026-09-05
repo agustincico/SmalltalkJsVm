@@ -186,7 +186,21 @@ image.readFromBuffer(data.buffer, function startRunning() {
         display = { vmOptions: ["-vm-display-null", "-nodisplay"] };
     }
     var vm = new Squeak.Interpreter(image, display, {});
-    if (useDirecto) { global.self.__vm = vm; require(repoRoot + "/utils/spikes/directo/spike-directo.js"); }
+    if (useDirecto) {   // --directo = spike historico; --codegen[3] = codegen real
+        global.self.__vm = vm;
+        require(repoRoot + "/utils/spikes/directo/spike-directo.js");
+    }
+    if (args.indexOf("--codegen") >= 0 || args.indexOf("--codegen3") >= 0) {
+        require(repoRoot + "/jit.directo.js");
+        Squeak.Directo.preparar(vm);
+        if (args.indexOf("--codegen3") >= 0) vm.directoEncadenar = true;
+        Squeak.Directo.config({traza: true});   // muestrear los sends directo->directo
+        if (process.env.DIRECTOUMBRAL) Squeak.Directo.config({umbral: +process.env.DIRECTOUMBRAL});
+        if (process.env.DIRECTOFILTRO) {
+            var pf = process.env.DIRECTOFILTRO.split(",");
+            Squeak.Directo.config({filtro: {div: +pf[0], rem: +pf[1]}});
+        }
+    }
     if (noJit) vm.compiler = null;
     if (process.env.LARGEINT === "0") vm.primHandler.largeIntPrims = false; // A/B: desactivar prims LargeInteger
     if (process.env.STREAMPRIM === "0") vm.primHandler.streamPrims = false; // A/B: desactivar prims Stream 65/66/67
@@ -560,6 +574,18 @@ image.readFromBuffer(data.buffer, function startRunning() {
                 logLines.push("S=" + sc + " h=" + traceIdOf(method) + " pc=" + vm.pc + " args=? prim=0"
                     + " cm=" + (vm.method ? traceIdOf(vm.method) : "?")
                     + " rcls=" + vm.getClass(rcvr).className() + " sel=" + (sel && sel.bytesAsString ? sel.bytesAsString() : "?") + " [leaf]");
+        };
+        // igual que jit2LeafHook pero con el pc EXPLICITO: el codigo directo no
+        // puede escribir vm.pc (le clobberearia el pc guardado al caller clasico)
+        vm.directoTraceHook = function(method, sc, rcvr, sel, pc) {
+            if (sc < maxSends && (sc & 4095) === 0) {
+                mix(sc); mix(traceIdOf(method)); mix(pc);
+                if (logLines) logLines.push("s=" + sc + " h=" + traceIdOf(method) + " pc=" + pc);
+            }
+            if (logLines && sc >= logFrom && sc <= logTo)
+                logLines.push("S=" + sc + " h=" + traceIdOf(method) + " pc=" + pc + " args=? prim=0"
+                    + " cm=" + (vm.method ? traceIdOf(vm.method) : "?")
+                    + " rcls=" + vm.getClass(rcvr).className() + " sel=" + (sel && sel.bytesAsString ? sel.bytesAsString() : "?") + " [directo]");
         };
         var origENM = vm.executeNewMethod;
         vm.executeNewMethod = function(newRcvr, newMethod, argumentCount, primitiveIndex, optClass, optSel) {

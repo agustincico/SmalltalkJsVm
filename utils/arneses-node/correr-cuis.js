@@ -310,6 +310,7 @@ fs.readFile(root + imageName + ".image", function(error, data) {
         // JITSP=a,b / JITSPNOT=c,d bisecan por nombre de funcion generada
         if (process.env.SPLOCAL === "0") vm.jitSpLocal = false;
         if (process.env.PEEPHOLE === "0") vm.jitPeephole = false;
+        if (process.env.CONTARSENDS) process.on("exit", function() { console.error("##SENDS " + vm.sendCount + " bc " + vm.byteCodeCount); });
         if (process.env.DIRECTO === "2" || process.env.DIRECTO === "3") {
             Squeak.Directo.preparar(vm);
             if (process.env.DIRECTOUMBRAL) Squeak.Directo.config({umbral: +process.env.DIRECTOUMBRAL});
@@ -318,7 +319,17 @@ fs.readFile(root + imageName + ".image", function(error, data) {
                 Squeak.Directo.config({filtro: {div: +pf[0], rem: +pf[1]}});
             }
             if (process.env.DIRECTO === "3") vm.directoEncadenar = true;
+            if (process.env.DIRECTOTRAZA) { Squeak.Directo.config({traza: true}); vm.directoTraceHook = function(){}; }
             if (process.env.DIRECTODEBUG) { vm.directoDebug = true; vm.directoVolcarN = +process.env.DIRECTODEBUG; }
+            if (process.env.DIRECTOREPLAY) {
+                vm.directoCensoReplay = {};
+                process.on("exit", function() {
+                    var c = vm.directoCensoReplay;
+                    var ks = Object.keys(c).sort(function(a,b){ return c[b]-c[a]; }).slice(0, 12);
+                    console.error("=== replay de especiales ===");
+                    ks.forEach(function(k) { console.error("  " + c[k] + "  " + k); });
+                });
+            }
             if (process.env.DIRECTOSONDA) {
                 var origMat = Squeak.Directo.RT.mat, porK = {}, totalMat = 0, ultimo = 0, t0 = Date.now();
                 Squeak.Directo.RT.mat = function(vm2, method, rcvr, args, temps, pc, ops, tag) {

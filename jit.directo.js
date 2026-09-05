@@ -26,6 +26,11 @@
  *   iff executeNewMethod habría corrido.
  * - interruptCheckCounter vive en el vm, jamás en una local (forceInterruptCheck
  *   = -1000 es el canal de todos los eventos asíncronos).
+ * - El código directo NUNCA escribe vm.pc. El epílogo hace storeContextRegisters()
+ *   sobre el contexto del caller CLÁSICO, así que un vm.pc contaminado con el pc de
+ *   un método directo le guarda un pc ajeno y explota como "invalid PC" al reanudar
+ *   (lo cazó el oráculo cuando la traza lo seteaba; el pc de muestreo viaja como
+ *   argumento del hook, no por vm.pc).
  * - Los helpers aritméticos del intérprete (pop2AndPush*, stackIntOrFloat...)
  *   están PROHIBIDOS desde código directo (leen la pila del VM, usan flags
  *   globales y devuelven centinelas in-band): todo fallo de fast-path = frontera.
@@ -36,6 +41,12 @@ Object.extend(Squeak, { Directo: (function() {
 var DEOPT = Object.freeze({ esDeopt: true });
 var VACIO = Object.freeze([]);
 var UMBRAL = 8;          // activaciones antes de intentar compilar (espejo de .compiled)
+var SIN_QUICK = !!process.env.DIRECTOSINQUICK;
+// TRAZA: emite el muestreo del oraculo en cada sitio directo->directo. Sin esto
+// esos sends son invisibles para el muestreador (que engancha executeNewMethod)
+// y el hash diverge espuriamente. Se decide en tiempo de compilacion: costo cero
+// cuando esta apagada. Es el mismo patron que jit2LeafHook del proyecto stack-zone.
+var TRAZA = false;
 var FILTRO = null;       // biseccion: {div, rem} compila solo si (hash % div) === rem
 var TOPE_PROFUNDIDAD = 1000;
 var VETO_MIN_FRONTERAS = 32;
@@ -132,7 +143,7 @@ function epilogo(vm) {
             }
         }
         if (pend.mbb === true) vm.send(vm.specialObjects[Squeak.splOb_SelectorMustBeBoolean], 0, false);
-        else if (pend.si !== undefined) vm.sendSpecial(pend.si);
+        else if (pend.si !== undefined) replayEspecial(vm, pend.si);
         // pend.lit es el indice DE pointers (1+literalIdx), leido por activacion
         // desde el metodo del frame mas interno: nunca se hornea el objeto selector
         // en la clausura (become sobre el selector quedaria stale).
@@ -141,6 +152,88 @@ function epilogo(vm) {
     } else if (vm.interruptCheckCounter <= 0) {
         vm.checkForInterrupts();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Replay del SEGUNDO NIVEL de un special send, con la pila YA sincronizada
+// (el frame materializado es activeContext y los operandos estan repuestos).
+//
+// Por que existe: el jit clasico resuelve muchas especiales sin hacer un send —
+// primero un fast path inline, y si falla, un helper (pop2AndPush*, objectAt,
+// quickSendOther) que puede tener exito. Recien si el helper falla hace
+// sendSpecial. Si la frontera del modo directo fuera directo a sendSpecial,
+// AGREGARIA sends reales que el clasico no hace: medido, +1.240 sends (+0,5%)
+// en el diferencial, con la traza del oraculo divergiendo. sendCount es
+// semantico (es la linea de tiempo del replay de eventos), asi que esto es
+// infidelidad, no solo ruido. Cada rama de abajo es copia byte a byte de su
+// plantilla en jit.js: si cambia alla, cambia aca.
+// ---------------------------------------------------------------------------
+function replayEspecial(vm, si) {
+    if (vm.directoCensoReplay) {
+        var k = "si" + si;
+        vm.directoCensoReplay[k] = (vm.directoCensoReplay[k] || 0) + 1;
+    }
+    switch (si) {
+        // 0x60-0x67: aritmetica y comparaciones — el nivel 2 acepta floats y
+        // LargeInts de 4 bytes sin send (jit.js:1139-1210)
+        case 0: vm.success = true; vm.resultIsFloat = false;
+            if (vm.pop2AndPushNumResult(vm.stackIntOrFloat(1) + vm.stackIntOrFloat(0))) return; break;
+        case 1: vm.success = true; vm.resultIsFloat = false;
+            if (vm.pop2AndPushNumResult(vm.stackIntOrFloat(1) - vm.stackIntOrFloat(0))) return; break;
+        case 2: vm.success = true;
+            if (vm.pop2AndPushBoolResult(vm.stackIntOrFloat(1) < vm.stackIntOrFloat(0))) return; break;
+        case 3: vm.success = true;
+            if (vm.pop2AndPushBoolResult(vm.stackIntOrFloat(1) > vm.stackIntOrFloat(0))) return; break;
+        case 4: vm.success = true;
+            if (vm.pop2AndPushBoolResult(vm.stackIntOrFloat(1) <= vm.stackIntOrFloat(0))) return; break;
+        case 5: vm.success = true;
+            if (vm.pop2AndPushBoolResult(vm.stackIntOrFloat(1) >= vm.stackIntOrFloat(0))) return; break;
+        case 6: vm.success = true;
+            if (vm.pop2AndPushBoolResult(vm.stackIntOrFloat(1) === vm.stackIntOrFloat(0))) return; break;
+        case 7: vm.success = true;
+            if (vm.pop2AndPushBoolResult(vm.stackIntOrFloat(1) !== vm.stackIntOrFloat(0))) return; break;
+        // 0x68-0x6F: sin fast path inline en el clasico, todo por helpers
+        case 8: vm.success = true; vm.resultIsFloat = false;
+            if (vm.pop2AndPushNumResult(vm.stackIntOrFloat(1) * vm.stackIntOrFloat(0))) return; break;
+        case 9: vm.success = true;
+            if (vm.pop2AndPushIntResult(vm.quickDivide(vm.stackInteger(1), vm.stackInteger(0)))) return; break;
+        case 10: vm.success = true;
+            if (vm.pop2AndPushIntResult(vm.mod(vm.stackInteger(1), vm.stackInteger(0)))) return; break;
+        case 11: vm.success = true;
+            if (vm.primHandler.primitiveMakePoint(1, true)) return; break;
+        case 12: vm.success = true;
+            if (vm.pop2AndPushIntResult(vm.safeShift(vm.stackInteger(1), vm.stackInteger(0)))) return; break;
+        case 13: vm.success = true;
+            if (vm.pop2AndPushIntResult(vm.div(vm.stackInteger(1), vm.stackInteger(0)))) return; break;
+        case 14: vm.success = true;
+            if (vm.pop2AndPushIntResult(vm.stackInteger(1) & vm.stackInteger(0))) return; break;
+        case 15: vm.success = true;
+            if (vm.pop2AndPushIntResult(vm.stackInteger(1) | vm.stackInteger(0))) return; break;
+        // 0x70-0x7F quick sends: at:/at:put:/size y los de quickSendOther
+        // (blockCopy:/value/value:) resuelven sin send cuando aciertan
+        case 16: {
+            var c = vm.primHandler.objectAt(true, true, false);
+            if (vm.primHandler.success) { vm.stack[vm.sp -= 1] = c; return; }
+            break;
+        }
+        case 17: {
+            var v17 = vm.stack[vm.sp];
+            vm.primHandler.objectAtPut(true, true, false);
+            if (vm.primHandler.success) { vm.stack[vm.sp -= 2] = v17; return; }
+            break;
+        }
+        case 18: break;   // el clasico no tiene nivel 2 para size: va directo a send
+        default:
+            // 19-31: quickSendOther cubre 22,23,24,25,26 (== class blockCopy: value value:)
+            // y devuelve false para el resto, que sí van a send completo — igual que el clasico
+            if (vm.primHandler.quickSendOther(vm.receiver, si - 16)) return;
+            break;
+    }
+    if (vm.directoCensoReplay) {
+        var kf = "si" + si + "-FALLO";
+        vm.directoCensoReplay[kf] = (vm.directoCensoReplay[kf] || 0) + 1;
+    }
+    vm.sendSpecial(si);   // el helper fallo: send real, como hace el clasico
 }
 
 // ---------------------------------------------------------------------------
@@ -216,6 +309,7 @@ function pase1(method) {
         else if (b <= 0x6F) ins = { op: "especial", si: b - 0x60, d: -1 };       // binarios
         else if (b <= 0x7F) {
             var si = b - 0x60, argcQ = QUICK_ARGC[si - 16];
+            if (SIN_QUICK && si !== 22 && si !== 23) return null;   // biseccion
             ins = { op: "quick", si: si, argc: argcQ, d: -argcQ };
         }
         else if (b <= 0x8F) ins = { op: "send", n: b & 0xF, argc: 0, d: 0 };
@@ -408,6 +502,7 @@ function compilar(vm, method) {
                         + "var e" + ins.pc + " = vm.findMethodCacheEntry(METH.pointers[" + (1 + ins.n) + "], y);\n"
                         + "v = e" + ins.pc + ".method !== null ? e" + ins.pc + ".method.directo : undefined;\n"
                         + "if (typeof v === 'function' && v.numArgs === " + m + ") {\n"
+                        + (TRAZA ? "  if (vm.directoTraceHook) vm.directoTraceHook(e" + ins.pc + ".method, vm.sendCount, x, METH.pointers[" + (1 + ins.n) + "], " + Q + ");\n" : "")
                         + "  vm.sendCount++; v.nLlamadas++;\n"
                         + "  v = v(vm, x" + (argsCall.length ? ", " + argsCall.join(", ") : "") + ", d + 1);\n"
                         + "  if (v === DEOPT) { " + MAT(Q, OPS(D - m - 1), "null") + " }\n"   // D3
@@ -469,15 +564,42 @@ function emitirEspecial(src, ins, D, Q, MAT, OPS) {
     }
 }
 
-// quick sends 0x70-0x7F: == y class inline puros; el resto frontera (v1)
+// quick sends 0x70-0x7F. Los fast paths son copia BYTE A BYTE de jit.js
+// (generateQuickPrim): si el directo no los reprodujera y mandara todo a
+// frontera, el replay llamaria a los helpers donde el clasico resuelve inline,
+// y eso ALTERA la traza — medido con el oraculo: divergencia en el send 8361
+// (un Array>>at:put: real que el clasico nunca hace). Con estos inline el
+// oraculo da traza identica.
 function emitirQuick(src, ins, D, Q, MAT, OPS) {
-    if (ins.si === 22) {        // ==
-        src.push("s" + (D - 2) + " = s" + (D - 2) + " === s" + (D - 1) + " ? vm.trueObj : vm.falseObj;\n");
-    } else if (ins.si === 23) { // class
-        src.push("x = s" + (D - 1) + ";\n"
-            + "s" + (D - 1) + " = typeof x === 'number' ? vm.specialObjects[" + Squeak.splOb_ClassInteger + "] : x.sqClass;\n");
-    } else {
-        src.push(MAT(Q, OPS(D), "{si:" + ins.si + "}") + "\n");
+    var frontera = MAT(Q, OPS(D), "{si:" + ins.si + "}");
+    switch (ins.si) {
+        case 16:    // at: — solo Array con indice number en rango (jit.js:1049-1053)
+            src.push("x = s" + (D - 2) + "; y = s" + (D - 1) + ";\n"
+                + "if (x.sqClass === vm.specialObjects[7] && x.pointers && typeof y === 'number' && y>0 && y<=x.pointers.length) {\n"
+                + "  s" + (D - 2) + " = x.pointers[y-1];\n"
+                + "} else { " + frontera + " }\n");
+            return;
+        case 17:    // at:put: — el resultado es el VALOR, no el receptor (jit.js:1072-1077)
+            src.push("x = s" + (D - 3) + "; y = s" + (D - 2) + "; v = s" + (D - 1) + ";\n"
+                + "if (x.sqClass === vm.specialObjects[7] && x.pointers && typeof y === 'number' && y>0 && y<=x.pointers.length) {\n"
+                + "  x.pointers[y-1] = v; x.dirty = true; s" + (D - 3) + " = v;\n"
+                + "} else { " + frontera + " }\n");
+            return;
+        case 18:    // size — Array y ByteString inline, el resto send (jit.js:1082-1086)
+            src.push("x = s" + (D - 1) + ";\n"
+                + "if (x.sqClass === vm.specialObjects[7]) s" + (D - 1) + " = x.pointersSize();\n"
+                + "else if (x.sqClass === vm.specialObjects[6]) s" + (D - 1) + " = x.bytesSize();\n"
+                + "else { " + frontera + " }\n");
+            return;
+        case 22:    // == : identidad pura de JS
+            src.push("s" + (D - 2) + " = s" + (D - 2) + " === s" + (D - 1) + " ? vm.trueObj : vm.falseObj;\n");
+            return;
+        case 23:    // class
+            src.push("x = s" + (D - 1) + ";\n"
+                + "s" + (D - 1) + " = typeof x === 'number' ? vm.specialObjects[" + Squeak.splOb_ClassInteger + "] : x.sqClass;\n");
+            return;
+        default:
+            src.push(frontera + "\n");
     }
 }
 
@@ -500,7 +622,7 @@ return {
     pase1: pase1,
     compilar: compilar,
     // instalar el estado en un vm recién creado
-    config: function(o) { if (o.umbral !== undefined) UMBRAL = o.umbral; if (o.filtro !== undefined) FILTRO = o.filtro; },
+    config: function(o) { if (o.umbral !== undefined) UMBRAL = o.umbral; if (o.filtro !== undefined) FILTRO = o.filtro; if (o.traza !== undefined) TRAZA = o.traza; },
     preparar: function(vm) {
         vm.deoptInner = null;
         vm.deoptOuter = null;
