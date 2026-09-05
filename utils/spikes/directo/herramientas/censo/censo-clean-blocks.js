@@ -39,7 +39,15 @@ function clasificar(m) {
     var bytes = m.bytes;
     var prim = m.methodPrimitiveIndex();
     var r = { limpios: 0, fullSucios: 0, embebidos: 0, remotos: 0, blockReturn: 0,
-              thisContext: 0, raro: null };
+              thisContext: 0, raro: null,
+              // "¿algún cuerpo de bloque necesita el contexto VIVO del método?"
+              // Solo dos bytecodes lo necesitan: 0x5C (^ = retorno no-local, que
+              // sube por outerContext hasta el home) y 0x52 (thisContext).
+              // Si ningún cuerpo los tiene, al bloque le alcanza un contexto viudo
+              // sintético, porque activateNewClosureMethod (vm.primitives.js:2083,
+              // 2091) solo lee method y receiver, que son inmutables.
+              nlrEnBloque: 0, thisCtxEnBloque: 0 };
+    var finesDeBloque = [];
     var pc = 0, endPC = 0, extA = 0, extB = 0, done = false;
     if (prim > 0) {
         if (bytes.length < 3 || bytes[0] !== 0xF8) { r.raro = "prim-sin-callPrimitive"; return r; }
@@ -50,16 +58,23 @@ function clasificar(m) {
     while (!done) {
         if (pc >= bytes.length) { if (!r.raro) r.raro = "fin-sin-return"; break; }
         if (n++ > 200000) { r.raro = "metodo-absurdo"; break; }
+        var pcInstr = pc;
+        while (finesDeBloque.length && pcInstr >= finesDeBloque[finesDeBloque.length-1])
+            finesDeBloque.pop();                          // salimos de ese cuerpo
+        var dentroDeBloque = finesDeBloque.length > 0;
         var b = bytes[pc++];
         if (b === 0xE0) { extA = extA * 256 + bytes[pc++]; continue; }
         if (b === 0xE1) { var v = bytes[pc++]; extB = extB * 256 + (v < 128 ? v : v - 256); continue; }
         var eB = extB, b2, b3, dist;
         extA = 0; extB = 0;
         if (b <= 0x51) { /* pushes cortos */ }
-        else if (b === 0x52) { if (eB === 0) r.thisContext++; }
+        else if (b === 0x52) { if (eB === 0) { r.thisContext++; if (dentroDeBloque) r.thisCtxEnBloque++; } }
         else if (b === 0x53) { /* dup */ }
         else if (b >= 0x54 && b <= 0x57) { r.raro = "no-usado"; break; }
-        else if (b >= 0x58 && b <= 0x5C) { done = pc > endPC; }
+        else if (b >= 0x58 && b <= 0x5C) {
+            if (b === 0x5C && dentroDeBloque) r.nlrEnBloque++;   // ^ dentro de un bloque
+            done = pc > endPC;
+        }
         else if (b === 0x5D || b === 0x5E) { r.blockReturn++; done = pc > endPC; }
         else if (b === 0x5F) { /* nop */ }
         else if (b <= 0xAF) { /* sends */ }
@@ -88,6 +103,7 @@ function clasificar(m) {
             b2 = bytes[pc++]; b3 = bytes[pc++];
             var blockSize = b3 + (eB << 8);
             r.embebidos++;
+            finesDeBloque.push(pc + blockSize);            // el cuerpo va de pc a pc+blockSize
             if (pc + blockSize > endPC) endPC = pc + blockSize;   // igual que jit.js:1294
         }
         else if (b >= 0xFB && b <= 0xFD) { pc += 2; r.remotos++; }
@@ -105,6 +121,7 @@ fs.readFile(fullName, function (error, data) {
         self.__vm = vm;
         const vistos = new Set();
         let tot = 0, sinBloques = 0, soloLimpios = 0, conSucios = 0, raros = 0;
+        let conBloques = 0, viudoAlcanza = 0;
         let totLimpios = 0, totEmbebidos = 0, totFullSucios = 0;
         const ejemplos = [];
         vm.allMethodsDo(function (classObj, m, selObj) {
@@ -114,6 +131,11 @@ fs.readFile(fullName, function (error, data) {
             const r = clasificar(m);
             if (r.raro) { raros++; return; }
             totLimpios += r.limpios; totEmbebidos += r.embebidos; totFullSucios += r.fullSucios;
+            const necesitaVivo = r.nlrEnBloque + r.thisCtxEnBloque;
+            if (r.embebidos || r.fullSucios) {
+                conBloques++;
+                if (!necesitaVivo) viudoAlcanza++;
+            }
             const sucio = r.fullSucios + r.embebidos + r.remotos + r.blockReturn;
             if (!sucio && !r.limpios) sinBloques++;
             else if (!sucio && r.limpios) {
@@ -130,6 +152,12 @@ fs.readFile(fullName, function (error, data) {
         console.log("  con al menos un bloque que captura: " + conSucios + "  (" + (100*conSucios/tot).toFixed(1) + "%)");
         console.log("  bytecodes de bloque en total: limpios=" + totLimpios +
                     " fullSucios=" + totFullSucios + " embebidos(Cuis)=" + totEmbebidos);
+        console.log("  --- ¿al bloque le alcanza un contexto VIUDO sintético? ---");
+        console.log("  métodos con bloques:              " + conBloques);
+        console.log("  ...cuyos bloques NUNCA piden el contexto vivo (sin ^ ni thisContext):  "
+                    + viudoAlcanza + "  (" + (100*viudoAlcanza/Math.max(1,conBloques)).toFixed(1) + "%)");
+        console.log("  ...que SÍ lo piden:               " + (conBloques - viudoAlcanza) +
+                    "  (" + (100*(conBloques-viudoAlcanza)/Math.max(1,conBloques)).toFixed(1) + "%)");
         if (ejemplos.length) console.log("  ejemplos de solo-limpios:\n    " + ejemplos.join("\n    "));
         else console.log("  (esta imagen NO emite clean blocks)");
         process.exit(0);

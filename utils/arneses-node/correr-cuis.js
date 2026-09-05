@@ -135,6 +135,41 @@ if (process.env.SINTOPE) {
         return true;
     };
 }
+// SONDA: cuantas veces corre cada primitiva REAL y cuantas FALLA (o sea, cuantas
+// veces se ejecuta su cuerpo Smalltalk de fallback). Decide si intrinsificar una
+// primitiva en la forma directa necesita compilar el fallback o alcanza con deoptar:
+// si nunca falla, el camino de fallo es teorico.
+if (process.env.PRIMFALLA) {
+    var pf = new Map();
+    var origDo = Squeak.Primitives.prototype.doPrimitive;
+    Squeak.Primitives.prototype.doPrimitive = function(index, argCount, newMethod) {
+        var r = origDo.apply(this, arguments);
+        var e = pf.get(index);
+        if (e === undefined) pf.set(index, e = { n: 0, falla: 0 });
+        e.n++;
+        if (r !== true) e.falla++;
+        return r;
+    };
+    process.on("exit", function() {
+        var filas = [];
+        pf.forEach(function(e, idx) { filas.push({ idx: idx, n: e.n, f: e.falla }); });
+        filas.sort(function(a, b) { return b.n - a.n; });
+        var totN = filas.reduce(function(a, x) { return a + x.n; }, 0);
+        var totF = filas.reduce(function(a, x) { return a + x.f; }, 0);
+        console.error("=== primitivas reales: corridas y fallos (" + totN + " llamadas, " +
+                      totF + " fallos = " + (totF*100/Math.max(1,totN)).toFixed(2) + "%) ===");
+        console.error("   prim      llamadas     fallos   %fallo");
+        filas.slice(0, 20).forEach(function(x) {
+            console.error("   " + String(x.idx).padStart(4) + "  " + String(x.n).padStart(12) +
+                          "  " + String(x.f).padStart(9) + "   " + (x.f*100/x.n).toFixed(2) + "%");
+        });
+        var nunca = filas.filter(function(x) { return x.f === 0; });
+        var nuncaN = nunca.reduce(function(a, x) { return a + x.n; }, 0);
+        console.error("   ------");
+        console.error("   primitivas que NUNCA fallaron: " + nunca.length + " de " + filas.length +
+                      ", y son el " + (nuncaN*100/Math.max(1,totN)).toFixed(1) + "% de las llamadas");
+    });
+}
 // forma directa: DIRECTO=1 = spike historico (benchFib a mano);
 // DIRECTO=2 = codegen real solo-frontera (etapa 1a); DIRECTO=3 = + llamadas directo->directo (1b)
 if (process.env.DIRECTO === "1") require(REPO + "/utils/spikes/directo/spike-directo.js");
