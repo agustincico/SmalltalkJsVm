@@ -1,0 +1,741 @@
+{
+  "imagen": "AppRun.image",
+  "entradasDiccionario": 133160,
+  "unicos": 133004,
+  "noSista": 8206,
+  "sinBytes": 0,
+  "R0": 82315,
+  "R1": 83956,
+  "R2": 88607,
+  "conPrimitiva": 11520,
+  "quickPrim": 10674,
+  "primConCuerpoR0": 696,
+  "primConCuerpoR1": 767,
+  "primConCuerpoR2": 825,
+  "soloPor": {
+    "solo-newArray": 2630,
+    "solo-closure": 18719,
+    "solo-primitiva": 11499,
+    "solo-thisContext": 151
+  },
+  "combos": {
+    "closure+newArray": 3117,
+    "newArray+thisContext": 7,
+    "closure+newArray+thisContext": 25,
+    "closure+thisContext": 22,
+    "primitiva+closure": 7,
+    "primitiva+thisContext": 10,
+    "primitiva+newArray": 4
+  },
+  "conBackJump": 2336,
+  "conSuper": 5492,
+  "conClosure": 21890,
+  "conFullClosure": 21890,
+  "conClosureCopy": 0,
+  "conThisContext": 215,
+  "conThisProcess": 0,
+  "conNewArray": 5783,
+  "conRaro": 0,
+  "rarosEjemplos": [],
+  "numArgsR0R1": {
+    "0": 46770,
+    "1": 27885,
+    "2": 6030,
+    "3": 1823,
+    "4": 727,
+    "5": 323,
+    "6": 198,
+    "7": 108,
+    "8": 62,
+    "9": 7,
+    "10": 8,
+    "11": 8,
+    "12": 4,
+    "13": 1,
+    "15": 2
+  },
+  "numTempsR0R1": {
+    "0": 70880,
+    "1": 7336,
+    "2": 3130,
+    "3": 1275,
+    "4": 679,
+    "5": 299,
+    "6": 113,
+    "7": 105,
+    "8": 43,
+    "9": 33,
+    "10": 13,
+    "11": 13,
+    "12": 12,
+    "13": 1,
+    "14": 5,
+    "15": 5,
+    "16": 2,
+    "17": 1,
+    "18": 3,
+    "21": 1,
+    "24": 1,
+    "25": 1,
+    "26": 1,
+    "27": 1,
+    "32": 1,
+    "36": 1,
+    "41": 1
+  },
+  "r0Cero": 13640,
+  "ejemplosR0": [
+    {
+      "nombre": "RSAthensRenderer>>buildRingPath:",
+      "sends": 239,
+      "condJumps": 18,
+      "bytes": 922
+    },
+    {
+      "nombre": "VirtualMachine>>statisticsReport",
+      "sends": 208,
+      "condJumps": 8,
+      "bytes": 898
+    },
+    {
+      "nombre": "InstructionStream>>interpretV3ClosuresExtension:in:for:",
+      "sends": 123,
+      "condJumps": 38,
+      "bytes": 489
+    },
+    {
+      "nombre": "InstructionStream>>interpretV3PlusClosureExtension:in:for:",
+      "sends": 123,
+      "condJumps": 38,
+      "bytes": 490
+    },
+    {
+      "nombre": "RoundedBorderStyle>>frameRectangle6:on:",
+      "sends": 153,
+      "condJumps": 1,
+      "bytes": 359
+    },
+    {
+      "nombre": "RoundedBorderStyle>>frameRectangle8:on:",
+      "sends": 153,
+      "condJumps": 1,
+      "bytes": 359
+    },
+    {
+      "nombre": "RoundedBorderStyle>>frameRectangle7:on:",
+      "sends": 153,
+      "condJumps": 1,
+      "bytes": 359
+    },
+    {
+      "nombre": "FloatTest>>testCharacterization",
+      "sends": 151,
+      "condJumps": 1,
+      "bytes": 315
+    },
+    {
+      "nombre": "AthensCairoPathBuilder>>ellipticalArc2:xrot:large:sweep:to:",
+      "sends": 130,
+      "condJumps": 10,
+      "bytes": 541
+    },
+    {
+      "nombre": "RSAbstractControlCanvas>>correctCameraPosition:inRectangle:position:scale:",
+      "sends": 110,
+      "condJumps": 10,
+      "bytes": 206
+    },
+    {
+      "nombre": "RoundedBorderStyle>>frameRectangle3:on:",
+      "sends": 117,
+      "condJumps": 1,
+      "bytes": 263
+    },
+    {
+      "nombre": "RoundedBorderStyle>>frameRectangle5:on:",
+      "sends": 117,
+      "condJumps": 1,
+      "bytes": 269
+    },
+    {
+      "nombre": "RoundedBorderStyle>>frameRectangle4:on:",
+      "sends": 117,
+      "condJumps": 1,
+      "bytes": 263
+    },
+    {
+      "nombre": "InstructionStream>>interpretNext2ByteSistaV1Instruction:for:extA:extB:startPC:",
+      "sends": 96,
+      "condJumps": 20,
+      "bytes": 335
+    },
+    {
+      "nombre": "Context>>doPrimitive:method:receiver:args:",
+      "sends": 83,
+      "condJumps": 27,
+      "bytes": 385
+    },
+    {
+      "nombre": "InstructionStream>>interpretNextV3PlusClosureInstructionFor:",
+      "sends": 87,
+      "condJumps": 23,
+      "bytes": 349
+    },
+    {
+      "nombre": "RubSmalltalkCodeMode class>>menuOn:",
+      "sends": 100,
+      "condJumps": 2,
+      "bytes": 364
+    },
+    {
+      "nombre": "BitBlt>>clipRange",
+      "sends": 67,
+      "condJumps": 27,
+      "bytes": 312
+    },
+    {
+      "nombre": "AndreasSystemProfiler>>reportGCStatsOn:",
+      "sends": 88,
+      "condJumps": 3,
+      "bytes": 317
+    },
+    {
+      "nombre": "RSAthensRenderer>>arcCornerTangets:p1:r:rc:cw:",
+      "sends": 84,
+      "condJumps": 3,
+      "bytes": 302
+    },
+    {
+      "nombre": "RubTextScrollPane>>scrollSelectionIntoView:",
+      "sends": 74,
+      "condJumps": 13,
+      "bytes": 210
+    },
+    {
+      "nombre": "AbstractFontFamilyMember>>isCloserMatchThan:toStretch:weight:slant:",
+      "sends": 77,
+      "condJumps": 10,
+      "bytes": 165
+    },
+    {
+      "nombre": "DiffMorph>>newJoinSectionFrom:to:",
+      "sends": 80,
+      "condJumps": 6,
+      "bytes": 196
+    },
+    {
+      "nombre": "TabPanelBorderStyle>>frameRectangle:on:",
+      "sends": 81,
+      "condJumps": 3,
+      "bytes": 186
+    },
+    {
+      "nombre": "NSPerlinNoise>>noise:and:",
+      "sends": 80,
+      "condJumps": 4,
+      "bytes": 324
+    },
+    {
+      "nombre": "AlphaImageMorph>>layoutPosition",
+      "sends": 75,
+      "condJumps": 9,
+      "bytes": 149
+    },
+    {
+      "nombre": "MessageTally>>reportGCStatsOn:",
+      "sends": 80,
+      "condJumps": 3,
+      "bytes": 309
+    },
+    {
+      "nombre": "RoundedBorderStyle>>frameRectangle2:on:",
+      "sends": 81,
+      "condJumps": 1,
+      "bytes": 183
+    },
+    {
+      "nombre": "Rectangle>>withSideOrCorner:setToPoint:minExtent:limit:",
+      "sends": 74,
+      "condJumps": 8,
+      "bytes": 163
+    },
+    {
+      "nombre": "RSLabelGeneratorTest>>testSearch",
+      "sends": 79,
+      "condJumps": 1,
+      "bytes": 359
+    },
+    {
+      "nombre": "EdgeGripMorph>>fitTargetBoundsInOwner:",
+      "sends": 74,
+      "condJumps": 5,
+      "bytes": 138
+    },
+    {
+      "nombre": "Color class>>colorFromPixelValue:depth:",
+      "sends": 63,
+      "condJumps": 14,
+      "bytes": 235
+    },
+    {
+      "nombre": "MetacelloPackageSpec>>configMethodBodyOn:hasName:indent:",
+      "sends": 68,
+      "condJumps": 8,
+      "bytes": 216
+    },
+    {
+      "nombre": "MouseClickState>>handleEvent:from:",
+      "sends": 53,
+      "condJumps": 20,
+      "bytes": 215
+    },
+    {
+      "nombre": "RGTraitV2Strategy>>definitionWithSlots",
+      "sends": 67,
+      "condJumps": 5,
+      "bytes": 190
+    },
+    {
+      "nombre": "Point>>insideTriangle:with:with:",
+      "sends": 68,
+      "condJumps": 4,
+      "bytes": 128
+    },
+    {
+      "nombre": "RGClassStrategy>>definitionWithSlots",
+      "sends": 67,
+      "condJumps": 5,
+      "bytes": 190
+    },
+    {
+      "nombre": "OSSDL2BackendWindow>>visitWindowEvent:",
+      "sends": 58,
+      "condJumps": 13,
+      "bytes": 164
+    },
+    {
+      "nombre": "RubTextSegmentMorph>>computeStraightVertices",
+      "sends": 68,
+      "condJumps": 2,
+      "bytes": 167
+    },
+    {
+      "nombre": "AthensCurveFlattener>>isFlatQuadBezier:y1:x2:y2:x3:y3:",
+      "sends": 61,
+      "condJumps": 8,
+      "bytes": 171
+    },
+    {
+      "nombre": "RubParagraph>>verticesFrom:to:",
+      "sends": 67,
+      "condJumps": 2,
+      "bytes": 166
+    },
+    {
+      "nombre": "TextHighlightByBounds>>drawOn:in:offset:",
+      "sends": 60,
+      "condJumps": 9,
+      "bytes": 146
+    },
+    {
+      "nombre": "RubTextSegmentMorph>>textChangedFrom:to:delta:",
+      "sends": 54,
+      "condJumps": 13,
+      "bytes": 147
+    },
+    {
+      "nombre": "Float>>asIEEE32BitWord",
+      "sends": 53,
+      "condJumps": 13,
+      "bytes": 187
+    },
+    {
+      "nombre": "UITheme>>configureWindowLabelAreaFor:",
+      "sends": 59,
+      "condJumps": 7,
+      "bytes": 147
+    },
+    {
+      "nombre": "RGClassStrategy>>definition",
+      "sends": 61,
+      "condJumps": 5,
+      "bytes": 169
+    },
+    {
+      "nombre": "Color>>basicPixelValueForDepth:",
+      "sends": 54,
+      "condJumps": 12,
+      "bytes": 191
+    },
+    {
+      "nombre": "DiffMorph>>addMainMorphsWith:",
+      "sends": 58,
+      "condJumps": 7,
+      "bytes": 182
+    },
+    {
+      "nombre": "UTF8TextConverter>>nextFromStream:",
+      "sends": 53,
+      "condJumps": 12,
+      "bytes": 162
+    },
+    {
+      "nombre": "SmallIntegerTest>>testPrintString",
+      "sends": 60,
+      "condJumps": 4,
+      "bytes": 182
+    }
+  ],
+  "ejemplosR1": [
+    {
+      "nombre": "Canvas>>frameRectangle:width:colors:dashes:offset:",
+      "sends": 177,
+      "condJumps": 14,
+      "backJumps": 4,
+      "bytes": 610
+    },
+    {
+      "nombre": "FreeTypeSubPixelAntiAliasedGlyphRenderer>>filter:",
+      "sends": 139,
+      "condJumps": 19,
+      "backJumps": 4,
+      "bytes": 582
+    },
+    {
+      "nombre": "ComplexBorderStyle>>framePolygon:on:",
+      "sends": 144,
+      "condJumps": 7,
+      "backJumps": 1,
+      "bytes": 521
+    },
+    {
+      "nombre": "StrikeFont>>readFromBitFont:",
+      "sends": 132,
+      "condJumps": 13,
+      "backJumps": 5,
+      "bytes": 611
+    },
+    {
+      "nombre": "InstructionStream>>interpretNextSistaV1InstructionFor:",
+      "sends": 104,
+      "condJumps": 37,
+      "backJumps": 1,
+      "bytes": 502
+    },
+    {
+      "nombre": "Float>>asMinimalDecimalFraction",
+      "sends": 102,
+      "condJumps": 26,
+      "backJumps": 1,
+      "bytes": 454
+    },
+    {
+      "nombre": "Paragraph>>displaySelectionInLine:on:",
+      "sends": 91,
+      "condJumps": 17,
+      "backJumps": 1,
+      "bytes": 254
+    },
+    {
+      "nombre": "Float>>absPrintExactlyOn:base:",
+      "sends": 93,
+      "condJumps": 14,
+      "backJumps": 2,
+      "bytes": 410
+    },
+    {
+      "nombre": "Integer class>>largePrimesUpTo:do:",
+      "sends": 88,
+      "condJumps": 16,
+      "backJumps": 5,
+      "bytes": 369
+    },
+    {
+      "nombre": "Float>>absPrintInexactlyOn:base:",
+      "sends": 87,
+      "condJumps": 16,
+      "backJumps": 2,
+      "bytes": 375
+    },
+    {
+      "nombre": "RubCharacterBlockScanner>>characterBlockAtPoint:index:in:",
+      "sends": 84,
+      "condJumps": 15,
+      "backJumps": 1,
+      "bytes": 297
+    },
+    {
+      "nombre": "PluggableTabButtonMorph>>drawTabOn:",
+      "sends": 95,
+      "condJumps": 2,
+      "backJumps": 1,
+      "bytes": 215
+    },
+    {
+      "nombre": "StrikeFontSet>>makeItalicGlyphs",
+      "sends": 90,
+      "condJumps": 4,
+      "backJumps": 3,
+      "bytes": 250
+    },
+    {
+      "nombre": "Form>>pageWarp:at:forward:",
+      "sends": 90,
+      "condJumps": 4,
+      "backJumps": 1,
+      "bytes": 307
+    },
+    {
+      "nombre": "StrikeFont>>buildfontNamed:fromForms:startingAtAscii:ascent:descent:maxWid:",
+      "sends": 83,
+      "condJumps": 6,
+      "backJumps": 3,
+      "bytes": 338
+    },
+    {
+      "nombre": "DateAndTime class>>fuzzyReadFrom:",
+      "sends": 72,
+      "condJumps": 16,
+      "backJumps": 3,
+      "bytes": 265
+    },
+    {
+      "nombre": "TableLayout>>placeCells:in:horizontal:target:",
+      "sends": 71,
+      "condJumps": 14,
+      "backJumps": 2,
+      "bytes": 275
+    },
+    {
+      "nombre": "FloatTest>>testComparison",
+      "sends": 80,
+      "condJumps": 2,
+      "backJumps": 1,
+      "bytes": 236
+    },
+    {
+      "nombre": "PNGReadWriter class>>computeSwizzleMapForDepth:",
+      "sends": 76,
+      "condJumps": 6,
+      "backJumps": 3,
+      "bytes": 249
+    },
+    {
+      "nombre": "StrikeFont>>makeItalicGlyphs",
+      "sends": 75,
+      "condJumps": 4,
+      "backJumps": 3,
+      "bytes": 231
+    },
+    {
+      "nombre": "FreeTypeGlyphRenderer>>convert8to32:colorValue:",
+      "sends": 65,
+      "condJumps": 7,
+      "backJumps": 2,
+      "bytes": 267
+    },
+    {
+      "nombre": "PNGReadWriter>>copyPixelsGray:",
+      "sends": 65,
+      "condJumps": 6,
+      "backJumps": 3,
+      "bytes": 242
+    },
+    {
+      "nombre": "Date class>>readFrom:",
+      "sends": 53,
+      "condJumps": 18,
+      "backJumps": 5,
+      "bytes": 223
+    },
+    {
+      "nombre": "JPEGReadWriter>>colorConvertIntYCbCrMCU",
+      "sends": 60,
+      "condJumps": 10,
+      "backJumps": 1,
+      "bytes": 231
+    },
+    {
+      "nombre": "SimpleHierarchicalListMorph>>arrowKey:",
+      "sends": 53,
+      "condJumps": 16,
+      "backJumps": 1,
+      "bytes": 177
+    },
+    {
+      "nombre": "FreeTypeFont>>displayString:on:from:to:at:kern:baselineY:",
+      "sends": 60,
+      "condJumps": 8,
+      "backJumps": 1,
+      "bytes": 298
+    },
+    {
+      "nombre": "ImageReadWriter>>unpackBits:depthTo8From:with:height:pad:",
+      "sends": 62,
+      "condJumps": 6,
+      "backJumps": 4,
+      "bytes": 269
+    },
+    {
+      "nombre": "DisplayObject>>follow:while:bitsBehind:startingLoc:",
+      "sends": 65,
+      "condJumps": 3,
+      "backJumps": 1,
+      "bytes": 236
+    },
+    {
+      "nombre": "CharacterBlockScanner>>characterBlockAtPoint:index:in:",
+      "sends": 57,
+      "condJumps": 10,
+      "backJumps": 1,
+      "bytes": 213
+    },
+    {
+      "nombre": "SHA256>>processBuffer:",
+      "sends": 66,
+      "condJumps": 1,
+      "backJumps": 1,
+      "bytes": 237
+    },
+    {
+      "nombre": "LzwGifEncoder>>encode:",
+      "sends": 54,
+      "condJumps": 13,
+      "backJumps": 5,
+      "bytes": 295
+    },
+    {
+      "nombre": "Color class>>computeRGBColorConvertingMap:to:keepSubPixelAA:",
+      "sends": 58,
+      "condJumps": 8,
+      "backJumps": 1,
+      "bytes": 208
+    },
+    {
+      "nombre": "String>>findSubstring:in:startingAt:matchTable:",
+      "sends": 53,
+      "condJumps": 13,
+      "backJumps": 4,
+      "bytes": 183
+    },
+    {
+      "nombre": "ByteArray>>utf8ToIso",
+      "sends": 57,
+      "condJumps": 8,
+      "backJumps": 1,
+      "bytes": 174
+    },
+    {
+      "nombre": "Context>>errorReportOn:",
+      "sends": 59,
+      "condJumps": 5,
+      "backJumps": 2,
+      "bytes": 195
+    },
+    {
+      "nombre": "Rectangle>>allAreasOutsideList:startingAt:do:",
+      "sends": 57,
+      "condJumps": 7,
+      "backJumps": 1,
+      "bytes": 156
+    },
+    {
+      "nombre": "GrafPort>>frameOval:borderWidth:",
+      "sends": 58,
+      "condJumps": 5,
+      "backJumps": 2,
+      "bytes": 206
+    },
+    {
+      "nombre": "RubCharacterBlockScanner>>crossedX",
+      "sends": 51,
+      "condJumps": 12,
+      "backJumps": 1,
+      "bytes": 196
+    },
+    {
+      "nombre": "Color class>>initializeIndexedColors",
+      "sends": 56,
+      "condJumps": 6,
+      "backJumps": 4,
+      "bytes": 294
+    },
+    {
+      "nombre": "StrikeFont>>characterFormAt:put:",
+      "sends": 56,
+      "condJumps": 5,
+      "backJumps": 1,
+      "bytes": 173
+    },
+    {
+      "nombre": "StrikeFontSet>>characterFormAt:put:",
+      "sends": 56,
+      "condJumps": 4,
+      "backJumps": 1,
+      "bytes": 170
+    },
+    {
+      "nombre": "RubTextEditor>>selectWord",
+      "sends": 44,
+      "condJumps": 16,
+      "backJumps": 1,
+      "bytes": 213
+    },
+    {
+      "nombre": "WarpBlt>>mixPix:sourceMap:destMap:",
+      "sends": 49,
+      "condJumps": 10,
+      "backJumps": 1,
+      "bytes": 179
+    },
+    {
+      "nombre": "SourceFileArrayTest>>testSourcesFileAddressRange",
+      "sends": 50,
+      "condJumps": 9,
+      "backJumps": 9,
+      "bytes": 269
+    },
+    {
+      "nombre": "SourceFileArrayTest>>testChangesFileAddressRange",
+      "sends": 50,
+      "condJumps": 9,
+      "backJumps": 9,
+      "bytes": 272
+    },
+    {
+      "nombre": "Form class>>dotOfSize:",
+      "sends": 55,
+      "condJumps": 3,
+      "backJumps": 1,
+      "bytes": 182
+    },
+    {
+      "nombre": "CompiledCode>>sameLiteralsAs:",
+      "sends": 40,
+      "condJumps": 17,
+      "backJumps": 1,
+      "bytes": 148
+    },
+    {
+      "nombre": "Paragraph>>selectionRectsFrom:to:",
+      "sends": 51,
+      "condJumps": 6,
+      "backJumps": 1,
+      "bytes": 157
+    },
+    {
+      "nombre": "Float>>absPrintOn:base:digitCount:",
+      "sends": 45,
+      "condJumps": 12,
+      "backJumps": 4,
+      "bytes": 211
+    },
+    {
+      "nombre": "RubDisplayScanner>>displayLine:offset:leftInRun:",
+      "sends": 48,
+      "condJumps": 8,
+      "backJumps": 1,
+      "bytes": 207
+    }
+  ]
+}

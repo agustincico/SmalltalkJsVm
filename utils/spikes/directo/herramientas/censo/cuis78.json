@@ -1,0 +1,733 @@
+{
+  "imagen": "Cuis7.8.image",
+  "entradasDiccionario": 19162,
+  "unicos": 19162,
+  "noSista": 0,
+  "sinBytes": 0,
+  "R0": 12104,
+  "R1": 12768,
+  "R2": 13442,
+  "conPrimitiva": 2007,
+  "quickPrim": 1507,
+  "primConCuerpoR0": 370,
+  "primConCuerpoR1": 403,
+  "primConCuerpoR2": 481,
+  "soloPor": {
+    "solo-closure": 2802,
+    "solo-primitiva": 1988,
+    "solo-newArray": 243,
+    "solo-thisContext": 22
+  },
+  "combos": {
+    "closure+newArray": 620,
+    "primitiva+newArray": 10,
+    "primitiva+thisContext": 1,
+    "closure+newArray+thisContext": 14,
+    "closure+thisContext": 12,
+    "primitiva+closure": 5,
+    "primitiva+closure+newArray": 3
+  },
+  "conBackJump": 979,
+  "conSuper": 836,
+  "conClosure": 3456,
+  "conFullClosure": 0,
+  "conClosureCopy": 3456,
+  "conThisContext": 49,
+  "conThisProcess": 0,
+  "conNewArray": 890,
+  "conRaro": 0,
+  "rarosEjemplos": [],
+  "numArgsR0R1": {
+    "0": 5987,
+    "1": 4147,
+    "2": 1588,
+    "3": 592,
+    "4": 255,
+    "5": 89,
+    "6": 66,
+    "7": 12,
+    "8": 24,
+    "9": 7,
+    "10": 1
+  },
+  "numTempsR0R1": {
+    "0": 10191,
+    "1": 1275,
+    "2": 576,
+    "3": 259,
+    "4": 174,
+    "5": 95,
+    "6": 51,
+    "7": 39,
+    "8": 18,
+    "9": 23,
+    "10": 18,
+    "11": 9,
+    "12": 7,
+    "13": 7,
+    "14": 9,
+    "15": 7,
+    "16": 2,
+    "17": 1,
+    "18": 3,
+    "21": 1,
+    "28": 1,
+    "30": 1,
+    "33": 1
+  },
+  "r0Cero": 1641,
+  "ejemplosR0": [
+    {
+      "nombre": "ByteArray>>uint64At:bigEndian:",
+      "sends": 219,
+      "condJumps": 15,
+      "bytes": 761
+    },
+    {
+      "nombre": "InstructionStream>>interpretV3ClosuresExtension:in:for:",
+      "sends": 123,
+      "condJumps": 38,
+      "bytes": 517
+    },
+    {
+      "nombre": "ByteArray>>int32At:bigEndian:",
+      "sends": 125,
+      "condJumps": 13,
+      "bytes": 428
+    },
+    {
+      "nombre": "VectorEngineWholePixel>>updateAlphasZeroStrokeForX:y:",
+      "sends": 102,
+      "condJumps": 30,
+      "bytes": 468
+    },
+    {
+      "nombre": "InstructionStream>>interpretV3Extension:in:for:",
+      "sends": 98,
+      "condJumps": 32,
+      "bytes": 396
+    },
+    {
+      "nombre": "AndreasSystemProfiler>>reportGCStatsOn:linesOn:talliesOn:",
+      "sends": 122,
+      "condJumps": 3,
+      "bytes": 425
+    },
+    {
+      "nombre": "VectorEngine>>arcTo:radius:angleOfXAxis:largeFlag:sweepFlag:",
+      "sends": 110,
+      "condJumps": 12,
+      "bytes": 476
+    },
+    {
+      "nombre": "InstructionStream>>interpretNext2ByteSistaV1Instruction:for:extA:extB:startPC:",
+      "sends": 96,
+      "condJumps": 22,
+      "bytes": 367
+    },
+    {
+      "nombre": "VectorEngineSubPixel>>blendStrokeAndFillAt:redIsInside:greenIsInside:blueIsInside:antiAliasAlphasWord:",
+      "sends": 106,
+      "condJumps": 6,
+      "bytes": 407
+    },
+    {
+      "nombre": "VectorEngineSubPixel>>updateEdgeCountAtX:y:",
+      "sends": 96,
+      "condJumps": 15,
+      "bytes": 464
+    },
+    {
+      "nombre": "InstructionStream>>interpretNextV3ClosuresInstructionFor:",
+      "sends": 86,
+      "condJumps": 22,
+      "bytes": 353
+    },
+    {
+      "nombre": "TextComposition>>displaySelectionStartBlock:stopBlock:InLine:on:textTopLeft:selectionColor:",
+      "sends": 86,
+      "condJumps": 16,
+      "bytes": 237
+    },
+    {
+      "nombre": "SmalltalkCompleter>>computeMessageEntriesFor:in:and:",
+      "sends": 70,
+      "condJumps": 27,
+      "bytes": 334
+    },
+    {
+      "nombre": "BitBlt>>clipRange",
+      "sends": 67,
+      "condJumps": 27,
+      "bytes": 385
+    },
+    {
+      "nombre": "Color class>>colorFromPixelValue:depth:",
+      "sends": 74,
+      "condJumps": 20,
+      "bytes": 360
+    },
+    {
+      "nombre": "HandMorph>>generateKeyboardEvent:",
+      "sends": 61,
+      "condJumps": 31,
+      "bytes": 324
+    },
+    {
+      "nombre": "Color>>pixelValueForDepth:",
+      "sends": 75,
+      "condJumps": 13,
+      "bytes": 221
+    },
+    {
+      "nombre": "SHParserST80>>scanNumber",
+      "sends": 63,
+      "condJumps": 20,
+      "bytes": 278
+    },
+    {
+      "nombre": "Character class>>utf8BytesAndCodePointFor:byte2:byte3:byte4:into:into:assumeLatinIfInvalid:",
+      "sends": 58,
+      "condJumps": 23,
+      "bytes": 282
+    },
+    {
+      "nombre": "InstructionStream>>interpretNext3ByteSistaV1Instruction:for:extA:extB:startPC:",
+      "sends": 69,
+      "condJumps": 12,
+      "bytes": 273
+    },
+    {
+      "nombre": "SystemDictionary>>warnAndOfferLastUserChanges",
+      "sends": 77,
+      "condJumps": 1,
+      "bytes": 140
+    },
+    {
+      "nombre": "SmalltalkEditor>>explainDelimiter:",
+      "sends": 57,
+      "condJumps": 17,
+      "bytes": 179
+    },
+    {
+      "nombre": "VectorEngineSubPixel>>blendFillOnlyAt:redIsInside:greenIsInside:blueIsInside:antiAliasAlphasWord:",
+      "sends": 67,
+      "condJumps": 6,
+      "bytes": 285
+    },
+    {
+      "nombre": "VectorEngine>>contourDataIndexForUtf32:contourDataIndexes:",
+      "sends": 62,
+      "condJumps": 9,
+      "bytes": 241
+    },
+    {
+      "nombre": "MouseClickState>>handleEvent:from:",
+      "sends": 49,
+      "condJumps": 22,
+      "bytes": 207
+    },
+    {
+      "nombre": "Point>>barycentricCoordinatesInTriangle:with:with:into:ifDegenerate:",
+      "sends": 67,
+      "condJumps": 1,
+      "bytes": 123
+    },
+    {
+      "nombre": "VectorEngineSubPixel>>blendStrokeOnlyAt:antiAliasAlphasWord:",
+      "sends": 64,
+      "condJumps": 3,
+      "bytes": 242
+    },
+    {
+      "nombre": "Float>>asIEEE32BitWord",
+      "sends": 53,
+      "condJumps": 13,
+      "bytes": 207
+    },
+    {
+      "nombre": "Time class>>humanWordsForSecondsAgo:",
+      "sends": 54,
+      "condJumps": 12,
+      "bytes": 171
+    },
+    {
+      "nombre": "VectorEngine>>arcCenter:radius:rotationAngle:start:sweep:",
+      "sends": 60,
+      "condJumps": 4,
+      "bytes": 205
+    },
+    {
+      "nombre": "TileResizeMorph>>selectionRectangle:",
+      "sends": 53,
+      "condJumps": 9,
+      "bytes": 183
+    },
+    {
+      "nombre": "TextComposition>>displayTextCursorAtX:top:bottom:emphasis:on:textLeft:",
+      "sends": 53,
+      "condJumps": 7,
+      "bytes": 239
+    },
+    {
+      "nombre": "LayoutEdgesSpec>>updateHorizontalWeightsAndOffsetsFor:in:",
+      "sends": 53,
+      "condJumps": 5,
+      "bytes": 154
+    },
+    {
+      "nombre": "LayoutEdgesSpec>>updateVerticalWeightsAndOffsetsFor:in:",
+      "sends": 53,
+      "condJumps": 5,
+      "bytes": 154
+    },
+    {
+      "nombre": "SmalltalkEditor>>explainChar:",
+      "sends": 33,
+      "condJumps": 25,
+      "bytes": 193
+    },
+    {
+      "nombre": "MenuMorph>>point:inTriangleA:b:c:",
+      "sends": 56,
+      "condJumps": 1,
+      "bytes": 104
+    },
+    {
+      "nombre": "Float class>>fromIEEE32Bit:",
+      "sends": 47,
+      "condJumps": 10,
+      "bytes": 198
+    },
+    {
+      "nombre": "Debugger>>contents:notifying:",
+      "sends": 44,
+      "condJumps": 12,
+      "bytes": 162
+    },
+    {
+      "nombre": "IndentingListItemMorph>>drawOn:",
+      "sends": 49,
+      "condJumps": 6,
+      "bytes": 154
+    },
+    {
+      "nombre": "Form>>colorInterpolatedAt:",
+      "sends": 45,
+      "condJumps": 10,
+      "bytes": 171
+    },
+    {
+      "nombre": "HaloMorph>>positionIn:horizontalPlacement:verticalPlacement:",
+      "sends": 43,
+      "condJumps": 10,
+      "bytes": 124
+    },
+    {
+      "nombre": "Rectangle>>areasOutside:do:",
+      "sends": 47,
+      "condJumps": 5,
+      "bytes": 117
+    },
+    {
+      "nombre": "ByteArray>>uint32At:bigEndian:",
+      "sends": 47,
+      "condJumps": 5,
+      "bytes": 157
+    },
+    {
+      "nombre": "SHST80RangeType>>ofCurrentRangeOrMessageSendIn:",
+      "sends": 35,
+      "condJumps": 16,
+      "bytes": 143
+    },
+    {
+      "nombre": "ChangeSorterWindow>>buildMorphicWindow",
+      "sends": 50,
+      "condJumps": 1,
+      "bytes": 234
+    },
+    {
+      "nombre": "TTFontReader>>readFrom:fromOffset:",
+      "sends": 40,
+      "condJumps": 11,
+      "bytes": 221
+    },
+    {
+      "nombre": "EncoderForV3PlusClosures>>genSend:numArgs:",
+      "sends": 37,
+      "condJumps": 13,
+      "bytes": 198
+    },
+    {
+      "nombre": "SystemWindow>>extentChanged:",
+      "sends": 49,
+      "condJumps": 1,
+      "bytes": 150
+    },
+    {
+      "nombre": "TextComposer>>addEmptyTrailingLine:",
+      "sends": 42,
+      "condJumps": 8,
+      "bytes": 166
+    },
+    {
+      "nombre": "CharacterBlockScanner>>endOfRun",
+      "sends": 36,
+      "condJumps": 14,
+      "bytes": 188
+    }
+  ],
+  "ejemplosR1": [
+    {
+      "nombre": "EncoderForSistaV1 class>>displaceInstVarAccessesIn:starting:by:doIt:",
+      "sends": 123,
+      "condJumps": 52,
+      "backJumps": 1,
+      "bytes": 609
+    },
+    {
+      "nombre": "InstructionStream>>interpretNextSistaV1InstructionFor:",
+      "sends": 105,
+      "condJumps": 38,
+      "backJumps": 1,
+      "bytes": 494
+    },
+    {
+      "nombre": "VectorEngineSmalltalk>>cubicBezierFromX:y:toX:y:control1X:y:control2X:y:",
+      "sends": 126,
+      "condJumps": 5,
+      "backJumps": 2,
+      "bytes": 568
+    },
+    {
+      "nombre": "VectorEngineSmalltalk>>quadraticBezierFromX:y:toX:y:controlX:y:",
+      "sends": 114,
+      "condJumps": 13,
+      "backJumps": 2,
+      "bytes": 541
+    },
+    {
+      "nombre": "Float>>absPrintExactlyOn:base:",
+      "sends": 92,
+      "condJumps": 23,
+      "backJumps": 2,
+      "bytes": 440
+    },
+    {
+      "nombre": "Float>>absPrintOn:base:mantissaSignificantBits:",
+      "sends": 91,
+      "condJumps": 17,
+      "backJumps": 2,
+      "bytes": 408
+    },
+    {
+      "nombre": "VectorEngineSubPixel>>updateAlphasForX:y:",
+      "sends": 83,
+      "condJumps": 20,
+      "backJumps": 2,
+      "bytes": 412
+    },
+    {
+      "nombre": "Integer class>>largePrimesUpTo:do:",
+      "sends": 85,
+      "condJumps": 15,
+      "backJumps": 5,
+      "bytes": 407
+    },
+    {
+      "nombre": "EncoderForV3PlusClosures class>>displaceInstVarAccessesIn:starting:by:doIt:",
+      "sends": 67,
+      "condJumps": 28,
+      "backJumps": 1,
+      "bytes": 315
+    },
+    {
+      "nombre": "ByteArray>>int32At:put:bigEndian:",
+      "sends": 82,
+      "condJumps": 12,
+      "backJumps": 4,
+      "bytes": 363
+    },
+    {
+      "nombre": "ArrayedCollection>>quickSortFrom:to:by:",
+      "sends": 57,
+      "condJumps": 19,
+      "backJumps": 4,
+      "bytes": 314
+    },
+    {
+      "nombre": "TTFontReader>>processCompositeGlyphFrom:",
+      "sends": 65,
+      "condJumps": 11,
+      "backJumps": 1,
+      "bytes": 265
+    },
+    {
+      "nombre": "VectorEngineWholePixel>>updateAlphasForX:y:",
+      "sends": 56,
+      "condJumps": 17,
+      "backJumps": 2,
+      "bytes": 291
+    },
+    {
+      "nombre": "Color class>>experimentsTowardsANewColorPaletteOKLCH:",
+      "sends": 63,
+      "condJumps": 10,
+      "backJumps": 4,
+      "bytes": 277
+    },
+    {
+      "nombre": "Color class>>experimentsTowardsANewColorPaletteOKLCH2:",
+      "sends": 63,
+      "condJumps": 10,
+      "backJumps": 4,
+      "bytes": 274
+    },
+    {
+      "nombre": "VectorEngineDrawer>>morphContourAfterDrawUpdate:oldTop:oldBottom:into:",
+      "sends": 65,
+      "condJumps": 7,
+      "backJumps": 3,
+      "bytes": 310
+    },
+    {
+      "nombre": "Color class>>experimentsTowardsANewColorPaletteHSL:",
+      "sends": 61,
+      "condJumps": 10,
+      "backJumps": 4,
+      "bytes": 270
+    },
+    {
+      "nombre": "Color class>>experimentsTowardsANewColorPalette:",
+      "sends": 59,
+      "condJumps": 9,
+      "backJumps": 4,
+      "bytes": 277
+    },
+    {
+      "nombre": "Color class>>computeRGBColorConvertingMap:to:keepSubPixelAA:",
+      "sends": 60,
+      "condJumps": 8,
+      "backJumps": 1,
+      "bytes": 221
+    },
+    {
+      "nombre": "BitBltCanvas class>>buildArrowOfDirection:size:",
+      "sends": 59,
+      "condJumps": 9,
+      "backJumps": 4,
+      "bytes": 242
+    },
+    {
+      "nombre": "WeakSet>>grow",
+      "sends": 52,
+      "condJumps": 13,
+      "backJumps": 3,
+      "bytes": 265
+    },
+    {
+      "nombre": "BlockNode>>printStatementsOn:indent:",
+      "sends": 45,
+      "condJumps": 19,
+      "backJumps": 1,
+      "bytes": 208
+    },
+    {
+      "nombre": "PluggableListMorphOfMany>>mouseMove:localPosition:",
+      "sends": 46,
+      "condJumps": 17,
+      "backJumps": 1,
+      "bytes": 203
+    },
+    {
+      "nombre": "BitBltCanvasEngine>>frameOval:borderWidth:",
+      "sends": 58,
+      "condJumps": 5,
+      "backJumps": 2,
+      "bytes": 227
+    },
+    {
+      "nombre": "Color class>>experimentsTowardsANewColorPaletteHSV:",
+      "sends": 55,
+      "condJumps": 7,
+      "backJumps": 4,
+      "bytes": 249
+    },
+    {
+      "nombre": "VectorEngine>>pathSequence:",
+      "sends": 53,
+      "condJumps": 9,
+      "backJumps": 1,
+      "bytes": 241
+    },
+    {
+      "nombre": "Float>>absPrintOn:base:digitCount:",
+      "sends": 47,
+      "condJumps": 13,
+      "backJumps": 4,
+      "bytes": 237
+    },
+    {
+      "nombre": "WarpBlt>>mixPix:sourceMap:destMap:",
+      "sends": 49,
+      "condJumps": 10,
+      "backJumps": 1,
+      "bytes": 215
+    },
+    {
+      "nombre": "Scanner class>>initTypeTable",
+      "sends": 56,
+      "condJumps": 2,
+      "backJumps": 1,
+      "bytes": 210
+    },
+    {
+      "nombre": "Morph>>isCloserThan:toPixel:",
+      "sends": 50,
+      "condJumps": 8,
+      "backJumps": 1,
+      "bytes": 149
+    },
+    {
+      "nombre": "Editor>>delimitedRangeAt:hitOnRightHalf:leftDelimiters:rightDelimiters:simpleDelimiters:",
+      "sends": 42,
+      "condJumps": 16,
+      "backJumps": 1,
+      "bytes": 270
+    },
+    {
+      "nombre": "VectorEngineDrawer>>morphContourAfterDrawInto:into:",
+      "sends": 51,
+      "condJumps": 6,
+      "backJumps": 3,
+      "bytes": 229
+    },
+    {
+      "nombre": "TextComposition>>addSelectionRectsFrom:to:to:",
+      "sends": 51,
+      "condJumps": 6,
+      "backJumps": 1,
+      "bytes": 160
+    },
+    {
+      "nombre": "MorphicScanner>>displayBulletTextLeft:number:",
+      "sends": 49,
+      "condJumps": 7,
+      "backJumps": 1,
+      "bytes": 189
+    },
+    {
+      "nombre": "CompiledMethod>>=",
+      "sends": 40,
+      "condJumps": 16,
+      "backJumps": 2,
+      "bytes": 158
+    },
+    {
+      "nombre": "ContextPart>>errorReportOn:",
+      "sends": 49,
+      "condJumps": 6,
+      "backJumps": 2,
+      "bytes": 188
+    },
+    {
+      "nombre": "Form class>>dotOfSize:",
+      "sends": 52,
+      "condJumps": 3,
+      "backJumps": 1,
+      "bytes": 173
+    },
+    {
+      "nombre": "Color class>>initializeIndexedColors",
+      "sends": 46,
+      "condJumps": 6,
+      "backJumps": 4,
+      "bytes": 244
+    },
+    {
+      "nombre": "CharacterBlockScanner>>characterBlockAtPoint:in:forCursorPosition:",
+      "sends": 45,
+      "condJumps": 6,
+      "backJumps": 1,
+      "bytes": 213
+    },
+    {
+      "nombre": "Base64MimeConverter>>mimeEncode",
+      "sends": 42,
+      "condJumps": 8,
+      "backJumps": 1,
+      "bytes": 218
+    },
+    {
+      "nombre": "CharacterSequence>>startingAt:match:startingAt:",
+      "sends": 36,
+      "condJumps": 13,
+      "backJumps": 2,
+      "bytes": 171
+    },
+    {
+      "nombre": "Scanner>>scanMessageParts:",
+      "sends": 38,
+      "condJumps": 11,
+      "backJumps": 3,
+      "bytes": 161
+    },
+    {
+      "nombre": "EllipseMidpointTracer>>stepInY",
+      "sends": 45,
+      "condJumps": 4,
+      "backJumps": 1,
+      "bytes": 199
+    },
+    {
+      "nombre": "TTFontReader>>processNamingTable:",
+      "sends": 36,
+      "condJumps": 12,
+      "backJumps": 1,
+      "bytes": 191
+    },
+    {
+      "nombre": "ReferencesExplorerWrapper>>referenceDescriptionFrom:to:count:",
+      "sends": 34,
+      "condJumps": 13,
+      "backJumps": 3,
+      "bytes": 180
+    },
+    {
+      "nombre": "Integer>>gcd:",
+      "sends": 41,
+      "condJumps": 6,
+      "backJumps": 2,
+      "bytes": 179
+    },
+    {
+      "nombre": "Integer>>slidingLeftRightRaisedTo:modulo:",
+      "sends": 40,
+      "condJumps": 6,
+      "backJumps": 4,
+      "bytes": 162
+    },
+    {
+      "nombre": "RelativeInstructionPrinter>>print:",
+      "sends": 40,
+      "condJumps": 6,
+      "backJumps": 1,
+      "bytes": 163
+    },
+    {
+      "nombre": "VectorEngineSmalltalk>>lineFromX:y:toX:y:",
+      "sends": 42,
+      "condJumps": 3,
+      "backJumps": 1,
+      "bytes": 186
+    },
+    {
+      "nombre": "VectorEngineDrawer>>morphContourAfterDrawInterectInto:",
+      "sends": 42,
+      "condJumps": 3,
+      "backJumps": 2,
+      "bytes": 158
+    }
+  ]
+}

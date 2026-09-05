@@ -1,0 +1,61 @@
+{
+  "imagen": "AppRun.image",
+  "unicos": 133004,
+  "noSista": 8206,
+  "sinBytes": 0,
+  "elegibles": 88607,
+  "match": 88607,
+  "bail": 0,
+  "bailPor": {},
+  "bailEjemplos": {},
+  "elegConLoop": 1674,
+  "matchConLoop": 1674,
+  "loops": 2075,
+  "diamantes": 8313,
+  "ifPlanos": 15819,
+  "breaksCond": 2071,
+  "breaksIncond": 0,
+  "breaksAExterno": 0,
+  "multiExit": 112,
+  "continues": 10,
+  "anidamientoMax": 3,
+  "anidamientoHisto": {
+    "1": 1572,
+    "2": 95,
+    "3": 7
+  },
+  "headerDepthHisto": {
+    "0": 2070,
+    "1": 5
+  },
+  "metodosHeaderDepthPos": [
+    "OCOpalExamples>>exampleToDoValueLimitExpression (depth 1)",
+    "OCOpalExamples>>exampleToDoValue (depth 1)",
+    "FBDExamples>>exampleToDoValueLimitExpression (depth 1)",
+    "FBDExamples>>exampleToDoValue (depth 1)",
+    "LGitDiff>>deltasDo: (depth 1)"
+  ],
+  "loopsPorMetodoHisto": {
+    "1": 1398,
+    "2": 191,
+    "3": 64,
+    "4": 12,
+    "5": 6,
+    "7": 1,
+    "9": 2
+  },
+  "ejemplosMatchLoop": [
+    "WeakIdentitySet>>scanFor: (loops=1 anid=1 brkCond=1 brkIncond=0)",
+    "WeakIdentitySet>>scanForEmptySlotFor: (loops=1 anid=1 brkCond=1 brkIncond=0)",
+    "OCOpalExamples>>optimizedBlockWriteInBlock (loops=1 anid=1 brkCond=1 brkIncond=0)",
+    "OCOpalExamples>>exampleRepeatEffect (loops=1 anid=1 brkCond=0 brkIncond=0)",
+    "OCOpalExamples>>exampleToDoArgumentLimitIsExpression (loops=1 anid=1 brkCond=1 brkIncond=0)",
+    "OCOpalExamples>>exampleToDoValueLimitExpression (loops=1 anid=1 brkCond=1 brkIncond=0)",
+    "OCOpalExamples>>exampleRepeatValue (loops=1 anid=1 brkCond=0 brkIncond=0)",
+    "OCOpalExamples>>optimizedBlocksAndSameNameTemps (loops=1 anid=1 brkCond=1 brkIncond=0)",
+    "OCOpalExamples>>exampleToDoValue (loops=1 anid=1 brkCond=1 brkIncond=0)",
+    "OCOpalExamples>>optimizedBlockWriteInNestedBlockCase2 (loops=1 anid=1 brkCond=1 brkIncond=0)",
+    "OCOpalExamples>>exampleMethodWithOptimizedBlocksA (loops=1 anid=1 brkCond=1 brkIncond=0)",
+    "DeflateStream>>deflateBlock (loops=2 anid=1 brkCond=2 brkIncond=0)"
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "imagen": "Cuis7.8.image",
+  "unicos": 19162,
+  "noSista": 0,
+  "sinBytes": 0,
+  "elegibles": 13442,
+  "match": 13442,
+  "bail": 0,
+  "bailPor": {},
+  "bailEjemplos": {},
+  "elegConLoop": 682,
+  "matchConLoop": 682,
+  "loops": 855,
+  "diamantes": 3389,
+  "ifPlanos": 5957,
+  "breaksCond": 848,
+  "breaksIncond": 0,
+  "breaksAExterno": 0,
+  "multiExit": 69,
+  "continues": 4,
+  "anidamientoMax": 3,
+  "anidamientoHisto": {
+    "1": 625,
+    "2": 52,
+    "3": 5
+  },
+  "headerDepthHisto": {
+    "0": 829,
+    "1": 26
+  },
+  "metodosHeaderDepthPos": [
+    "AbstractVectorCanvas>>multiLineTo:points: (depth 1)",
+    "AbstractVectorCanvas>>multiLineTo:points: (depth 1)",
+    "AbstractVectorCanvas>>multiQuadraticCurveTo:toPoints:controlPoints: (depth 1)",
+    "AbstractVectorCanvas>>multiQuadraticCurveTo:toPoints:controlPoints: (depth 1)",
+    "AbstractVectorCanvas>>multiCurveToSmooth:toPoints:control2Points: (depth 1)",
+    "AbstractVectorCanvas>>multiCurveToSmooth:toPoints:control2Points: (depth 1)",
+    "AbstractVectorCanvas>>multiQuadraticCurveToSmooth:toPoints: (depth 1)",
+    "AbstractVectorCanvas>>multiQuadraticCurveToSmooth:toPoints: (depth 1)",
+    "AbstractVectorCanvas>>multiCurveTo:toPoints:control1Points:control2Points: (depth 1)",
+    "AbstractVectorCanvas>>multiCurveTo:toPoints:control1Points:control2Points: (depth 1)",
+    "AbstractVectorCanvas>>multiArc:rs:xAxisRotations:toPoints:doLargerArcs:useIncreasingAngles: (depth 1)",
+    "AbstractVectorCanvas>>multiArc:rs:xAxisRotations:toPoints:doLargerArcs:useIncreasingAngles: (depth 1)",
+    "ReferencesExplorerWrapper>>referenceDescriptionFrom:to:count: (depth 1)",
+    "ReferencesExplorerWrapper>>referenceDescriptionFrom:to:count: (depth 1)",
+    "MethodContext>>privRefresh (depth 1)"
+  ],
+  "loopsPorMetodoHisto": {
+    "1": 552,
+    "2": 100,
+    "3": 18,
+    "4": 11,
+    "5": 1
+  },
+  "ejemplosMatchLoop": [
+    "AbstractVectorCanvas>>multiLineTo:points: (loops=2 anid=1 brkCond=2 brkIncond=0)",
+    "AbstractVectorCanvas>>multiQuadraticCurveTo:toPoints:controlPoints: (loops=2 anid=1 brkCond=2 brkIncond=0)",
+    "AbstractVectorCanvas>>multiCurveToSmooth:toPoints:control2Points: (loops=2 anid=1 brkCond=2 brkIncond=0)",
+    "AbstractVectorCanvas>>multiQuadraticCurveToSmooth:toPoints: (loops=2 anid=1 brkCond=2 brkIncond=0)",
+    "AbstractVectorCanvas>>multiCurveTo:toPoints:control1Points:control2Points: (loops=2 anid=1 brkCond=2 brkIncond=0)",
+    "AbstractVectorCanvas>>polyLine: (loops=1 anid=1 brkCond=1 brkIncond=0)",
+    "AbstractVectorCanvas>>multiArc:rs:xAxisRotations:toPoints:doLargerArcs:useIncreasingAngles: (loops=2 anid=1 brkCond=2 brkIncond=0)",
+    "TTContourConstruction>>makePointsAbsolute: (loops=1 anid=1 brkCond=1 brkIncond=0)",
+    "TTContourConstruction>>startPointDo:quadraticBeziersDo: (loops=1 anid=1 brkCond=1 brkIncond=0)",
+    "Categorizer>>numberOfCategoryOfElement: (loops=2 anid=2 brkCond=2 brkIncond=0)",
+    "Categorizer>>printCategory:at:with:on: (loops=1 anid=1 brkCond=1 brkIncond=0)",
+    "Categorizer>>printOn:excludingExtensions: (loops=1 anid=1 brkCond=1 brkIncond=0)"
+  ]
+}
