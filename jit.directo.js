@@ -49,6 +49,7 @@ var SIN_LOOPS = !!process.env.DIRECTOSINLOOPS;   // biseccion: volver a etapa 1 
 // cuando esta apagada. Es el mismo patron que jit2LeafHook del proyecto stack-zone.
 var TRAZA = false;
 var CENSOFR = false;   // emitir el censo de por que se rompe cada cadena
+var CENSOIC = false;   // emitir el censo de polimorfismo por sitio de llamada
 var FILTRO = null;       // biseccion: {div, rem} compila solo si (hash % div) === rem
 var TOPE_PROFUNDIDAD = 1000;
 var VETO_MIN_FRONTERAS = +(process.env.DIRECTOVETO || 32);
@@ -645,8 +646,10 @@ function compilar(vm, method) {
                     src.push("x = " + rxSlot + ";\n"
                         + "y = typeof x === 'number' ? vm.specialObjects[" + Squeak.splOb_ClassInteger + "] : x.sqClass;\n"
                         + "if (y === icC" + ins.pc + " && icE" + ins.pc + " === vm.directoEpoca) {\n"
+                        + (CENSOIC ? "  vm.icAcierto++;\n" : "")
                         + "  v = icF" + ins.pc + ";\n"
                         + "} else {\n"
+                        + (CENSOIC ? "  vm.icFallo(" + JSON.stringify(nombre + "#" + ins.pc) + ", y, icC" + ins.pc + ", icE" + ins.pc + ");\n" : "")
                         + "  var e" + ins.pc + " = vm.findMethodCacheEntry(METH.pointers[" + (1 + ins.n) + "], y);\n"
                         + "  v = e" + ins.pc + ".method !== null ? e" + ins.pc + ".method.directo : undefined;\n"
                         + "  if (typeof v === 'function' && v.numArgs === " + m + ") {\n"
@@ -815,7 +818,7 @@ return {
         if (r !== null) return "vetado (deoptimizaba de mas)";
         return ks.length ? ks[0] : "rechazado (motivo no registrado)";
     },
-    config: function(o) { if (o.umbral !== undefined) UMBRAL = o.umbral; if (o.filtro !== undefined) FILTRO = o.filtro; if (o.traza !== undefined) TRAZA = o.traza; if (o.censofr !== undefined) CENSOFR = o.censofr; if (o.motivos !== undefined) MOTIVOS = o.motivos; },
+    config: function(o) { if (o.umbral !== undefined) UMBRAL = o.umbral; if (o.filtro !== undefined) FILTRO = o.filtro; if (o.traza !== undefined) TRAZA = o.traza; if (o.censofr !== undefined) CENSOFR = o.censofr; if (o.censoic !== undefined) CENSOIC = o.censoic; if (o.motivos !== undefined) MOTIVOS = o.motivos; },
     preparar: function(vm) {
         vm.deoptInner = null;
         vm.deoptOuter = null;

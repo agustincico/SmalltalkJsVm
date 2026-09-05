@@ -319,6 +319,44 @@ fs.readFile(root + imageName + ".image", function(error, data) {
                 Squeak.Directo.config({filtro: {div: +pf[0], rem: +pf[1]}});
             }
             if (process.env.DIRECTO === "3") vm.directoEncadenar = true;
+            if (process.env.DIRECTOIC) {
+                Squeak.Directo.config({censoic: true});
+                vm.icAcierto = 0;
+                var sitios = new Map(), fallos = 0;
+                var causa = { frio: 0, epoca: 0, clase: 0 };
+                vm.icFallo = function(sitio, cls, icCls, icEp) {
+                    fallos++;
+                    if (icCls === null) causa.frio++;
+                    else if (icEp !== vm.directoEpoca) causa.epoca++;
+                    else causa.clase++;
+                    var st = sitios.get(sitio);
+                    if (!st) { st = { clases: new Set(), fallos: 0 }; sitios.set(sitio, st); }
+                    st.clases.add(cls); st.fallos++;
+                };
+                process.on("exit", function() {
+                    var dist = {}, distFallos = {}, sitiosPoli = 0;
+                    sitios.forEach(function(st) {
+                        var n = st.clases.size; if (n > 8) n = 9;
+                        dist[n] = (dist[n] || 0) + 1;
+                        distFallos[n] = (distFallos[n] || 0) + st.fallos;
+                        if (st.clases.size > 1) sitiosPoli++;
+                    });
+                    var tot = vm.icAcierto + fallos;
+                    console.error("=== inline cache por sitio ===");
+                    console.error("  llamadas directas: " + tot + " | aciertos: " +
+                        (vm.icAcierto*100/tot).toFixed(1) + "% | fallos: " + (fallos*100/tot).toFixed(1) + "%");
+                    console.error("  sitios que fallaron alguna vez: " + sitios.size +
+                        " (de ellos polimorficos, >1 clase: " + sitiosPoli + ")");
+                    console.error("  CAUSA: frio(1a vez) " + (causa.frio*100/fallos).toFixed(1) +
+                        "% | epoca invalidada " + (causa.epoca*100/fallos).toFixed(1) +
+                        "% | cambio de clase " + (causa.clase*100/fallos).toFixed(1) + "%");
+                    console.error("  clases por sitio -> sitios / FALLOS que aportan:");
+                    Object.keys(dist).sort(function(a,b){return a-b;}).forEach(function(k) {
+                        console.error("    " + (k == 9 ? "9+" : k) + " clase(s): " + dist[k] + " sitios, " +
+                            distFallos[k] + " fallos (" + (distFallos[k]*100/fallos).toFixed(1) + "%)");
+                    });
+                });
+            }
             if (process.env.DIRECTOFRONTERA) {
                 Squeak.Directo.config({censofr: true});
                 var cf = {}, totF = 0, cache = new Map();
