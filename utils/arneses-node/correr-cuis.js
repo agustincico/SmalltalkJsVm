@@ -359,12 +359,32 @@ fs.readFile(root + imageName + ".image", function(error, data) {
             }
             if (process.env.DIRECTOFRONTERA) {
                 Squeak.Directo.config({censofr: true});
-                var cf = {}, totF = 0, cache = new Map();
+                var cf = {}, totF = 0, cache = new Map(), porCallee = {}, nombreCache = new Map();
+                // nombre Clase>>selector del metodo llamado, para separar dos cosas que
+                // el motivo solo NO distingue: un metodo rechazado por CREAR un bloque,
+                // y una ACTIVACION de bloque (BlockClosure>>value..., que cae en "primitiva").
+                var indiceNombres = null;
+                function nombreDe(m) {
+                    if (indiceNombres === null) {          // indice UNA vez, no por consulta
+                        indiceNombres = new Map();
+                        try {
+                            vm.allMethodsDo(function(c, mm, s) {
+                                if (!indiceNombres.has(mm) && s && s.bytesAsString)
+                                    indiceNombres.set(mm, c.className() + ">>" + s.bytesAsString());
+                            });
+                        } catch (e) {}
+                    }
+                    return indiceNombres.get(m) || "(?)";
+                }
                 vm.censoFrontera = function(callee) {
-                    if (!callee) { cf["(sin metodo: lookup miss)"] = (cf["(sin metodo: lookup miss)"]||0)+1; totF++; return; }
+                    totF++;
+                    if (!callee) { cf["(sin metodo: lookup miss)"] = (cf["(sin metodo: lookup miss)"]||0)+1; return; }
                     var k = cache.get(callee);
                     if (k === undefined) { k = Squeak.Directo.porQueNo(callee); cache.set(callee, k); }
-                    cf[k] = (cf[k] || 0) + 1; totF++;
+                    cf[k] = (cf[k] || 0) + 1;
+                    var e = porCallee[callee.oop];
+                    if (e === undefined) porCallee[callee.oop] = { n: 1, m: callee, k: k };
+                    else e.n++;
                 };
                 process.on("exit", function() {
                     console.error("=== por que se rompe cada cadena (" + totF + " fronteras) ===");
@@ -374,7 +394,23 @@ fs.readFile(root + imageName + ".image", function(error, data) {
                         console.error("  " + (cf[k]*100/totF).toFixed(1).padStart(5) + "%  " + String(cf[k]).padStart(6) + "  " + k);
                     });
                     console.error("  ------");
-                    console.error("  " + (bloque*100/totF).toFixed(1) + "% de las fronteras se irian si los BLOQUES fueran elegibles");
+                    console.error("  " + (bloque*100/totF).toFixed(1) + "% de las fronteras son metodos rechazados por CREAR un bloque");
+                    // top de metodos llamados, y cuanto de eso es activar un bloque
+                    var top = Object.keys(porCallee).map(function(o) { return porCallee[o]; })
+                        .sort(function(a, b) { return b.n - a.n; });
+                    console.error("  --- a que metodo se estaba llamando (top 12) ---");
+                    var activacion = 0;
+                    top.forEach(function(e) {
+                        var nom = nombreDe(e.m);
+                        if (/^(BlockClosure|FullBlockClosure)>>/.test(nom)) activacion += e.n;
+                    });
+                    top.slice(0, 12).forEach(function(e) {
+                        console.error("  " + (e.n*100/totF).toFixed(1).padStart(5) + "%  " +
+                                      String(e.n).padStart(6) + "  " + nombreDe(e.m) + "   [" + e.k + "]");
+                    });
+                    console.error("  ------");
+                    console.error("  " + (activacion*100/totF).toFixed(1) + "% de las fronteras son ACTIVAR un bloque (BlockClosure>>value...)");
+                    console.error("  " + ((bloque+activacion)*100/totF).toFixed(1) + "% = total atribuible a bloques (crear + activar)");
                 });
             }
             if (process.env.DIRECTODEOPT) {
