@@ -44,6 +44,18 @@ disparó el port:
   (tiny/veri/dif/atput). benchFib NO cambia: el hueco de sends (activación+lookup+retorno,
   ~44% del tiempo) sigue siendo la línea abierta — atacarlo en serio es el trampolín
   (2 entradas JS por send), que colinda con la stack zone cerrada.
+- **Perf 5-sep (3): la forma directa NO ayuda a la performance SENTIDA** (82a0dd9).
+  Medido con difftrace --ui --until-stable (Morphic offscreen real): 3 pares
+  intercalados 8507→8813 ms (~4% peor) y corrida completa 13676→25007 ms (1,8x peor),
+  mismo trabajo. Causa medida: **76,6% de las deopts son fronteras de send** — Morphic
+  está saturado de bloques, los métodos con bloques son inelegibles, y cada rotura de
+  cadena cuesta más que el send clásico (riesgo R7 del análisis, confirmado). Bajar el
+  veto de 32 a 4 empeora (9,4→22,9 s): vetar un método hace deoptimizar a sus
+  llamadores y se produce una cascada. **Decisión: queda opt-in, no va por defecto ni
+  al browser.** Sigue siendo 7-8x real en código send-heavy y traza-idéntica. El único
+  camino para que ayude a lo sentido es soportar BLOQUES (v2): proyecto grande, rédito
+  incierto. Censo nuevo: DIRECTODEOPT=1 (deopts por tipo), DIRECTOCOSTO=1 (costo de
+  compilar: 96 ms/45 s, y sólo el 36% sería delegable a otro worker).
 - **Perf 5-sep (2): etapa 2 — LOOPS** (commit 3d0a801). Cobertura 476 → 534 métodos
   en Cuis (1928 en Pharo), con el gate BLK del censo implementado: back-jumps siempre
   incondicionales, loops anidados o disjuntos, ningún salto de afuera aterrizando
