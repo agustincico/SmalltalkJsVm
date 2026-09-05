@@ -44,6 +44,19 @@ disparó el port:
   (tiny/veri/dif/atput). benchFib NO cambia: el hueco de sends (activación+lookup+retorno,
   ~44% del tiempo) sigue siendo la línea abierta — atacarlo en serio es el trampolín
   (2 entradas JS por send), que colinda con la stack zone cerrada.
+- **Perf 5-sep: EL CODEGEN DE FORMA DIRECTA EXISTE — sends 7,94 → 60-85 M/s**
+  (`jit.directo.js`, commits 07e0287 y ce1af06). Compila métodos reales de la imagen
+  a funciones JS con args posicionales y frames en la pila de JS; deopt al
+  desenrollar (D1 entrada, D3 callee, D4 aritmética, D5 frontera de send, D6
+  mustBeBoolean), todas materializando en pc etiquetado. benchFib A/B 5/5 sin
+  solaparse: 344 → 43 ms = 8,0x. **Traza idéntica al clásico sobre 3,0 M sends**
+  en los dos modos, verificada con el oráculo portado de perf/stack-zone.
+  El oráculo encontró 3 infidelidades que ninguna batería de resultados detectaba
+  (replay del 2º nivel de las especiales; fast paths de at:/at:put:/size; y que el
+  código directo no puede escribir vm.pc). Pharo 64: 1808 métodos, 0 errores.
+  Morphic vivo 45 s: 0 errores. Análisis completo y herramientas en
+  utils/spikes/directo/. Falta: loops (etapa 2), browser, auditoría, default.
+  OJO: el oráculo BORRA el .changes al lado de la imagen — usar dir propio.
 - **Perf 4-sep (3): SPIKE DE FORMA DIRECTA — 15,7x en benchFib, validado** (commit
   97f15a0, `utils/spikes/directo/`). Es el camino estructural para el hueco de sends
   (50x contra Cog, mientras bytecodes está a 7x): métodos que reciben receptor y args

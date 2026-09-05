@@ -1,4 +1,35 @@
-# Spike: forma directa + deoptimización al desenrollar
+---
+
+# ESTADO AL 5-sep-2026: EL CODEGEN GENERAL EXISTE Y ES TRAZA-IDÉNTICO
+
+Este README describe el spike original (benchFib a mano). **Ya está superado**: el
+codegen general vive en `/jit.directo.js` y compila métodos reales de la imagen.
+
+- **sends: 7,94 → 60-85 M/s** (mediana 60,3; mejor 84,9). benchFib A/B intercalado
+  5/5 pares sin solaparse: 344 → 43 ms = **8,0x**. Del 2% al ~15-21% de Cog M3.
+- **Traza idéntica al VM clásico** sobre 3.004.402 sends del boot de Cuis, en los
+  dos modos (`--codegen` solo-frontera y `--codegen3` con llamadas encadenadas),
+  verificado con el oráculo diferencial (`utils/arneses-node/oraculo/`).
+- Batería en verde: ##DIF, bordes 10/10, at:put: caliente, fcheck, estrés de 300
+  cambios de proceso, invariantes ##CHK. Pharo 64: 1808 métodos, 0 errores.
+  Squeak 3.8 V3: rechazado limpio (no es Sista). Morphic vivo 45 s con bomba de
+  eventos: 0 errores, 0 logs de debug, 23.080 deopts ejercitadas.
+- Modos: `DIRECTO=2` (solo frontera), `DIRECTO=3` (+ encadenado). Bisección con
+  `DIRECTOFILTRO=div,rem`, `DIRECTOUMBRAL`, `DIRECTOSINQUICK`; censos con
+  `DIRECTOSONDA` y `DIRECTOREPLAY`; volcado con `DIRECTODEBUG=N`.
+
+Las tres infidelidades que encontró el oráculo (y que ninguna batería de
+resultados había detectado) están en el mensaje del commit ce1af06: replay del
+segundo nivel de las especiales, fast paths de at:/at:put:/size, y la prohibición
+de escribir vm.pc desde código directo.
+
+**Falta para encender por defecto**: loops (etapa 2 — hoy los métodos con saltos
+hacia atrás se rechazan), el cableado al browser (worker + run/), auditoría
+adversarial, y A/B de perf en máquina quieta sobre workloads reales.
+
+---
+
+# Spike original: forma directa + deoptimización al desenrollar
 
 **Resultado: 15,7× en benchFib** (2692537 sends en 23 ms ≈ 115 M sends/s, contra
 368 ms del VM actual). Es la validación del único camino estructural que quedaba
