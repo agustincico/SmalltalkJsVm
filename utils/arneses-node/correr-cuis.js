@@ -319,6 +319,16 @@ fs.readFile(root + imageName + ".image", function(error, data) {
                 Squeak.Directo.config({filtro: {div: +pf[0], rem: +pf[1]}});
             }
             if (process.env.DIRECTO === "3") vm.directoEncadenar = true;
+            if (process.env.DIRECTOCOSTO) {
+                vm.directoCosto = { analisis: 0, newFunction: 0, bytes: 0, _t0: 0 };
+                process.on("exit", function() {
+                    var c = vm.directoCosto;
+                    console.error("=== costo de compilar ===");
+                    console.error("  analisis (delegable):    " + c.analisis + " ms");
+                    console.error("  new Function (NO):       " + c.newFunction + " ms");
+                    console.error("  JS generado:             " + (c.bytes/1024).toFixed(0) + " KB");
+                });
+            }
             if (process.env.DIRECTOMOTIVOS) {
                 var mot = {}; Squeak.Directo.config({motivos: mot});
                 process.on("exit", function() {

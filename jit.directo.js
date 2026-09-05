@@ -450,6 +450,7 @@ var QUICK_ARGC = [1, 2, 0, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0];
 // locales s{i} por profundidad estática, deopts D1-D6 según la tabla de la spec.
 // ---------------------------------------------------------------------------
 function compilar(vm, method) {
+    if (vm.directoCosto) vm.directoCosto._t0 = Date.now();
     var p1 = pase1(method);
     if (p1 === null) return false;
     var instrs = p1.instrs, depth = p1.depth,
@@ -609,8 +610,15 @@ function compilar(vm, method) {
     src.push("}");
 
     var texto = src.join("");
+    // MEDICION del reparto del costo de compilar (DIRECTOCOSTO=1): la mitad
+    // "analisis" (pase1 + emision, todo JS nuestro sobre bytes+header) es
+    // delegable a otro worker; la mitad "new Function" NO lo es, porque la
+    // funcion tiene que cerrarse sobre los objetos de ESTE worker.
+    if (vm.directoCosto) vm.directoCosto.analisis += Date.now() - vm.directoCosto._t0;
+    var t1 = vm.directoCosto ? Date.now() : 0;
     var fabrica = new Function("vm", "METH", "RT", "DEOPT", texto);
     var fn = fabrica(vm, method, RT, DEOPT);
+    if (vm.directoCosto) { vm.directoCosto.newFunction += Date.now() - t1; vm.directoCosto.bytes += texto.length; }
     fn.numArgs = numArgs;
     fn.nLlamadas = 0;
     fn.nFronteras = 0;
