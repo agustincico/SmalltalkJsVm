@@ -406,6 +406,46 @@ fs.readFile(root + imageName + ".image", function(error, data) {
                     ks.forEach(function(k) { console.error("  " + mot[k] + "  " + k); });
                 });
             }
+            // DIRECTOQUIEN=Clase>>sel,Clase>>sel — al salir dice si esos metodos
+            // quedaron en forma DIRECTA (funcion JS) o no. Sirve para probar que
+            // una prueba que dice ejercitar el modo directo lo ejercita de verdad.
+            if (process.env.DIRECTOQUIEN) {
+                var quien = process.env.DIRECTOQUIEN.split(",");
+                process.on("exit", function() {
+                    console.error("=== quien quedo en forma directa ===");
+                    var vistos = {};
+                    vm.allMethodsDo(function(classObj, m, selObj) {
+                        if (!selObj || !selObj.bytesAsString) return;
+                        var nom = classObj.className() + ">>" + selObj.bytesAsString();
+                        if (vistos[nom]) return;
+                        for (var i = 0; i < quien.length; i++) if (nom.indexOf(quien[i]) >= 0) {
+                            vistos[nom] = true;
+                            var d = m.directo;
+                            console.error("  " + (typeof d === "function" ? "DIRECTO  " : "clasico  ") + nom
+                                + (typeof d === "function" ? "  llamadas=" + (d.nLlamadas || 0)
+                                                           : "  porque: " + Squeak.Directo.porQueNo(m)));
+                        }
+                    });
+                });
+            }
+            // DIRECTOTOP=N — al salir lista los N metodos en forma DIRECTA mas
+            // llamados. Sirve para armar pruebas SOBRE metodos que de verdad
+            // corren en directo (si no, la prueba no prueba nada).
+            if (process.env.DIRECTOTOP) {
+                process.on("exit", function() {
+                    var lista = [];
+                    vm.allMethodsDo(function(classObj, m, selObj) {
+                        if (typeof m.directo !== "function" || !selObj || !selObj.bytesAsString) return;
+                        lista.push({ n: m.directo.nLlamadas || 0,
+                                     s: classObj.className() + ">>" + selObj.bytesAsString() });
+                    });
+                    lista.sort(function(a, b) { return b.n - a.n; });
+                    console.error("=== top metodos en forma directa (" + lista.length + " en total) ===");
+                    lista.slice(0, +process.env.DIRECTOTOP).forEach(function(e) {
+                        console.error("  " + String(e.n).padStart(9) + "  " + e.s);
+                    });
+                });
+            }
             if (process.env.DIRECTOTRAZA) { Squeak.Directo.config({traza: true}); vm.directoTraceHook = function(){}; }
             if (process.env.DIRECTODEBUG) { vm.directoDebug = true; vm.directoVolcarN = +process.env.DIRECTODEBUG; }
             if (process.env.DIRECTOREPLAY) {

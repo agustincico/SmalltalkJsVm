@@ -271,6 +271,41 @@ headRoom 512 MB, JIT-fallback automático. Es el default en `run/` y en el sitio
   .image, bomba de eventos, medir-tiny.js con invariantes). La receta completa está
   comentada en utils/arneses-node/medir-tiny.js.
 
+### La forma directa y el DEBUGGER: probado que no lo rompe (5-sep-2026)
+La pregunta natural: la forma directa guarda receptor, argumentos, temporales y pila de
+operandos en LOCALES DE JAVASCRIPT, sin MethodContext — y el debugger de Smalltalk trabaja
+recorriendo la cadena de contextos. ¿Sigue funcionando? **Sí, y está medido.**
+
+La razón de fondo: nada puede *mirar* un contexto sin mandar un mensaje, y todo mensaje que
+sale de código directo es una frontera que materializa la cadena entera antes de soltar el
+control. Para cuando el debugger llega, la pila ya es de verdad. Además el gate rechaza de
+entrada cualquier método que use `thisContext` (bytecode 0x52).
+
+Arnés permanente: `utils/arneses-node/probar-debugger.js` + `scripts/debug-mirar.st` (mirar) y
+`scripts/debug-mutar.st` (mutar/reanudar). Corre el mismo guión con `DIRECTO=0` y `DIRECTO=3`
+y exige marcas `##` idénticas línea por línea; el modo clásico es el oráculo.
+
+Resultado, Cuis 7.8:
+- **281 marcas idénticas** en `debug-mirar.st`: 20 errores de 20 lugares distintos, y de cada
+  frame de cada cadena se leen las tres cosas que muestra el debugger — `pc`, receptor y
+  **temporales con nombre** (`tempNames` + `namedTempAt:`, que es lo que usa el panel de Cuis).
+- **7 marcas idénticas** en `debug-mutar.st`: orden de `ensure:`/`ifCurtailed:` al desenrollar,
+  reinicio de frame (`retry`), paso a paso (`ContextPart>>step`), y pila de OTRO proceso
+  suspendido adentro de código directo.
+- La prueba más dura: preemptar código directo cientos de veces con un proceso de mayor
+  prioridad da `25 benchFib = 242785` exacto en los dos modos.
+
+**Trampa que casi invalida todo**: la primera versión de la prueba usaba `do:`, `detect:ifNone:`
+e `inject:into:` — y esos métodos corrían en CLÁSICO, así que la coincidencia era trivial. De ahí
+salieron dos sondas nuevas en `correr-cuis.js`, obligatorias para que una prueba del modo directo
+no sea vacía: `DIRECTOQUIEN=Clase>>sel,...` dice si esos métodos quedaron directos y, si no, por
+qué (usa `Squeak.Directo.porQueNo`); `DIRECTOTOP=N` lista los directos más llamados.
+Con eso se confirmó que la cadena probada incluye `Magnitude>>between:and:` en forma directa.
+
+Hallazgo de paso: **`SequenceableCollection>>do:` se auto-vetó** ("deoptimizaba de más"). Compila
+bien, pero llama a `aBlock value:` y un bloque nunca es directo, así que cada vuelta era una
+frontera. El veto hizo exactamente su trabajo — pero explica parte del techo en Morphic.
+
 ### Performance: qué se cerró con números (NO reabrir sin datos nuevos)
 - **Stack zone estilo Cog**: rechazada DOS veces. +21% en bench Node pero ~0% percibido
   (Morphic satura de closures, ~1,05M marriages; solo 1% necesita el contexto real). Techo
