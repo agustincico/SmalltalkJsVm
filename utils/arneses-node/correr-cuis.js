@@ -319,6 +319,26 @@ fs.readFile(root + imageName + ".image", function(error, data) {
                 Squeak.Directo.config({filtro: {div: +pf[0], rem: +pf[1]}});
             }
             if (process.env.DIRECTO === "3") vm.directoEncadenar = true;
+            if (process.env.DIRECTOFRONTERA) {
+                Squeak.Directo.config({censofr: true});
+                var cf = {}, totF = 0, cache = new Map();
+                vm.censoFrontera = function(callee) {
+                    if (!callee) { cf["(sin metodo: lookup miss)"] = (cf["(sin metodo: lookup miss)"]||0)+1; totF++; return; }
+                    var k = cache.get(callee);
+                    if (k === undefined) { k = Squeak.Directo.porQueNo(callee); cache.set(callee, k); }
+                    cf[k] = (cf[k] || 0) + 1; totF++;
+                };
+                process.on("exit", function() {
+                    console.error("=== por que se rompe cada cadena (" + totF + " fronteras) ===");
+                    var bloque = 0;
+                    Object.keys(cf).sort(function(a,b){return cf[b]-cf[a];}).forEach(function(k) {
+                        if (k.indexOf("BLOQUE:") === 0) bloque += cf[k];
+                        console.error("  " + (cf[k]*100/totF).toFixed(1).padStart(5) + "%  " + String(cf[k]).padStart(6) + "  " + k);
+                    });
+                    console.error("  ------");
+                    console.error("  " + (bloque*100/totF).toFixed(1) + "% de las fronteras se irian si los BLOQUES fueran elegibles");
+                });
+            }
             if (process.env.DIRECTODEOPT) {
                 vm.directoCensoDeopt = {};
                 process.on("exit", function() {
@@ -379,7 +399,7 @@ fs.readFile(root + imageName + ".image", function(error, data) {
                 });
             }
             process.on("exit", function() {
-                console.error("[directo] compilados: " + vm.nDirectoCompilados +
+                console.error("[directo] compilados: " + vm.nDirectoCompilados + " | hojas quick: " + vm.nDirectoHojas +
                     " | rechazados: " + vm.nDirectoRechazados +
                     " | vetados: " + vm.nDirectoVetados +
                     " | errores codegen: " + vm.nDirectoErroresCodegen +

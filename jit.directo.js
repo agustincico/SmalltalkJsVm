@@ -48,6 +48,7 @@ var SIN_LOOPS = !!process.env.DIRECTOSINLOOPS;   // biseccion: volver a etapa 1 
 // y el hash diverge espuriamente. Se decide en tiempo de compilacion: costo cero
 // cuando esta apagada. Es el mismo patron que jit2LeafHook del proyecto stack-zone.
 var TRAZA = false;
+var CENSOFR = false;   // emitir el censo de por que se rompe cada cadena
 var FILTRO = null;       // biseccion: {div, rem} compila solo si (hash % div) === rem
 var TOPE_PROFUNDIDAD = 1000;
 var VETO_MIN_FRONTERAS = +(process.env.DIRECTOVETO || 32);
@@ -248,7 +249,44 @@ function replayEspecial(vm, si) {
 // Instalación: compilar y colgar .directo del método (además fuerza .compiled,
 // para que la reanudación post-deopt jamás caiga a interpretOne-por-bytecode)
 // ---------------------------------------------------------------------------
+// Hojas quick-prim (primitivas 256-519: retornos triviales). Son el 18,5% de las
+// roturas de cadena medidas en Morphic: el callee tiene primitiva, mi gate lo
+// rechaza, y la cadena se corta. Pero su semantica no toca la pila del VM, asi
+// que se puede instalar un .directo sintetico. Espejo EXACTO de tryPrimitive
+// (vm.interpreter.js:1257-1274), incluido que NO decrementan el contador de
+// interrupciones: el clasico retorna antes de ese chequeo.
+function hojaQuick(vm, method, pidx) {
+    var f;
+    if (pidx >= 264) {
+        var i = pidx - 264;
+        f = function(vm2, r, d) { return r.pointers[i]; };
+    } else if (pidx === 256) {
+        f = function(vm2, r, d) { return r; };
+    } else if (pidx === 257) {
+        f = function(vm2, r, d) { return vm2.trueObj; };
+    } else if (pidx === 258) {
+        f = function(vm2, r, d) { return vm2.falseObj; };
+    } else if (pidx === 259) {
+        f = function(vm2, r, d) { return vm2.nilObj; };
+    } else {
+        var k = pidx - 261;                    // 260..263 -> -1, 0, 1, 2
+        f = function(vm2, r, d) { return k; };
+    }
+    f.numArgs = 0;
+    f.nLlamadas = 0;
+    f.nFronteras = 0;
+    f.hoja = true;
+    return f;
+}
+
 function instalar(vm, method) {
+    var pidx = method.methodPrimitiveIndex();
+    if (pidx >= 256 && pidx < 520) {
+        var hq = hojaQuick(vm, method, pidx);
+        method.directo = hq;
+        vm.nDirectoHojas++;
+        return hq;                             // sin forzar .compiled: no tiene cuerpo
+    }
     var f = false;
     try { f = compilar(vm, method); }
     catch (e) {
@@ -280,7 +318,9 @@ var MOTIVOS = null;   // censo de rechazos del gate (DIRECTOMOTIVOS=1)
 function NO(motivo) { if (MOTIVOS) MOTIVOS[motivo] = (MOTIVOS[motivo] || 0) + 1; return null; }
 function pase1(method) {
     if (!method.methodSignFlag()) return NO("solo Sista");           // solo Sista
-    if (method.methodPrimitiveIndex() !== 0) return NO("v1: sin primitivas (hojas quick: etapa"); // v1: sin primitivas (hojas quick: etapa 1b)
+    var pidx = method.methodPrimitiveIndex();
+    if (pidx >= 256 && pidx < 520) return NO("PRIM-QUICK (retorno trivial, capturable)");
+    if (pidx !== 0) return NO("PRIM-REAL " + pidx);
     var numArgs = method.methodNumArgs();
     if (numArgs > 4) return NO("r2");
     var bytes = method.bytes;
@@ -319,7 +359,7 @@ function pase1(method) {
         else if (b === 0x5A) { ins = { op: "retVM", campo: "falseObj", d: 0, term: true }; }
         else if (b === 0x5B) { ins = { op: "retVM", campo: "nilObj", d: 0, term: true }; }
         else if (b === 0x5C) { ins = { op: "retTope", d: -1, term: true }; }
-        else if (b === 0x5D || b === 0x5E) return NO("blockReturn (solo en closures)");  // blockReturn (solo en closures)
+        else if (b === 0x5D || b === 0x5E) return NO("BLOQUE: blockReturn");  // solo aparece dentro de closures
         else if (b === 0x5F) ins = { op: "nop", d: 0 };
         else if (b <= 0x6F) ins = { op: "especial", si: b - 0x60, d: -1 };       // binarios
         else if (b <= 0x7F) {
@@ -366,7 +406,11 @@ function pase1(method) {
         else if (b === 0xF3) { b2 = bytes[pc++]; ins = { op: "storeInst", i: b2 + (eA << 8), d: 0 }; }
         else if (b === 0xF4) { b2 = bytes[pc++]; ins = { op: "storeLitVar", n: b2 + (eA << 8), d: 0 }; }
         else if (b === 0xF5) { b2 = bytes[pc++]; ins = { op: "storeTemp", i: b2, d: 0 }; }
-        else return NO("F6-FF: callPrim/closures/remoteTemps/d");                                // F6-FF: callPrim/closures/remoteTemps/desconocidos
+        else if (b === 0xF8) return NO("BLOQ-no: callPrimitive");
+        else if (b === 0xF9) return NO("BLOQUE: closure full (Pharo)");
+        else if (b === 0xFA) return NO("BLOQUE: closure embebido (Cuis)");
+        else if (b >= 0xFB && b <= 0xFD) return NO("BLOQUE: temps remotos");
+        else return NO("BLOQ-no: bytecode desconocido " + b.toString(16));
 
         if (ins.op === "jump" || ins.op === "jumpIf") {
             if (ins.destino <= pc0) {                    // salto hacia atras = loop
@@ -527,6 +571,7 @@ function compilar(vm, method) {
     }
     abrirBloquesDe("fn");
 
+    var icSitios = [];
     for (var ix = 0; ix < instrs.length; ix++) {
         var ins = instrs[ix];
         // cerrar los bloques cuyo destino es este pc (el más interno primero)
@@ -586,20 +631,35 @@ function compilar(vm, method) {
                 // v1a: FRONTERA SIEMPRE (D5). v1b (llamada directa) se enciende con vm.directoEncadenar.
                 var tag = "{lit:" + (1 + ins.n) + ", argc:" + ins.argc + (ins.sup ? ", sup:true" : "") + "}";
                 if (vm.directoEncadenar && !ins.sup) {
+                    // Inline cache POR SITIO: dos comparaciones de identidad (clase y
+                    // epoca) en vez de sondear el cache global. No es solo velocidad:
+                    // la sonda global DESALOJA entradas en el miss, y medido en Morphic
+                    // eso se habia vuelto el 18,6% de las roturas de cadena — dano que
+                    // nos haciamos solos. La epoca la mueve cualquier flush del cache
+                    // de metodos y los sitios que anulan .directo (vm.interpreter.js).
                     var m = ins.argc, rxSlot = "s" + (D - m - 1);
                     var argsCall = [];
                     for (var k2 = 0; k2 < m; k2++) argsCall.push("s" + (D - m + k2));
+                    var pasa = argsCall.length ? ", " + argsCall.join(", ") : "";
+                    icSitios.push(ins.pc);
                     src.push("x = " + rxSlot + ";\n"
                         + "y = typeof x === 'number' ? vm.specialObjects[" + Squeak.splOb_ClassInteger + "] : x.sqClass;\n"
-                        + "var e" + ins.pc + " = vm.findMethodCacheEntry(METH.pointers[" + (1 + ins.n) + "], y);\n"
-                        + "v = e" + ins.pc + ".method !== null ? e" + ins.pc + ".method.directo : undefined;\n"
-                        + "if (typeof v === 'function' && v.numArgs === " + m + ") {\n"
-                        + (TRAZA ? "  if (vm.directoTraceHook) vm.directoTraceHook(e" + ins.pc + ".method, vm.sendCount, x, METH.pointers[" + (1 + ins.n) + "], " + Q + ");\n" : "")
-                        + "  vm.sendCount++; v.nLlamadas++;\n"
-                        + "  v = v(vm, x" + (argsCall.length ? ", " + argsCall.join(", ") : "") + ", d + 1);\n"
-                        + "  if (v === DEOPT) { " + MAT(Q, OPS(D - m - 1), "null") + " }\n"   // D3
-                        + "  " + rxSlot + " = v;\n"
-                        + "} else { " + MAT(Q, OPS(D), tag) + " }\n");                        // D5
+                        + "if (y === icC" + ins.pc + " && icE" + ins.pc + " === vm.directoEpoca) {\n"
+                        + "  v = icF" + ins.pc + ";\n"
+                        + "} else {\n"
+                        + "  var e" + ins.pc + " = vm.findMethodCacheEntry(METH.pointers[" + (1 + ins.n) + "], y);\n"
+                        + "  v = e" + ins.pc + ".method !== null ? e" + ins.pc + ".method.directo : undefined;\n"
+                        + "  if (typeof v === 'function' && v.numArgs === " + m + ") {\n"
+                        + "    icC" + ins.pc + " = y; icF" + ins.pc + " = v; icM" + ins.pc + " = e" + ins.pc + ".method; icE" + ins.pc + " = vm.directoEpoca;\n"
+                        + "  } else { RT.hoja(vm, e" + ins.pc + ".method);\n"
+                        + (TRAZA || CENSOFR ? "    if (vm.censoFrontera) vm.censoFrontera(e" + ins.pc + ".method);\n" : "")
+                        + "    " + MAT(Q, OPS(D), tag) + " }\n"
+                        + "}\n"
+                        + (TRAZA ? "if (vm.directoTraceHook) vm.directoTraceHook(icM" + ins.pc + ", vm.sendCount, x, METH.pointers[" + (1 + ins.n) + "], " + Q + ");\n" : "")
+                        + "vm.sendCount++; v.nLlamadas++;\n"
+                        + "v = v(vm, x" + pasa + ", d + 1);\n"
+                        + "if (v === DEOPT) { " + MAT(Q, OPS(D - m - 1), "null") + " }\n"
+                        + rxSlot + " = v;\n");
                 } else {
                     src.push(MAT(Q, OPS(D), tag) + "\n");                                     // D5 siempre
                 }
@@ -616,6 +676,15 @@ function compilar(vm, method) {
     src.push("return r;\n");   // inalcanzable (todo camino termina en return/deopt); calma al parser
     src.push("}");
 
+    if (icSitios.length > 0) {
+        var decls = [];
+        icSitios.forEach(function(pcSitio) {
+            decls.push("var icC" + pcSitio + " = null, icF" + pcSitio + " = null, icM" + pcSitio
+                + " = null, icE" + pcSitio + " = -1;\n");
+        });
+        // el prologo del closure: sobrevive a las activaciones, que es el punto
+        src[0] = "'use strict';\n" + decls.join("") + src[0].replace("'use strict';\n", "");
+    }
     var texto = src.join("");
     // MEDICION del reparto del costo de compilar (DIRECTOCOSTO=1): la mitad
     // "analisis" (pase1 + emision, todo JS nuestro sobre bytes+header) es
@@ -712,7 +781,7 @@ function nombredirecto(vm, method) {
 // ---------------------------------------------------------------------------
 // RT expuesto + integración
 // ---------------------------------------------------------------------------
-var RT = { mat: mat, VACIO: VACIO };
+var RT = { mat: mat, VACIO: VACIO, hoja: function(vm, m) { Squeak.Directo.intentarHoja(vm, m); } };
 
 return {
     DEOPT: DEOPT,
@@ -721,7 +790,32 @@ return {
     pase1: pase1,
     compilar: compilar,
     // instalar el estado en un vm recién creado
-    config: function(o) { if (o.umbral !== undefined) UMBRAL = o.umbral; if (o.filtro !== undefined) FILTRO = o.filtro; if (o.traza !== undefined) TRAZA = o.traza; if (o.motivos !== undefined) MOTIVOS = o.motivos; },
+    // Instala la hoja quick si corresponde. Se llama DESDE el camino de frontera
+    // (que ya es lento): el hook nunca ve estos metodos porque tryPrimitive corta
+    // antes en executeNewMethod. La proxima llamada del sitio ya toma el rapido.
+    intentarHoja: function(vm, method) {
+        if (method === null || method === undefined) return;
+        if (method.directo !== undefined && typeof method.directo !== "number") return;
+        var pidx = method.methodPrimitiveIndex();
+        if (pidx < 256 || pidx >= 520) return;
+        method.directo = hojaQuick(vm, method, pidx);
+        vm.nDirectoHojas++;
+    },
+    // Por que este metodo no es directo (para el censo de fronteras). Devuelve
+    // el motivo del gate, o "frio"/"vetado"/"ok".
+    porQueNo: function(method) {
+        var d = method.directo;
+        if (typeof d === "function") return "ok";
+        if (typeof d === "number") return "frio (aun no llego al umbral)";
+        var guardado = MOTIVOS, tmp = {};
+        MOTIVOS = tmp;
+        var r = pase1(method);
+        MOTIVOS = guardado;
+        var ks = Object.keys(tmp);
+        if (r !== null) return "vetado (deoptimizaba de mas)";
+        return ks.length ? ks[0] : "rechazado (motivo no registrado)";
+    },
+    config: function(o) { if (o.umbral !== undefined) UMBRAL = o.umbral; if (o.filtro !== undefined) FILTRO = o.filtro; if (o.traza !== undefined) TRAZA = o.traza; if (o.censofr !== undefined) CENSOFR = o.censofr; if (o.motivos !== undefined) MOTIVOS = o.motivos; },
     preparar: function(vm) {
         vm.deoptInner = null;
         vm.deoptOuter = null;
@@ -730,6 +824,7 @@ return {
         vm.nDeoptEventosDirecto = 0;
         vm.nDeoptFramesDirecto = 0;
         vm.nDirectoCompilados = 0;
+        vm.nDirectoHojas = 0;
         vm.nDirectoRechazados = 0;
         vm.nDirectoVetados = 0;
         vm.nDirectoErroresCodegen = 0;

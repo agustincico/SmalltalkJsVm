@@ -103,6 +103,7 @@ Object.subclass('Squeak.Interpreter',
         // en el arnes de Node, #nosplocal en run/. Ver Compiler>>spLocalize en jit.js.
         this.jitSpLocal = true;
         this.directo = null;   // forma directa (jit.directo.js): Squeak.Directo.preparar(vm) la enciende
+        this.directoEpoca = 1; // se incrementa en cada flush del cache: invalida los inline caches
         // jit: mirilla sobre el codigo generado — iza a locales los operandos que el
         // codegen 1:1 manda y trae del array de pila. Escape: PEEPHOLE=0 / #nopeephole.
         this.jitPeephole = true;
@@ -261,7 +262,7 @@ Object.subclass('Squeak.Interpreter',
                         // with return-receiver (Sista 0x58 / V3 0x78). Only safe when the
                         // method has no primitive (else bytes[0..] is the callPrimitive).
                         if (m.methodPrimitiveIndex() !== 0) hacked = false;
-                        else { m.bytes[0] = m.methodSignFlag() ? 0x58 : 0x78; m.compiled = null; m.directo = undefined; }
+                        else { m.bytes[0] = m.methodSignFlag() ? 0x58 : 0x78; m.compiled = null; m.directo = undefined; this.directoEpoca++; }
                     }
                     else if (prim) m.pointers[0] |= prim;
                     else if (byte && m.bytes[byte.pc] === byte.old) m.bytes[byte.pc] = byte.hack;
@@ -287,6 +288,7 @@ Object.subclass('Squeak.Interpreter',
                 if (!this.compiler.enableSingleStepping(this.method)) {
                     this.method.compiled = null;
                     this.method.directo = undefined;
+                    this.directoEpoca++;
                     return this.interpretOne(singleStep);
                 }
                 this.breakNow();
@@ -1391,6 +1393,7 @@ Object.subclass('Squeak.Interpreter',
         return entry;
     },
     flushMethodCache: function() { //clear all cache entries (prim 89)
+        this.directoEpoca++;   // invalida los inline caches de la forma directa
         for (var i = 0; i < this.methodCacheSize; i++) {
             this.methodCache[i].selector = null;   // mark it free
             this.methodCache[i].method = null;  // release the method
@@ -1398,6 +1401,7 @@ Object.subclass('Squeak.Interpreter',
         return true;
     },
     flushMethodCacheForSelector: function(selector) { //clear cache entries for selector (prim 119)
+        this.directoEpoca++;   // invalida los inline caches de la forma directa
         for (var i = 0; i < this.methodCacheSize; i++)
             if (this.methodCache[i].selector === selector) {
                 this.methodCache[i].selector = null;   // mark it free
@@ -1406,6 +1410,7 @@ Object.subclass('Squeak.Interpreter',
         return true;
     },
     flushMethodCacheForMethod: function(method) { //clear cache entries for method (prim 116)
+        this.directoEpoca++;   // invalida los inline caches de la forma directa
         for (var i = 0; i < this.methodCacheSize; i++)
             if (this.methodCache[i].method === method) {
                 this.methodCache[i].selector = null;   // mark it free
