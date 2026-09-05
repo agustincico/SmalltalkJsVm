@@ -1,9 +1,9 @@
 {
-  "image": "../../../private/tmp/claude-501/-Users-agustin-SqueakJS/6765a590-7fe2-4fcb-9c3f-190369322e92/scratchpad/oraculo/Cuis7.8.image",
-  "maxSends": 3000000,
-  "sendCount": 3004402,
-  "slices": 323,
+  "image": "../../../private/tmp/claude-501/-Users-agustin-SqueakJS/6765a590-7fe2-4fcb-9c3f-190369322e92/scratchpad/orac/Cuis7.8.image",
+  "maxSends": 20000000,
+  "sendCount": 20041859,
+  "slices": 1028,
   "stopReason": "maxSends",
-  "hash": "ce011883",
-  "virtualMs": 2436
+  "hash": "847d43b9",
+  "virtualMs": 12004
 }

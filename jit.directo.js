@@ -39,6 +39,12 @@
 Object.extend(Squeak, { Directo: (function() {
 
 var DEOPT = Object.freeze({ esDeopt: true });
+// Centinela distinto de DEOPT: la primitiva FALLO, asi que hay que rehacer el send
+// por el camino clasico para que corra el cuerpo Smalltalk de fallback. No se puede
+// reusar DEOPT porque son dos materializaciones distintas: DEOPT repone el frame
+// DESPUES del send (los operandos ya consumidos), y esto lo repone ANTES (con
+// receptor y argumentos todavia en la pila) y deja un send pendiente.
+var PRIMFALLO = Object.freeze({ esPrimFallo: true });
 var VACIO = Object.freeze([]);
 var UMBRAL = 8;          // activaciones antes de intentar compilar (espejo de .compiled)
 var SIN_QUICK = !!process.env.DIRECTOSINQUICK;
@@ -53,6 +59,59 @@ var CENSOIC = false;   // emitir el censo de polimorfismo por sitio de llamada
 var FILTRO = null;       // biseccion: {div, rem} compila solo si (hash % div) === rem
 var TOPE_PROFUNDIDAD = 1000;
 var VETO_MIN_FRONTERAS = +(process.env.DIRECTOVETO || 32);
+// Primitivas REALES llamables desde codigo directo. Son el 57% de las roturas de
+// cadena en Morphic (238 y 239 solas, 38%). La lista es {indice: argCount} y es
+// CONSERVADORA a proposito: una primitiva de mas rompe el VM de formas sutiles,
+// una de menos solo deja performance sobre la mesa. Criterio para entrar: la
+// primitiva solo lee receptor+argumentos de la pila, calcula, y deja UN resultado
+// — nada de tocar activeContext, cambiar de proceso, volver a llamar al
+// interprete, disparar GC/become, ni congelar el VM.
+var PRIMS_DIRECTAS = {
+    // aritmetica de SmallInteger (10 y 19 afuera: 10 falla el 100% de las veces
+    // en Morphic y 19 es un guard que siempre falla — el andamio seria puro costo)
+    1:1, 2:1, 3:1, 4:1, 5:1, 6:1, 7:1, 8:1, 9:1, 11:1, 12:1, 13:1,
+    14:1, 15:1, 16:1, 17:1, 18:1,
+    // LargeInteger (BigInt)
+    20:1, 21:1, 22:1, 23:1, 24:1, 25:1, 26:1, 27:1, 28:1, 29:1,
+    30:1, 31:1, 32:1, 33:1, 34:1, 35:1, 36:1, 37:1,
+    // Float
+    40:0, 41:1, 42:1, 43:1, 44:1, 45:1, 46:1, 47:1, 48:1, 49:1, 50:1,
+    51:0, 52:0, 53:0, 54:1, 55:0, 56:0, 57:0, 58:0, 59:0,
+    // objetos: tamano, alocacion, identidad  (alocar NO dispara el GC de SqueakJS)
+    62:0, 70:0, 71:1, 75:0,
+    105:4,                 // replaceFrom:to:with:startingAt: — asi mueve Squeak todo
+                           // String/ByteArray/Bitmap (era la frontera #1 en tiny)
+    110:1, 111:0, 112:0, 129:0, 132:1, 135:0,
+    143:1, 144:2, 145:1, 148:0, 156:1, 159:0,
+    165:1, 166:2, 168:1, 169:1, 171:0, 175:0, 176:0, 182:0,
+    // FloatArrayPlugin: las dos mas calientes del censo (38% de las roturas)
+    238:1, 239:2, 240:0, 241:0,
+    // AFUERA a proposito, con motivo:
+    //  60/61/63/64/68/73/173/174 -> pasan por makeAtCacheInfo, que decide si cachea
+    //    mirando vm.verifyAtSelector/vm.verifyAtClass. Esos registros SOLO los escribe
+    //    vm.send (vm.interpreter.js:1031), asi que desde el andamio quedan rancios y se
+    //    puede instalar una entrada del atCache con el sabor equivocado (convertChars
+    //    false donde el bytecode at: espera true) -> devuelve un entero donde va un
+    //    Character. Se los podria promover ahora que nuleamos verifyAtSelector, pero
+    //    entran despues de medir, no en la misma tanda que el resto.
+    //  83 (perform:) y 85 (signal) -> vuelven al interprete / cambian de proceso.
+    //  117 (named prims) -> despacho indirecto; el rescate es por PAR (modulo, funcion).
+    //  201/202 (activar bloque) -> crean contexto.
+    //  77/78/128/130/131/139/177 -> pueden disparar GC, y gcRoots() llama
+    //    storeContextRegisters(), que escribiria el sp DEL ANDAMIO en el contexto real.
+};
+// apagado por default hasta validar contra el oraculo; DIRECTOPRIM=1 lo enciende,
+// DIRECTOPRIM=<lista> restringe a esos indices (para bisecar).
+var PRIM_DIRECTA_ON = false;
+var PRIM_SOLO = null;
+var PRIM_PARANOICO = !!process.env.DIRECTOPRIMPARANOICO;
+if (process.env.DIRECTOPRIM && process.env.DIRECTOPRIM !== "0") {
+    PRIM_DIRECTA_ON = true;
+    if (process.env.DIRECTOPRIM !== "1") {
+        PRIM_SOLO = {};
+        process.env.DIRECTOPRIM.split(",").forEach(function(x) { PRIM_SOLO[+x] = true; });
+    }
+}
 
 // ---------------------------------------------------------------------------
 // RT: materialización de un frame (la receta del spike + temps vivos + trampas)
@@ -110,6 +169,12 @@ function hook(vm, newRcvr, newMethod, argumentCount) {
         if (typeof f !== "function") return false;
     }
     if (typeof f !== "function") return false;  // false = vetado
+    // Hoja de PRIMITIVA: si el hook la ve es porque executeNewMethod ya corrio
+    // tryPrimitive y FALLO (la llamada al hook esta justo despues, linea ~1137).
+    // Volver a intentarla seria correrla dos veces y, peor, la hoja devolveria
+    // PRIMFALLO y el `vm.push(v)` de mas abajo empujaria el centinela a la pila de
+    // Smalltalk. Lo unico correcto aca es el cuerpo Smalltalk de fallback: al clasico.
+    if (f.prim !== undefined) return false;
     if (argumentCount !== f.numArgs) return false;
     if (vm.logSends || vm.breakOnMethod !== null || vm.breakOnContextChanged ||
         vm.breakOutOfInterpreter !== false) return false;   // freeze/break pendiente: al clasico
@@ -124,6 +189,7 @@ function hook(vm, newRcvr, newMethod, argumentCount) {
         case 3: v = f(vm, newRcvr, st[b + 1], st[b + 2], st[b + 3], 1); break;
         default: v = f(vm, newRcvr, st[b + 1], st[b + 2], st[b + 3], st[b + 4], 1); break;
     }
+    if (v === PRIMFALLO) { vm.push(newRcvr); vm.sp = b; return false; }  // no deberia pasar
     if (v !== DEOPT) { vm.push(v); return true; }   // el caller clásico sigue inline
     epilogo(vm);
     return true;
@@ -278,6 +344,109 @@ function hojaQuick(vm, method, pidx) {
     f.nFronteras = 0;
     f.hoja = true;
     return f;
+}
+
+// Hoja de PRIMITIVA REAL (diseño A, "genérico"): en vez de cruzar la frontera y
+// materializar toda la cadena de contextos, se llama a la primitiva que YA existe
+// en el VM. El truco es que doPrimitive no recibe argumentos: los lee de la pila
+// del VM con vm.stackValue(n) = vm.stack[vm.sp - n], y deja el resultado con
+// popNandPush = vm.stack[vm.sp -= n-1] = valor. Asi que se le presta una PILA DE
+// ANDAMIO: un arreglo JS chiquito con [receptor, arg1, ...] y sp = argc. Con eso
+// la primitiva lee y escribe donde espera, sin tocar la pila real del VM (que en
+// modo directo pertenece al caller clásico y no tiene lugar reservado para esto).
+// Los plugins tambien andan: interpreterProxy enruta todo por vm.stack/vm.sp
+// (vm.interpreter.proxy.js:64-90).
+//
+// Paridad con el clasico (executeNewMethod:1133-1135 -> tryPrimitive):
+//  - el sitio ya hizo vm.sendCount++ antes de llamar, igual que executeNewMethod;
+//  - tryPrimitive NO toca interruptCheckCounter para primitivas reales, esta tampoco;
+//  - si la primitiva FALLA hay que correr el cuerpo Smalltalk de fallback, que
+//    necesita un contexto: se devuelve PRIMFALLO y el sitio rehace el send por el
+//    camino clasico (y descuenta el sendCount que ya habia sumado).
+// La primitiva que falla no deja efectos visibles (contrato de Squeak) y ademas
+// escribio sobre el andamio, no sobre el VM: rehacer el send es seguro.
+// UN solo andamio para todo el VM: si vm.stack alternara entre N arreglos, el
+// acceso a vm.stack (que esta en el camino caliente de TODO el interprete) se
+// volveria megamorfico en V8. Con dos objetos se mantiene manejable.
+var ANDAMIO = [null, null, null, null, null, null, null, null, null];
+
+// DISEÑO B — "primitiva-directa": una funcion JS escrita a mano que recibe el
+// receptor y los argumentos como ARGUMENTOS DE VERDAD y devuelve el valor, sin
+// prestarle una pila al VM. Copia la semantica EXACTA del case correspondiente de
+// doPrimitive (incluido cuando falla). Es lo que el diseño A no puede: A tiene que
+// desviar vm.stack, y vm.stack es la propiedad mas caliente de todo el interprete
+// — alternarla entre dos objetos le arruina el inline cache a V8 en TODO el VM.
+// Cada entrada lleva el codigo clasico que replica, para poder auditarla de a una.
+var PRIMS_INTRINSECAS = {
+    // case 40: popNandPushFloatIfOK(argCount+1, stackInteger(0))
+    // stackInteger = checkSmallInt: si no es number, success=false -> falla.
+    40: { argc: 0, f: function(vm, r, d) {
+        if (typeof r !== "number") return PRIMFALLO;
+        return vm.primHandler.makeFloat(r);
+    } },
+    // case 110: popNandPushBoolIfOK(argCount+1, stackValue(1) === stackValue(0))
+    110: { argc: 1, f: function(vm, r, x0, d) {
+        return r === x0 ? vm.trueObj : vm.falseObj;
+    } },
+    // case 111: popNandPushIfOK(argCount+1, vm.getClass(vm.top()))
+    // popNandPushIfOK falla si el valor es null/undefined.
+    111: { argc: 0, f: function(vm, r, d) {
+        var c = vm.getClass(r);
+        return c == null ? PRIMFALLO : c;
+    } },
+};
+var PRIM_B = !!(process.env.DIRECTOPRIMB && process.env.DIRECTOPRIMB !== "0");
+
+function hojaPrimitiva(vm, method, pidx, argc) {
+    if (argc < 0 || argc > 8) return null;
+    if (PRIM_B) {
+        var intr = PRIMS_INTRINSECAS[pidx];
+        if (intr !== undefined && intr.argc === argc) {
+            var g = intr.f;
+            g.numArgs = argc; g.nLlamadas = 0; g.nFronteras = 0; g.hoja = true;
+            g.prim = pidx; g.intrinseca = true;
+            return g;
+        }
+    }
+    var ps = [];
+    for (var i = 0; i < argc; i++) ps.push("x" + i);
+    var sets = "AND[0] = r;";
+    for (var j = 0; j < argc; j++) sets += " AND[" + (j + 1) + "] = x" + j + ";";
+    var src = "return function(vm2, r" + (argc ? ", " + ps.join(", ") : "") + ", d) {\n"
+        + "  var ss = vm2.stack, sp = vm2.sp, ok, spFin;\n"
+        + "  " + sets + "\n"
+        + "  vm2.stack = AND; vm2.sp = " + argc + ";\n"
+        // makeAtCacheInfo cachea si vm.verifyAtSelector/AtClass coinciden, y esos
+        // registros SOLO los escribe vm.send: desde el andamio estarian rancios y
+        // podrian instalar una entrada del atCache con el sabor equivocado. Nulearlo
+        // fuerza nonCachedInfo, que es exactamente lo que hace el clasico para
+        // basicAt:/instVarAt:. Se pierde poblar el cache, no correccion.
+        + "  vm2.verifyAtSelector = null;\n"
+        + "  try { ok = vm2.primHandler.doPrimitive(" + pidx + ", " + argc + ", METH); }\n"
+        + "  finally { spFin = vm2.sp; vm2.stack = ss; vm2.sp = sp; }\n"
+        + "  if (!ok) return PRIMFALLO;\n"
+        + "  if (spFin !== 0) return DESB(vm2, METH, " + pidx + ", spFin, AND[0]);\n"
+        + "  return AND[0];\n"
+        + "};";
+    var f = new Function("METH", "AND", "PRIMFALLO", "DESB", src)(method, ANDAMIO, PRIMFALLO, desbalance);
+    f.numArgs = argc;
+    f.nLlamadas = 0;
+    f.nFronteras = 0;
+    f.hoja = true;
+    f.prim = pidx;
+    return f;
+}
+
+// Red de seguridad: si una primitiva "exitosa" no dejo EXACTAMENTE un resultado en
+// el fondo del andamio, no cumple la disciplina de pila que se le supone. Se
+// devuelve igual su valor (para esta llamada es el correcto) pero el metodo queda
+// apagado para siempre, asi no volvemos a tomar el camino rapido con ella.
+function desbalance(vm, method, pidx, spFin, res) {
+    method.directo = false;
+    vm.nDirectoPrimDesbalance = (vm.nDirectoPrimDesbalance || 0) + 1;
+    if (vm.directoDebug)
+        console.warn("[directo] primitiva " + pidx + " dejo sp=" + spFin + " (esperaba 0): apagada");
+    return res;
 }
 
 function instalar(vm, method) {
@@ -661,6 +830,7 @@ function compilar(vm, method) {
                         + (TRAZA ? "if (vm.directoTraceHook) vm.directoTraceHook(icM" + ins.pc + ", vm.sendCount, x, METH.pointers[" + (1 + ins.n) + "], " + Q + ");\n" : "")
                         + "vm.sendCount++; v.nLlamadas++;\n"
                         + "v = v(vm, x" + pasa + ", d + 1);\n"
+                        + "if (v === PRIMFALLO) { vm.sendCount--; " + MAT(Q, OPS(D), tag) + " }\n"
                         + "if (v === DEOPT) { " + MAT(Q, OPS(D - m - 1), "null") + " }\n"
                         + rxSlot + " = v;\n");
                 } else {
@@ -695,8 +865,8 @@ function compilar(vm, method) {
     // funcion tiene que cerrarse sobre los objetos de ESTE worker.
     if (vm.directoCosto) vm.directoCosto.analisis += Date.now() - vm.directoCosto._t0;
     var t1 = vm.directoCosto ? Date.now() : 0;
-    var fabrica = new Function("vm", "METH", "RT", "DEOPT", texto);
-    var fn = fabrica(vm, method, RT, DEOPT);
+    var fabrica = new Function("vm", "METH", "RT", "DEOPT", "PRIMFALLO", texto);
+    var fn = fabrica(vm, method, RT, DEOPT, PRIMFALLO);
     if (vm.directoCosto) { vm.directoCosto.newFunction += Date.now() - t1; vm.directoCosto.bytes += texto.length; }
     fn.numArgs = numArgs;
     fn.nLlamadas = 0;
@@ -800,9 +970,24 @@ return {
         if (method === null || method === undefined) return;
         if (method.directo !== undefined && typeof method.directo !== "number") return;
         var pidx = method.methodPrimitiveIndex();
-        if (pidx < 256 || pidx >= 520) return;
-        method.directo = hojaQuick(vm, method, pidx);
-        vm.nDirectoHojas++;
+        if (pidx >= 256 && pidx < 520) {
+            method.directo = hojaQuick(vm, method, pidx);
+            vm.nDirectoHojas++;
+            return;
+        }
+        if (!PRIM_DIRECTA_ON) return;
+        // oldPrims = imagen sin closures (Squeak 2.x/3.x, que SqueakJS todavia carga):
+        // ahi el switch se bifurca y 238/239 son SerialPlugin, 171/175/176 SoundPlugin,
+        // 156/159/169 primitivas de archivo. La lista blanca no aplica.
+        if (vm.primHandler.oldPrims) return;
+        var argc = PRIMS_DIRECTAS[pidx];
+        if (argc === undefined) return;
+        if (PRIM_SOLO !== null && !PRIM_SOLO[pidx]) return;
+        if (method.methodNumArgs() !== argc) return;   // la aridad tiene que coincidir
+        var hp = hojaPrimitiva(vm, method, pidx, argc);
+        if (hp === null) return;
+        method.directo = hp;
+        vm.nDirectoHojasPrim = (vm.nDirectoHojasPrim || 0) + 1;
     },
     // Por que este metodo no es directo (para el censo de fronteras). Devuelve
     // el motivo del gate, o "frio"/"vetado"/"ok".
