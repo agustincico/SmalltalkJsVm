@@ -42,6 +42,7 @@ var DEOPT = Object.freeze({ esDeopt: true });
 var VACIO = Object.freeze([]);
 var UMBRAL = 8;          // activaciones antes de intentar compilar (espejo de .compiled)
 var SIN_QUICK = !!process.env.DIRECTOSINQUICK;
+var SIN_LOOPS = !!process.env.DIRECTOSINLOOPS;   // biseccion: volver a etapa 1 (sin loops)
 // TRAZA: emite el muestreo del oraculo en cada sitio directo->directo. Sin esto
 // esos sends son invisibles para el muestreador (que engancha executeNewMethod)
 // y el hash diverge espuriamente. Se decide en tiempo de compilacion: costo cero
@@ -268,19 +269,26 @@ function instalar(vm, method) {
 // abstracta con worklist). Deriva de herramientas/censo/censo-lib.js, validado
 // 19.162/19.162 contra Cuis. Devuelve null si el método no es elegible.
 // ---------------------------------------------------------------------------
+var MOTIVOS = null;   // censo de rechazos del gate (DIRECTOMOTIVOS=1)
+function NO(motivo) { if (MOTIVOS) MOTIVOS[motivo] = (MOTIVOS[motivo] || 0) + 1; return null; }
 function pase1(method) {
-    if (!method.methodSignFlag()) return null;           // solo Sista
-    if (method.methodPrimitiveIndex() !== 0) return null; // v1: sin primitivas (hojas quick: etapa 1b)
+    if (!method.methodSignFlag()) return NO("solo Sista");           // solo Sista
+    if (method.methodPrimitiveIndex() !== 0) return NO("v1: sin primitivas (hojas quick: etapa"); // v1: sin primitivas (hojas quick: etapa 1b)
     var numArgs = method.methodNumArgs();
-    if (numArgs > 4) return null;
+    if (numArgs > 4) return NO("r2");
     var bytes = method.bytes;
-    if (bytes.length > 400) return null;
+    if (bytes.length > 400) return NO("r3");
 
     // decodificación lineal a instrucciones {pc, sig, op, ...}
-    var instrs = [], porPc = {}, pc = 0, extA = 0, extB = 0, endPC = 0, fin = false;
+    var instrs = [], porPc = {}, atras = [], pc = 0, extA = 0, extB = 0, endPC = 0, fin = false;
+    var pcInicio = -1;
     while (!fin) {
-        if (pc >= bytes.length) return null;             // fin sin return
-        var pc0 = pc, b = bytes[pc++];
+        if (pc >= bytes.length) return NO("fin sin return");             // fin sin return
+        // pcInicio es el pc de la instruccion COMPLETA, prefijos de extension
+        // incluidos: los saltos apuntan ahi, no al bytecode que sigue al prefijo
+        // (perder esto hacia rechazar 40 metodos por "salto al medio")
+        if (pcInicio < 0) pcInicio = pc;
+        var pc0 = pcInicio, b = bytes[pc++];
         if (b === 0xE0) { extA = extA * 256 + bytes[pc++]; continue; }
         if (b === 0xE1) { var vext = bytes[pc++]; extB = extB * 256 + (vext < 128 ? vext : vext - 256); continue; }
         var eA = extA, eB = extB, b2, b3, ins = null, dist;
@@ -296,20 +304,20 @@ function pase1(method) {
         else if (b === 0x4F) ins = { op: "pushVM", campo: "nilObj", d: +1 };
         else if (b === 0x50) ins = { op: "pushInt", v: 0, d: +1 };
         else if (b === 0x51) ins = { op: "pushInt", v: 1, d: +1 };
-        else if (b === 0x52) return null;                // thisContext / thisProcess
+        else if (b === 0x52) return NO("thisContext / thisProcess");                // thisContext / thisProcess
         else if (b === 0x53) ins = { op: "dup", d: +1 };
-        else if (b >= 0x54 && b <= 0x57) return null;    // no usados
+        else if (b >= 0x54 && b <= 0x57) return NO("no usados");    // no usados
         else if (b === 0x58) { ins = { op: "retRcvr", d: 0, term: true }; }
         else if (b === 0x59) { ins = { op: "retVM", campo: "trueObj", d: 0, term: true }; }
         else if (b === 0x5A) { ins = { op: "retVM", campo: "falseObj", d: 0, term: true }; }
         else if (b === 0x5B) { ins = { op: "retVM", campo: "nilObj", d: 0, term: true }; }
         else if (b === 0x5C) { ins = { op: "retTope", d: -1, term: true }; }
-        else if (b === 0x5D || b === 0x5E) return null;  // blockReturn (solo en closures)
+        else if (b === 0x5D || b === 0x5E) return NO("blockReturn (solo en closures)");  // blockReturn (solo en closures)
         else if (b === 0x5F) ins = { op: "nop", d: 0 };
         else if (b <= 0x6F) ins = { op: "especial", si: b - 0x60, d: -1 };       // binarios
         else if (b <= 0x7F) {
             var si = b - 0x60, argcQ = QUICK_ARGC[si - 16];
-            if (SIN_QUICK && si !== 22 && si !== 23) return null;   // biseccion
+            if (SIN_QUICK && si !== 22 && si !== 23) return NO("biseccion");   // biseccion
             ins = { op: "quick", si: si, argc: argcQ, d: -argcQ };
         }
         else if (b <= 0x8F) ins = { op: "send", n: b & 0xF, argc: 0, d: 0 };
@@ -321,13 +329,13 @@ function pase1(method) {
         else if (b <= 0xCF) ins = { op: "popIntoInst", i: b & 7, d: -1 };
         else if (b <= 0xD7) ins = { op: "popIntoTemp", i: b - 0xD0, d: -1 };
         else if (b === 0xD8) ins = { op: "pop", d: -1 };
-        else if (b <= 0xDF) return null;                 // trap 0xD9 / no usados
+        else if (b <= 0xDF) return NO("trap 0xD9 / no usados");                 // trap 0xD9 / no usados
         else if (b === 0xE2) { b2 = bytes[pc++]; ins = { op: "pushInst", i: b2 + (eA << 8), d: +1 }; }
         else if (b === 0xE3) { b2 = bytes[pc++]; ins = { op: "pushLitVar", n: b2 + (eA << 8), d: +1 }; }
         else if (b === 0xE4) { b2 = bytes[pc++]; ins = { op: "pushLit", n: b2 + (eA << 8), d: +1 }; }
         else if (b === 0xE5) { b2 = bytes[pc++]; ins = { op: "pushTemp", i: b2, d: +1 }; }
-        else if (b === 0xE6) return null;
-        else if (b === 0xE7) return null;                // brace arrays: rechazado en v1 (decisión documentada)
+        else if (b === 0xE6) return NO("r10");
+        else if (b === 0xE7) return NO("brace arrays: rechazado en v1 (decisió");                // brace arrays: rechazado en v1 (decisión documentada)
         else if (b === 0xE8) { b2 = bytes[pc++]; ins = { op: "pushInt", v: b2 + (eB << 8), d: +1 }; }
         else if (b === 0xE9) { b2 = bytes[pc++]; ins = { op: "pushChar", v: b2 + (eB << 8), d: +1 }; }
         else if (b === 0xEA) {
@@ -351,13 +359,18 @@ function pase1(method) {
         else if (b === 0xF3) { b2 = bytes[pc++]; ins = { op: "storeInst", i: b2 + (eA << 8), d: 0 }; }
         else if (b === 0xF4) { b2 = bytes[pc++]; ins = { op: "storeLitVar", n: b2 + (eA << 8), d: 0 }; }
         else if (b === 0xF5) { b2 = bytes[pc++]; ins = { op: "storeTemp", i: b2, d: 0 }; }
-        else return null;                                // F6-FF: callPrim/closures/remoteTemps/desconocidos
+        else return NO("F6-FF: callPrim/closures/remoteTemps/d");                                // F6-FF: callPrim/closures/remoteTemps/desconocidos
 
         if (ins.op === "jump" || ins.op === "jumpIf") {
-            if (ins.destino <= pc0) return null;         // ETAPA 1: sin loops
-            if (ins.destino > endPC) endPC = ins.destino;
+            if (ins.destino <= pc0) {                    // salto hacia atras = loop
+                if (SIN_LOOPS) return NO("salto hacia atras = loop");
+                if (ins.op !== "jump") return NO("gate (a): condicional hacia atras");      // gate (a): condicional hacia atras
+                ins.atras = true;
+                atras.push(ins);
+            } else if (ins.destino > endPC) endPC = ins.destino;
         }
         ins.pc = pc0; ins.sig = pc;
+        pcInicio = -1;
         instrs.push(ins); porPc[pc0] = ins;
         if (ins.term && ins.op !== "jump" && pc > endPC) fin = true;   // return más allá del último destino
     }
@@ -366,14 +379,14 @@ function pase1(method) {
     var depth = {}, work = [{ pc: instrs[0].pc, d: 0 }], maxD = 0;
     while (work.length > 0) {
         var w = work.pop(), ins2 = porPc[w.pc];
-        if (ins2 === undefined) return null;             // salto al medio de una instrucción
+        if (ins2 === undefined) return NO("salto al medio de una instrucción");             // salto al medio de una instrucción
         if (depth[w.pc] !== undefined) {
-            if (depth[w.pc] !== w.d) return null;        // join inconsistente
+            if (depth[w.pc] !== w.d) return NO("join inconsistente");        // join inconsistente
             continue;
         }
         depth[w.pc] = w.d;
         var dDespues = w.d + ins2.d;
-        if (w.d < 0 || dDespues < 0) return null;
+        if (w.d < 0 || dDespues < 0) return NO("r17");
         var antes = ins2.op === "jumpIf" ? w.d : dDespues;
         if (antes > maxD) maxD = antes;
         if (w.d > maxD) maxD = w.d;
@@ -384,9 +397,47 @@ function pase1(method) {
 
     var numTemps = method.methodTempCount();
     var capacidad = (method.methodNeedsLargeFrame() ? 62 : 22) - Squeak.Context_tempFrameStart;
-    if (numTemps + maxD > capacidad) return null;        // red que el clásico no tiene
+    if (numTemps + maxD > capacidad) return NO("red que el clásico no tiene");        // red que el clásico no tiene
 
-    return { instrs: instrs, depth: depth, maxD: maxD, numArgs: numArgs, numTemps: numTemps };
+    // Regiones de loop: por cada destino de back-jump H, el loop abarca [H, fin)
+    // donde fin = el sig del ULTIMO latch que vuelve a H (multi-latch permitido).
+    var loops = [];
+    for (var li = 0; li < atras.length; li++) {
+        var H = atras[li].destino;
+        if (depth[H] === undefined) return NO("header inalcanzable: al clasico");         // header inalcanzable: al clasico
+        var ya = null;
+        for (var lj = 0; lj < loops.length; lj++) if (loops[lj].H === H) ya = loops[lj];
+        if (ya === null) { ya = { H: H, fin: 0 }; loops.push(ya); }
+        if (atras[li].sig > ya.fin) ya.fin = atras[li].sig;
+    }
+    loops.sort(function(a, b) { return a.H - b.H; });
+    // gate (b): loops anidados o disjuntos, nunca parcialmente solapados
+    for (var i1 = 0; i1 < loops.length; i1++)
+        for (var i2 = i1 + 1; i2 < loops.length; i2++)
+            if (!(loops[i2].fin <= loops[i1].fin || loops[i2].H >= loops[i1].fin)) return NO("r20");
+    // gate (c): ningun salto de AFUERA aterriza ESTRICTAMENTE adentro de un loop
+    for (var k1 = 0; k1 < instrs.length; k1++) {
+        var j1 = instrs[k1];
+        if (j1.destino === undefined || j1.atras) continue;
+        for (var k2 = 0; k2 < loops.length; k2++) {
+            var L = loops[k2];
+            if (j1.pc < L.H && j1.destino > L.H && j1.destino < L.fin) return NO("r21");
+        }
+    }
+    // cada destino forward pertenece a la region de loop mas interna que lo contiene
+    function regionDe(t) {
+        var mejor = -1;
+        for (var q = 0; q < loops.length; q++)
+            // OJO el < estricto: un destino que ES el header de un loop NO esta
+            // adentro — su bloque tiene que cerrar justo ANTES del for(;;), porque
+            // los saltos que van al header vienen de afuera (si abriera adentro,
+            // el break quedaria sin label: 'Undefined label b37')
+            if (loops[q].H < t && t < loops[q].fin && loops[q].H > mejor) mejor = loops[q].H;
+        return mejor;                                    // -1 = region de la funcion
+    }
+
+    return { instrs: instrs, depth: depth, maxD: maxD, numArgs: numArgs, numTemps: numTemps,
+             loops: loops, regionDe: regionDe };
 }
 
 // argc de los quick sends 0x70-0x7F (índices 16-31 de specialSelectors)
@@ -444,17 +495,41 @@ function compilar(vm, method) {
     }
     src.push("var x, y, v;\n");
 
-    // bloques etiquetados: todos los destinos de salto, anidados por destino DECRECIENTE
-    var destinos = [];
-    instrs.forEach(function(i) { if (i.destino !== undefined && destinos.indexOf(i.destino) < 0) destinos.push(i.destino); });
-    destinos.sort(function(a2, b2) { return b2 - a2; });   // mayor primero = más afuera
-    destinos.forEach(function(dst) { src.push("b" + dst + ": {\n"); });
-    var porCerrar = destinos.slice().sort(function(a2, b2) { return a2 - b2; }); // menor primero
+    // Estructura: bloques etiquetados para los saltos hacia adelante y for(;;)
+    // etiquetados para los loops, anidados correctamente. Cada destino forward
+    // abre su bloque al principio de la region que lo contiene (la funcion, o el
+    // header del loop mas interno); dentro de una region anidan por destino
+    // DECRECIENTE. Asi un "break bT" desde adentro de un loop hacia un T de
+    // afuera sale del loop y aterriza donde debe, sin caso especial.
+    var loops = p1.loops, regionDe = p1.regionDe;
+    var aperturas = {};
+    instrs.forEach(function(i) {
+        if (i.destino === undefined || i.atras) return;
+        var clave = regionDe(i.destino); if (clave < 0) clave = "fn";
+        if (!aperturas[clave]) aperturas[clave] = [];
+        if (aperturas[clave].indexOf(i.destino) < 0) aperturas[clave].push(i.destino);
+    });
+    Object.keys(aperturas).forEach(function(k) { aperturas[k].sort(function(a2, b2) { return b2 - a2; }); });
+    var abiertos = [];
+    function abrirBloquesDe(clave) {
+        (aperturas[clave] || []).forEach(function(dst) {
+            src.push("b" + dst + ": {\n");
+            abiertos.push({ cierra: dst });
+        });
+    }
+    abrirBloquesDe("fn");
 
     for (var ix = 0; ix < instrs.length; ix++) {
         var ins = instrs[ix];
         // cerrar los bloques cuyo destino es este pc (el más interno primero)
-        while (porCerrar.length > 0 && porCerrar[0] === ins.pc) { src.push("}\n"); porCerrar.shift(); }
+        while (abiertos.length > 0 && abiertos[abiertos.length - 1].cierra === ins.pc) {
+            src.push("}\n"); abiertos.pop();
+        }
+        for (var lp = 0; lp < loops.length; lp++) if (loops[lp].H === ins.pc) {
+            src.push("L" + loops[lp].H + ": for(;;) {\n");
+            abiertos.push({ cierra: loops[lp].fin });
+            abrirBloquesDe(loops[lp].H);
+        }
         var D = depth[ins.pc];
         if (D === undefined) continue;                    // código muerto (inalcanzable)
         var Q = ins.sig;                                  // pc de retorno post-instrucción
@@ -478,7 +553,16 @@ function compilar(vm, method) {
             case "retRcvr":  src.push("return r;\n"); break;
             case "retVM":    src.push("return vm." + ins.campo + ";\n"); break;
             case "retTope":  src.push("return s" + (D - 1) + ";\n"); break;
-            case "jump":     src.push("break b" + ins.destino + ";\n"); break;
+            case "jump":
+                if (ins.atras) {
+                    // back-edge: chequeo de interrupciones ANTES de volver, igual que el
+                    // jit clasico (generateJump con distancia negativa). D2 materializa
+                    // en el pc del DESTINO, que es label por definicion.
+                    src.push("if (vm.interruptCheckCounter-- <= 0) "
+                        + MAT(ins.destino, OPS(depth[ins.destino] || 0), "null") + "\n"
+                        + "continue L" + ins.destino + ";\n");
+                } else src.push("break b" + ins.destino + ";\n");
+                break;
             case "jumpIf":
                 // D6: condición no-booleana → materializar en el pc del FALL-THROUGH
                 // con la condición REPUESTA y replay del send mustBeBoolean
@@ -520,7 +604,7 @@ function compilar(vm, method) {
                 throw Error("emision: op desconocida " + ins.op);
         }
     }
-    while (porCerrar.length > 0) { src.push("}\n"); porCerrar.shift(); }
+    while (abiertos.length > 0) { src.push("}\n"); abiertos.pop(); }
     src.push("return r;\n");   // inalcanzable (todo camino termina en return/deopt); calma al parser
     src.push("}");
 
@@ -622,7 +706,7 @@ return {
     pase1: pase1,
     compilar: compilar,
     // instalar el estado en un vm recién creado
-    config: function(o) { if (o.umbral !== undefined) UMBRAL = o.umbral; if (o.filtro !== undefined) FILTRO = o.filtro; if (o.traza !== undefined) TRAZA = o.traza; },
+    config: function(o) { if (o.umbral !== undefined) UMBRAL = o.umbral; if (o.filtro !== undefined) FILTRO = o.filtro; if (o.traza !== undefined) TRAZA = o.traza; if (o.motivos !== undefined) MOTIVOS = o.motivos; },
     preparar: function(vm) {
         vm.deoptInner = null;
         vm.deoptOuter = null;

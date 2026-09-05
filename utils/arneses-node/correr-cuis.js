@@ -319,6 +319,14 @@ fs.readFile(root + imageName + ".image", function(error, data) {
                 Squeak.Directo.config({filtro: {div: +pf[0], rem: +pf[1]}});
             }
             if (process.env.DIRECTO === "3") vm.directoEncadenar = true;
+            if (process.env.DIRECTOMOTIVOS) {
+                var mot = {}; Squeak.Directo.config({motivos: mot});
+                process.on("exit", function() {
+                    var ks = Object.keys(mot).sort(function(a,b){ return mot[b]-mot[a]; }).slice(0, 14);
+                    console.error("=== motivos de rechazo ===");
+                    ks.forEach(function(k) { console.error("  " + mot[k] + "  " + k); });
+                });
+            }
             if (process.env.DIRECTOTRAZA) { Squeak.Directo.config({traza: true}); vm.directoTraceHook = function(){}; }
             if (process.env.DIRECTODEBUG) { vm.directoDebug = true; vm.directoVolcarN = +process.env.DIRECTODEBUG; }
             if (process.env.DIRECTOREPLAY) {
