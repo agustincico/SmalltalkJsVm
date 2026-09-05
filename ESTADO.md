@@ -368,6 +368,12 @@ frontera. El veto hizo exactamente su trabajo — pero explica parte del techo e
   Agustín fueron TODOS baseline por esto.
 - **Medir presencia del resultado, no ausencia del síntoma** (`=> 7`), y ventanas ≥40–55s
   (a 16s la imagen ni arrancó). Las dos veces que se reportó algo mal fue por esto.
+- **Una prueba de una optimización tiene que verificar que la optimización ESTABA ACTIVA en
+  el código que probó.** Corolario de la trampa del 5-sep: la prueba del debugger daba
+  idéntico… porque los tres métodos elegidos corrían en modo clásico. Dos modos que no se
+  diferencian porque uno nunca se activó parecen exactamente iguales a dos modos correctos.
+  Para el modo directo: `DIRECTOQUIEN=Clase>>sel,...` (dice sí/no y por qué no) y
+  `DIRECTOTOP=N`. La misma familia que "no confiar en ticks por línea sin A/B".
 - **Disco al 97–98%**: jamás full-clone de profefuturo (~415 MB) — `--depth 1
   --filter=blob:none --sparse`; borrar `isolate-*.log` de node --prof; los zips grandes se
   re-descargan, no se guardan.
