@@ -306,6 +306,34 @@ Hallazgo de paso: **`SequenceableCollection>>do:` se auto-vetó** ("deoptimizaba
 bien, pero llama a `aBlock value:` y un bloque nunca es directo, así que cada vuelta era una
 frontera. El veto hizo exactamente su trabajo — pero explica parte del techo en Morphic.
 
+### Primitivas reales desde código directo (5-sep-2026): anda, es correcto, y no gana
+Idea de Agustín: si la primitiva ya es código compilado adentro del VM, el código directo
+debería poder llamarla en vez de cruzar la frontera. Eran el **57% de las roturas de cadena**
+en Morphic, así que parecía la palanca grande.
+
+Implementado en dos diseños, los dos **trace-idénticos al clásico sobre 20.041.859 sends**
+(hash 847d43b9): (A) genérico, prestándole al VM una "pila de andamio" porque `doPrimitive`
+lee sus operandos de `vm.stack`; (B) "primitiva-directa", una función JS a mano que recibe
+receptor y argumentos de verdad. El camino de fallo devuelve el centinela `PRIMFALLO` y el
+sitio rehace el send clásico — y la sonda `PRIMFALLA=1` midió que casi no se recorre:
+**71 de 93 primitivas no fallaron nunca** en 1,6M de llamadas (78,7% del total).
+
+**El mecanismo funciona: las roturas de cadena en Morphic bajan −64%** (154.245 → 55.773).
+**Pero el reloj no se mueve**: tinyBenchmarks, 5 pares intercalados con la máquina quieta,
+da −0,1% en bytecodes y +0,4% en sends. Saqué dos tercios de las fronteras y no pasó nada:
+la frontera no era lo que limitaba. Tercera vez en esta línea (PIC 1,5%, bloques 1,8%, esto).
+Queda OPT-IN y apagado (`DIRECTOPRIM`). Para cerrarlo falta medir en el BROWSER: headless la
+imagen entra en reposo y el contador de sends lo marca el reloj virtual, no la velocidad.
+
+Tres bugs reales que salieron de la auditoría y del oráculo, todos vale la pena recordar:
+(1) el hook hacía `vm.push(v)` con lo que devolviera la hoja, así que empujaba el CENTINELA a
+la pila de Smalltalk — si el hook ve una hoja de primitiva es porque `tryPrimitive` ya falló;
+(2) **envenenamiento del at-cache**: `makeAtCacheInfo` decide si cachea mirando
+`vm.verifyAtSelector`/`verifyAtClass`, que **solo escribe `vm.send`** — desde el andamio quedan
+rancios y se podía instalar una entrada con el sabor equivocado (un entero donde va un
+Character, en silencio); (3) faltaba el gate de `oldPrims` (en imágenes pre-closures 238/239
+son SerialPlugin).
+
 ### Performance: qué se cerró con números (NO reabrir sin datos nuevos)
 - **Stack zone estilo Cog**: rechazada DOS veces. +21% en bench Node pero ~0% percibido
   (Morphic satura de closures, ~1,05M marriages; solo 1% necesita el contexto real). Techo
@@ -368,6 +396,19 @@ frontera. El veto hizo exactamente su trabajo — pero explica parte del techo e
   Agustín fueron TODOS baseline por esto.
 - **Medir presencia del resultado, no ausencia del síntoma** (`=> 7`), y ventanas ≥40–55s
   (a 16s la imagen ni arrancó). Las dos veces que se reportó algo mal fue por esto.
+- **El oráculo BORRA el `.changes` que esté al lado de la imagen, y resuelve `--image`
+  contra la RAÍZ DEL REPO, no contra el cwd.** Combinado: se comió
+  `/Users/agustin/SqueakJS/Cuis7.8.changes` (gitignoreado, no se recupera con git) y a partir
+  de ahí TODA medición copiaba un par roto, Cuis descarrilaba en el arranque y el guion nunca
+  corría — con el arnés reportando tiempos plausibles de ~3,5 s que eran solo el boot. El
+  síntoma que lo delata: faltan las marcas `##` y el wall es sospechosamente corto. Pasarle
+  siempre RUTA ABSOLUTA a una copia propia, y tener un backup del `.changes` original (226
+  bytes para Cuis 7.8).
+- **Un benchmark sintético con `inject:into:`/`detect:`/`collect:` NO mide el código directo.**
+  Esos mandan a un BLOQUE, y un bloque nunca es directo: se está midiendo el camino clásico.
+  Me costó dos rondas de "es 8% más lento" que en realidad no medían nada de lo que creía.
+  Para ejercitar código directo hacen falta bucles `to:do:` (que el compilador inlinea) o
+  métodos reales de la imagen que ya salgan directos (verificar con `DIRECTOQUIEN`).
 - **Una prueba de una optimización tiene que verificar que la optimización ESTABA ACTIVA en
   el código que probó.** Corolario de la trampa del 5-sep: la prueba del debugger daba
   idéntico… porque los tres métodos elegidos corrían en modo clásico. Dos modos que no se
