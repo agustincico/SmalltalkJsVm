@@ -58,16 +58,9 @@ Object.subclass('Squeak.Interpreter',
         this.primHandler = new Squeak.Primitives(this, display);
         this.loadImageState();
         this.initVMState();
-        // the flag being present is enough: the launcher may rewrite #stackZone as
-        // stackZone=, whose value is an empty string and therefore falsy
-        if (this.options.stackZone !== undefined && this.options.stackZone !== false
-            && this.enableStackZone) this.enableStackZone();
         this.loadInitialContext();
         this.hackImage();
         this.initCompiler();
-        if (this.useStackZone && this.options.jit2 !== undefined && this.options.jit2 !== false
-            && this.compiler && Squeak.Compiler2)
-            this.compiler = new Squeak.Compiler2(this); // stack-to-register jit (WIP, opt-in)
         console.log('squeak: ready');
     },
     loadImageState: function() {
@@ -91,13 +84,6 @@ Object.subclass('Squeak.Interpreter',
         this.stack = null; // operand stack array (activeContext.pointers; a zone page once stack frames land)
         this.temps = null; // temp base array (homeContext.pointers; a zone page once stack frames land)
         this.tempOffset = Context_tempFrameStart; // index of temp 0 in this.temps
-        // stack-zone state, declared here for stable object shape even when unused
-        this.jsDepth = 0; // profundidad de llamadas JS directas (modo frames)
-        this.LEAF_DEOPT_ = null;
-        this.jit2LeafHook = null;
-        this.nLeafCalls = 0;
-        this.nLeafDeopts = 0;
-        this.useStackZone = false;
         // jit: vm.sp vive en una local del codigo generado (+110% bytecodes medido).
         // Auditado adversarialmente antes de encenderse por defecto; escape: SPLOCAL=0
         // en el arnes de Node, #nosplocal en run/. Ver Compiler>>spLocalize en jit.js.
@@ -107,10 +93,6 @@ Object.subclass('Squeak.Interpreter',
         // jit: mirilla sobre el codigo generado — iza a locales los operandos que el
         // codegen 1:1 manda y trae del array de pila. Escape: PEEPHOLE=0 / #nopeephole.
         this.jitPeephole = true;
-        this.zonePages = null;
-        this.zonePage = null;
-        this.fp = -1;
-        this.contextClass_ = null; // set by enableStackZone; gates married-context probes
         this.interruptCheckCounter = 0;
         this.interruptCheckCounterFeedBackReset = 1000;
         this.interruptChecksEveryNms = 3;
@@ -1236,12 +1218,7 @@ Object.subclass('Squeak.Interpreter',
         return this.activeContext;
     },
     storeInstVar: function(index, value) {
-        // receiver inst-var store from a bytecode; in stack-zone mode a store
-        // into a married-live context must go through the write-through path
-        var rcvr = this.receiver;
-        if (rcvr.sqClass === this.contextClass_ && rcvr.frame != null)
-            return this.storeToMarriedContext(rcvr, index, value);
-        rcvr.pointers[index] = value;
+        this.receiver.pointers[index] = value;
     },
     aboutToReturnThrough: function(resultObj, aContext) {
         this.push(this.exportThisContext());

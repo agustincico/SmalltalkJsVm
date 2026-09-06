@@ -1793,10 +1793,8 @@ Object.subclass('Squeak.Primitives',
         if (!this.success) return false;
         this.success = this.vm.image.bulkBecome(rcvr.pointers, arg.pointers, doBothWays, copyHash);
         // become may have swapped the active context's pointers array
-        if (!this.vm.useStackZone) {
-            this.vm.stack = this.vm.activeContext.pointers;
-            this.vm.temps = this.vm.homeContext.pointers;
-        }
+        this.vm.stack = this.vm.activeContext.pointers;
+        this.vm.temps = this.vm.homeContext.pointers;
         return this.popNIfOK(argCount);
     },
     primitiveBytesEqual: function(argCount) {

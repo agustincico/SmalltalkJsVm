@@ -306,6 +306,45 @@ Hallazgo de paso: **`SequenceableCollection>>do:` se auto-vetó** ("deoptimizaba
 bien, pero llama a `aBlock value:` y un bloque nunca es directo, así que cada vuelta era una
 frontera. El veto hizo exactamente su trabajo — pero explica parte del techo en Morphic.
 
+### LIMPIEZA CON MEDICIÓN (5-sep-2026): qué se queda y qué se fue
+Agustín pidió medir todo y no dejar cosas configurables que no agreguen valor. Se midió en
+SERIE con la máquina quieta (paralelizar la medición la invalida) y se decidió con números.
+
+**Lo que llega al producto son sólo DOS switches** — `jit.directo.js` no lo carga ningún entry
+point, así que todo lo `DIRECTO*` es herramienta de laboratorio, no configuración.
+
+**Medición de los dos switches** (tinyBenchmarks, 4 brazos intercalados, `medir-brazos.js`):
+
+| brazo | bytecodes M/s | contra todo-on |
+|---|---|---|
+| todo encendido | 942,9 | referencia |
+| sin sp-local | 936,0 | **−0,7%** |
+| sin peephole | 828,5 | **−12,1%** |
+| sin ninguno | 423,5 | **−55,1%** |
+
+**Se quedan las dos, pero la historia registrada estaba mal**: sp-en-local SOLA no aporta casi
+nada hoy (−0,7%); peephole sola aporta 12%; las dos juntas, 2,2x. **Se solapan fuerte** — cada
+una tapa la ausencia de la otra, porque las dos evitan el mismo viaje al array de pila. El
+"sp-en-local = 2,1x" de agosto se midió ANTES de que existiera peephole.
+
+**Se fue: el andamiaje muerto de la stack zone** (63 líneas en jit.js, vm.interpreter.js y
+vm.primitives.js). `enableStackZone` vive en `vm.stackzone.js`, que no está en main, así que
+`useStackZone` no podía ser true nunca — pero dejaba ~15 chequeos regados por el generador de
+código y campos fantasma en el shape del vm. Hash del oráculo idéntico antes y después
+(847d43b9) y sin regresión de perf (939,5 vs 942,9 Mbc/s).
+
+**Se fue: la maquinaria de primitivas directas** (171 líneas, commit 43793d2 si hace falta).
+Correcta y trace-idéntica, cortaba el 64% de las roturas de cadena, y no movía el reloj.
+
+**La forma directa NO va al producto, y ahora con la medición limpia**: Morphic real con
+display offscreen, 20M sends (mismo trabajo), 3 pares intercalados:
+`clásico 5398 ms (mejor) vs directo 6085 ms = 12,7% MÁS LENTO`, 3 de 3 pares. El archivo queda
+como artefacto de investigación con el veredicto en la cabecera.
+
+**Se quedan todas las sondas de censo** (`DIRECTOFRONTERA`, `DIRECTOIC`, `DIRECTOMOTIVOS`,
+`DIRECTOQUIEN`, `DIRECTOTOP`, `DIRECTODEOPT`, `DIRECTOCOSTO`, `PRIMFALLA`): son las que
+produjeron todos los hallazgos, incluidos los tres negativos que ahorraron meses.
+
 ### Primitivas reales desde código directo (5-sep-2026): anda, es correcto, y no gana
 Idea de Agustín: si la primitiva ya es código compilado adentro del VM, el código directo
 debería poder llamarla en vez de cruzar la frontera. Eran el **57% de las roturas de cadena**

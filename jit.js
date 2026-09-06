@@ -202,15 +202,12 @@ to single-step.
     },
     activationCheck: function() {
         // expression that is true when the send/jump above switched activations
-        return this.vm.useStackZone
-            ? "vm.fp !== fp || vm.zonePage !== page"
-            : "context !== vm.activeContext";
+        return "context !== vm.activeContext";
     },
     tempIndex: function(n) {
-        // index expression for temp n inside this.source:
-        // context mode: constant (temps at homeContext.pointers[6+n]);
-        // stack-zone mode: frame-relative (temps at vm.temps[tempBase+n], tempBase per activation)
-        return this.vm.useStackZone ? "tB + " + n : Squeak.Context_tempFrameStart + n;
+        // index expression for temp n inside this.source: constant, because temps
+        // live at homeContext.pointers[6+n]
+        return Squeak.Context_tempFrameStart + n;
     },
     functionNameFor: function(cls, sel) {
         if (cls === undefined || cls === '?') {
@@ -246,15 +243,11 @@ to single-step.
             this.source.push("// ", optClass, ">>", optSel, "\n");
         this.instVarNames = optInstVarNames;
         this.allVars = ['context', 'stack', 'rcvr', 'inst[', 'temp[', 'lit['];
-        this.sourcePos['context']    = this.source.length; this.source.push(this.vm.useStackZone
-            ? "var fp = vm.fp, page = vm.zonePage;\n"
-            : "var context = vm.activeContext;\n");
+        this.sourcePos['context']    = this.source.length; this.source.push("var context = vm.activeContext;\n");
         this.sourcePos['stack']      = this.source.length; this.source.push("var stack = vm.stack;\n");
         this.sourcePos['rcvr']       = this.source.length; this.source.push("var rcvr = vm.receiver;\n");
         this.sourcePos['inst[']      = this.source.length; this.source.push("var inst = rcvr.pointers;\n");
-        this.sourcePos['temp[']      = this.source.length; this.source.push(this.vm.useStackZone
-            ? "var temp = vm.temps, tB = vm.tempOffset;\n"
-            : "var temp = vm.temps;\n");
+        this.sourcePos['temp[']      = this.source.length; this.source.push("var temp = vm.temps;\n");
         this.sourcePos['lit[']       = this.source.length; this.source.push("var lit = vm.method.pointers;\n");
         this.sourcePos['loop-start'] = this.source.length; this.source.push("while (true) switch (vm.pc) {\ncase 0:\n");
         if (this.sista) this.generateSista(method);
@@ -285,7 +278,7 @@ to single-step.
         // registeriza; medido +25% en codigo de bucles). Solo si esta prendido,
         // nunca en single-step/debug (sus returns extra no estan cubiertos), y
         // con verificacion estructural + fallback al codegen clasico por metodo.
-        if (this.vm.jitSpLocal && !this.singleStep && !this.debug && !this.vm.useStackZone
+        if (this.vm.jitSpLocal && !this.singleStep && !this.debug
             && this.spLocalAllowed(funcName)) {
             var localized = this.spLocalize(source);
             if (localized) {
@@ -429,7 +422,7 @@ to single-step.
             "vm.pop2AndPushIntResult(", "vm.stackIntOrFloat(", "vm.stackInteger(",
             "vm.primHandler.quickSendOther(", "vm.primHandler.objectAt(", "vm.primHandler.objectAtPut(",
             "vm.primHandler.primitiveMakePoint(", "vm.checkForInterrupts(", "vm.interpretOne(",
-            "vm.exportThisContext(", "vm.activeContextObj(", "vm.storeToMarriedContext("];
+            "vm.exportThisContext(", "vm.activeContextObj("];
         // El sync tiene que estar en la MISMA linea que la llamada (todas las reglas de
         // arriba lo ponen en el mismo statement) — una ventana por caracteres se puede
         // satisfacer espureamente con el sync de un send anterior cruzando un label
@@ -948,16 +941,6 @@ to single-step.
         this.generateLabel();
         this.needsVar[target] = true;
         this.needsVar['stack'] = true;
-        if (this.vm.useStackZone && target === "inst[") {
-            // a store into a live married context has to be written through: flush,
-            // then store into the real context. The pc is refreshed for the resume.
-            this.needsVar['context'] = true; // fp/page
-            this.source.push(
-                "if (rcvr.sqClass !== vm.contextClass_ || rcvr.frame == null) { inst[", arg1, "] = stack[vm.sp]; rcvr.dirty = true; }\n",
-                "else { vm.pc = ", this.pc, "; vm.storeToMarriedContext(rcvr, ", arg1, ", stack[vm.sp]); if (vm.fp !== fp || vm.zonePage !== page) return; }\n");
-            this.needsLabel[this.pc] = true;
-            return;
-        }
         this.source.push(target);
         if (arg1 !== undefined) {
             this.source.push(arg1, suffix1);
@@ -973,15 +956,6 @@ to single-step.
         this.generateLabel();
         this.needsVar[target] = true;
         this.needsVar['stack'] = true;
-        if (this.vm.useStackZone && target === "inst[") {
-            this.needsVar['context'] = true; // fp/page
-            this.source.push(
-                "var iv = stack[vm.sp--];\n",
-                "if (rcvr.sqClass !== vm.contextClass_ || rcvr.frame == null) { inst[", arg1, "] = iv; rcvr.dirty = true; }\n",
-                "else { vm.pc = ", this.pc, "; vm.storeToMarriedContext(rcvr, ", arg1, ", iv); if (vm.fp !== fp || vm.zonePage !== page) return; }\n");
-            this.needsLabel[this.pc] = true;
-            return;
-        }
         this.source.push(target);
         if (arg1 !== undefined) {
             this.source.push(arg1, suffix1);
@@ -1061,18 +1035,6 @@ to single-step.
                 return;
             case 0x1: // at:put:
                 this.needsVar['stack'] = true;
-                if (this.vm.useStackZone) {
-                    this.needsVar['context'] = true; // fp/page
-                    this.source.push(
-                        "var a, b; if ((a=stack[vm.sp-2]).sqClass === vm.specialObjects[7] && a.pointers && typeof (b=stack[vm.sp-1]) === 'number' && b>0 && b<=a.pointers.length) {\n",
-                        "  var c = stack[vm.sp]; stack[vm.sp-=2] = a.pointers[b-1] = c; a.dirty = true;",
-                        "} else { var c = stack[vm.sp]; vm.pc = ", this.prevPC, "; vm.primHandler.objectAtPut(true,true,false); if (vm.fp !== fp || vm.zonePage !== page) return;\n",
-                        "  if (vm.primHandler.success) stack[vm.sp-=2] = c; else {\n",
-                        "  vm.pc = ", this.pc, "; vm.sendSpecial(17); if (", this.activationCheck(), " || vm.breakOutOfInterpreter !== false) return; }}\n");
-                    this.needsLabel[this.prevPC] = true;
-                    this.needsLabel[this.pc] = true;
-                    return;
-                }
                 this.source.push(
                     "var a, b; if ((a=stack[vm.sp-2]).sqClass === vm.specialObjects[7] && a.pointers && typeof (b=stack[vm.sp-1]) === 'number' && b>0 && b<=a.pointers.length) {\n",
                     "  var c = stack[vm.sp]; stack[vm.sp-=2] = a.pointers[b-1] = c; a.dirty = true;",
@@ -1307,7 +1269,7 @@ to single-step.
             // `fp` and `page` instead -- so the frame has to be materialized, the same way
             // "push thisContext" does it.
             outer = isCleanBlock ? "vm.nilObj"
-                  : this.vm.useStackZone ? "vm.exportThisContext()" : "context";
+                  : "context";
         if ((b3 >> 7 & 1) === 1) {
             throw Error("on-stack receiver not yet supported");
         }
