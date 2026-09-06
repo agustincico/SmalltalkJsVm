@@ -409,6 +409,19 @@ son SerialPlugin).
 
 ---
 
+**5-sep-2026 — DEPLOYADO EL TRABAJO DE PERFORMANCE.** El sitio estaba congelado en `2d91096`
+(12-ago) hacía tres semanas: verificado bajando el `jit.js` vivo y matcheando su SHA-1 contra el
+histórico del repo. Todo lo de perf de fin de agosto y principio de septiembre no le llegaba a
+nadie. Ya está arriba y verificado en los dos dominios (`15248d2a6edc`), con todos los imports
+respondiendo 200. Ganancia para el usuario final: **tinyBenchmarks 358 → ~940 Dorados (2,6x)**,
+carga de imagen −32% en Cuis, y se va un OOM real (la versión vieja se quedaba sin heap a los
+2 GB corriendo Cuis 7.8). El login nunca fue el bloqueo — `wrangler@3 whoami` da
+Agustincico@gmail.com con `pages (write)`.
+Los dos chequeos post-deploy que NO hay que saltear: (1) comparar el SHA-1 de lo vivo contra el
+archivo local, si no no se sabe si sirvió de algo; (2) recorrer los `import "./..."` de
+squeak.js/squeak_worker.js con curl exigiendo 200 — un worker ES-module con UN import 404 no
+carga NADA en silencio, y eso ya rompió un deploy entero.
+
 ## 3. Pendientes consolidados
 
 1. **Decisión de encendido del VectorEnginePlugin** (checklist en §1) + contestarle a Juan.
